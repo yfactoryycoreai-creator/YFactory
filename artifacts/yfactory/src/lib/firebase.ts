@@ -7,6 +7,8 @@ import {
 } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 
+export { getAuth };
+
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
@@ -36,20 +38,21 @@ const app = firebaseIsConfigured
     : initializeApp(firebaseConfig)
   : null;
 
-export const firebaseAuth = app ? getAuth(app) : null;
+export const auth = app ? getAuth(app) : null;
+export const firebaseAuth = auth;
 export const firestore = app ? getFirestore(app) : null;
 
 export async function signInWithGoogle() {
-  if (!firebaseAuth) {
+  if (!auth) {
     throw new Error('Firebase configuration is incomplete.');
   }
 
   const provider = new GoogleAuthProvider();
   provider.setCustomParameters({ prompt: 'select_account' });
-  return signInWithPopup(firebaseAuth, provider);
+  return signInWithPopup(auth, provider);
 }
 
 export async function signOutFromFirebase() {
-  if (!firebaseAuth) return;
-  await signOut(firebaseAuth);
+  if (!auth) return;
+  await signOut(auth);
 }

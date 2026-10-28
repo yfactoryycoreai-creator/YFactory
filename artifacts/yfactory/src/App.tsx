@@ -568,15 +568,20 @@ function LoginRoute() {
       await signInWithGoogle();
       setLocation('/');
     } catch (signInError) {
-      const code =
+      const errorDetails =
         typeof signInError === 'object' &&
         signInError !== null &&
         'code' in signInError
-          ? String(signInError.code)
-          : '';
-      if (code !== 'auth/popup-closed-by-user') {
-        setError(code || 'auth/sign-in-failed');
-      }
+          ? (signInError as { code?: unknown; message?: unknown })
+          : {};
+      const code =
+        typeof errorDetails.code === 'string' ? errorDetails.code : 'unknown';
+      const message =
+        typeof errorDetails.message === 'string'
+          ? errorDetails.message
+          : String(signInError);
+      console.error('Login Error:', code, message);
+      setError(code);
     } finally {
       setSignInLoading(false);
     }

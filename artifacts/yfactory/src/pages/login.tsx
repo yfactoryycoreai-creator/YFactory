@@ -51,7 +51,9 @@ export default function LoginPage({
 
         {error && (
           <div className="auth-error" role="alert" data-testid="status-login-error">
-            {isConfigError ? t('auth.firebaseConfigError') : t('auth.signInError')}
+            {isConfigError
+              ? t('auth.firebaseConfigError')
+              : t('auth.signInError', { code: error })}
           </div>
         )}
 
