@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next';
 import {
   ArrowLeft,
   Check,
-  ChevronDown,
   Eye,
   EyeOff,
   KeyRound,
@@ -86,6 +85,8 @@ export default function SettingsPage({
       await onAddKey(provider, value);
       setDrafts((current) => ({ ...current, [provider]: '' }));
       setSavedProvider(provider);
+    } catch {
+      // The parent supplies the visible Firestore error.
     } finally {
       setActiveProvider(null);
     }
@@ -177,13 +178,12 @@ export default function SettingsPage({
                           <p>{t(`settings.providerDescriptions.${provider}`)}</p>
                         </div>
                         <span className="provider-count">{providerKeys.length}</span>
-                        <ChevronDown size={16} className="provider-chevron" aria-hidden="true" />
                       </div>
 
                       {providerKeys.length ? (
                         <ul className="provider-key-list" aria-label={`${t(`settings.providers.${provider}`)} API keys`}>
                           {providerKeys.map((key, index) => {
-                            const revealId = `${provider}-${index}`;
+                            const revealId = `${provider}-${key}`;
                             return (
                               <li className="provider-key-row" key={`${provider}-${index}-${key.slice(-5)}`} data-testid={`row-key-${provider}-${index}`}>
                                 <span className="key-row-icon"><KeyRound size={14} /></span>
@@ -205,7 +205,9 @@ export default function SettingsPage({
                                   type="button"
                                   aria-label={`${t('settings.deleteKey')} ${t(`settings.providers.${provider}`)} ${index + 1}`}
                                   disabled={saving}
-                                  onClick={() => void onDeleteKey(provider, key)}
+                                  onClick={() =>
+                                    void onDeleteKey(provider, key).catch(() => undefined)
+                                  }
                                   data-testid={`button-delete-key-${provider}-${index}`}
                                 >
                                   <Trash2 size={15} />
@@ -258,7 +260,7 @@ export default function SettingsPage({
             )}
             <div className="security-note">
               <ShieldCheck size={16} aria-hidden="true" />
-              <span>{t('settings.subtitle')}</span>
+              <span>{t('settings.securityNote')}</span>
             </div>
           </section>
         </div>

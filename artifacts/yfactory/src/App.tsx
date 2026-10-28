@@ -7,6 +7,7 @@ import {
   Image as ImageIcon,
   ImagePlus,
   LoaderCircle,
+  LogOut,
   Mic,
   Music2,
   Play,
@@ -16,14 +17,28 @@ import {
   UploadCloud,
   UserRound,
   Video,
-  X,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { AuthProvider, useAuth } from '@/auth/AuthProvider';
+import LoginPage from '@/pages/login';
+import SettingsPage from '@/pages/settings';
 import NotFound from '@/pages/not-found';
+import {
+  addUserApiKey,
+  deleteUserApiKey,
+  loadUserApiKeys,
+  type ProviderKey,
+  type UserApiKeys,
+} from '@/lib/userApiKeys';
+import {
+  firebaseIsConfigured,
+  signInWithGoogle,
+  signOutFromFirebase,
+} from '@/lib/firebase';
 import {
   Route,
   Switch,
@@ -38,6 +53,8 @@ const sampleAudioUrl = 'https://samplelib.com/lib/preview/mp3/sample-3s.mp3';
 
 function Home() {
   const { t, i18n } = useTranslation();
+  const { user } = useAuth();
+  const [, setLocation] = useLocation();
   const locale = i18n.resolvedLanguage ?? i18n.language;
   const [mode, setMode] = useState<Mode>('image');
   const [prompts, setPrompts] = useState<Record<Mode, string>>({
@@ -46,7 +63,7 @@ function Home() {
     audio: '',
   });
   const [noticeKey, setNoticeKey] = useState('');
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
   const [videoImage, setVideoImage] = useState<File | null>(null);
   const [imagePreviewUrl, setImagePreviewUrl] = useState('');
   const [isDraggingImage, setIsDraggingImage] = useState(false);
@@ -54,8 +71,7 @@ function Home() {
   const [audioGenerated, setAudioGenerated] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const audioTimeoutRef = useRef<number | null>(null);
-  const settingsCloseButtonRef = useRef<HTMLButtonElement>(null);
-  const settingsButtonRef = useRef<HTMLButtonElement>(null);
+  const profileMenuRef = useRef<HTMLDivElement>(null);
   const isRtl = locale === 'ar';
   const prompt = prompts[mode];
   const characterLimit = mode === 'audio' ? 5000 : 1000;
@@ -84,20 +100,22 @@ function Home() {
   }, [videoImage]);
 
   useEffect(() => {
-    if (!settingsOpen) return;
-    const previousOverflow = document.body.style.overflow;
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setSettingsOpen(false);
+    if (!profileOpen) return;
+    const closeOnPointerDown = (event: PointerEvent) => {
+      if (!profileMenuRef.current?.contains(event.target as Node)) {
+        setProfileOpen(false);
+      }
     };
-    document.body.style.overflow = 'hidden';
-    window.addEventListener('keydown', handleKeyDown);
-    settingsCloseButtonRef.current?.focus();
+    const closeOnKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setProfileOpen(false);
+    };
+    document.addEventListener('pointerdown', closeOnPointerDown);
+    window.addEventListener('keydown', closeOnKeyDown);
     return () => {
-      document.body.style.overflow = previousOverflow;
-      window.removeEventListener('keydown', handleKeyDown);
-      settingsButtonRef.current?.focus();
+      document.removeEventListener('pointerdown', closeOnPointerDown);
+      window.removeEventListener('keydown', closeOnKeyDown);
     };
-  }, [settingsOpen]);
+  }, [profileOpen]);
 
   useEffect(
     () => () => {
@@ -205,6 +223,24 @@ function Home() {
     }, 900);
   };
 
+  const handleLogout = async () => {
+    setProfileOpen(false);
+    try {
+      await signOutFromFirebase();
+      setLocation('/login');
+    } catch {
+      setNoticeKey('status.signOutError');
+    }
+  };
+
+  const profileName = user?.displayName || user?.email || 'YFactory creator';
+  const profileInitials = (user?.displayName || user?.email || 'Y')
+    .split(/[\s@]+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join('');
+
   return (
     <div className={`workspace${isRtl ? ' rtl' : ''}`} dir={isRtl ? 'rtl' : 'ltr'}>
       <header className="topbar">
@@ -231,19 +267,63 @@ function Home() {
             </select>
             <ChevronDown className="locale-chevron" size={13} aria-hidden="true" />
           </div>
-          <button className="profile-button" type="button" aria-label={t('labels.profile')} data-testid="button-profile" onClick={() => setNoticeKey('status.profile')}>
-            <UserRound size={18} fill="currentColor" />
-          </button>
+          <div className="profile-menu-wrap" ref={profileMenuRef}>
+            <button
+              className="profile-button"
+              type="button"
+              aria-label={t('labels.profile')}
+              aria-haspopup="menu"
+              aria-expanded={profileOpen}
+              data-testid="button-profile"
+              onClick={() => setProfileOpen((open) => !open)}
+            >
+              {user?.photoURL ? (
+                <img className="profile-avatar-image" src={user.photoURL} alt="" />
+              ) : (
+                <span className="profile-avatar-initials" aria-hidden="true">
+                  {profileInitials || <UserRound size={17} />}
+                </span>
+              )}
+            </button>
+            {profileOpen && (
+              <div className="profile-menu" role="menu" aria-label={t('labels.profile')}>
+                <div className="profile-menu-user">
+                  <span className="profile-menu-name">{profileName}</span>
+                  {user?.email && <span className="profile-menu-email">{user.email}</span>}
+                </div>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setProfileOpen(false);
+                    setLocation('/settings');
+                  }}
+                  data-testid="button-profile-settings"
+                >
+                  <Settings size={16} />
+                  <span>{t('labels.settings')}</span>
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => void handleLogout()}
+                  data-testid="button-profile-logout"
+                >
+                  <LogOut size={16} />
+                  <span>{t('auth.logout')}</span>
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </header>
       <div className="settings-row">
         <button
-          ref={settingsButtonRef}
           className="settings-button"
           type="button"
           aria-label={t('labels.settings')}
           data-testid="button-settings"
-          onClick={() => setSettingsOpen(true)}
+          onClick={() => setLocation('/settings')}
         >
           <Settings size={19} />
         </button>
@@ -454,37 +534,178 @@ function Home() {
         </section>
       </main>
 
-      {settingsOpen && (
-        <div
-          className="modal-backdrop"
-          data-testid="settings-backdrop"
-          onClick={() => setSettingsOpen(false)}
-        >
-          <section
-            className="settings-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="settings-modal-title"
-            data-testid="settings-modal"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="settings-modal-header">
-              <h2 id="settings-modal-title">{t('settings.title')}</h2>
-              <button
-                ref={settingsCloseButtonRef}
-                type="button"
-                className="modal-close"
-                aria-label={t('settings.close')}
-                data-testid="button-close-settings"
-                onClick={() => setSettingsOpen(false)}
-              >
-                <X size={18} />
-              </button>
-            </div>
-          </section>
-        </div>
-      )}
     </div>
+  );
+}
+
+function RouteLoading() {
+  return (
+    <main className="route-loading" role="status" aria-live="polite">
+      <LoaderCircle className="loading-spinner" size={24} />
+      <span>Loading YFactory…</span>
+    </main>
+  );
+}
+
+function LoginRoute() {
+  const { user, loading } = useAuth();
+  const [, setLocation] = useLocation();
+  const [signInLoading, setSignInLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!loading && user) setLocation('/');
+  }, [loading, setLocation, user]);
+
+  const handleGoogleSignIn = async () => {
+    setError(null);
+    if (!firebaseIsConfigured) {
+      setError('firebase-config');
+      return;
+    }
+    setSignInLoading(true);
+    try {
+      await signInWithGoogle();
+      setLocation('/');
+    } catch (signInError) {
+      const code =
+        typeof signInError === 'object' &&
+        signInError !== null &&
+        'code' in signInError
+          ? String(signInError.code)
+          : '';
+      if (code !== 'auth/popup-closed-by-user') {
+        setError(code || 'auth/sign-in-failed');
+      }
+    } finally {
+      setSignInLoading(false);
+    }
+  };
+
+  if (loading || user) return <RouteLoading />;
+  return (
+    <LoginPage
+      loading={signInLoading}
+      error={error}
+      onGoogleSignIn={() => void handleGoogleSignIn()}
+    />
+  );
+}
+
+function ProtectedHome() {
+  const { user, loading } = useAuth();
+  const [, setLocation] = useLocation();
+
+  useEffect(() => {
+    if (!loading && !user) setLocation('/login');
+  }, [loading, setLocation, user]);
+
+  if (loading || !user) return <RouteLoading />;
+  return <Home />;
+}
+
+function ProtectedSettings() {
+  const { user, loading: authLoading } = useAuth();
+  const [, setLocation] = useLocation();
+  const [keys, setKeys] = useState<UserApiKeys>({
+    zsky_keys: [],
+    agnes_keys: [],
+    glm_keys: [],
+  });
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!authLoading && !user) setLocation('/login');
+  }, [authLoading, setLocation, user]);
+
+  useEffect(() => {
+    if (!user) return;
+    let active = true;
+    setLoading(true);
+    setError(null);
+    void loadUserApiKeys(user.uid)
+      .then((savedKeys) => {
+        if (active) setKeys(savedKeys);
+      })
+      .catch(() => {
+        if (active) {
+          setError('Could not load saved API keys. Check Firestore access and try again.');
+        }
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [user]);
+
+  const saveKey = async (provider: ProviderKey, key: string) => {
+    if (!user) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const nextKeys = await addUserApiKey(user.uid, provider, key);
+      setKeys(nextKeys);
+    } catch (saveError) {
+      setError(
+        saveError instanceof Error
+          ? saveError.message
+          : 'Could not save this API key. Check Firestore access and try again.',
+      );
+      throw saveError;
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const removeKey = async (provider: ProviderKey, key: string) => {
+    if (!user) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const nextKeys = await deleteUserApiKey(user.uid, provider, key);
+      setKeys(nextKeys);
+    } catch (deleteError) {
+      setError(
+        deleteError instanceof Error
+          ? deleteError.message
+          : 'Could not delete this API key. Check Firestore access and try again.',
+      );
+      throw deleteError;
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await signOutFromFirebase();
+      setLocation('/login');
+    } catch {
+      setError('Could not sign out. Please try again.');
+    }
+  };
+
+  if (authLoading || !user) return <RouteLoading />;
+  return (
+    <SettingsPage
+      user={{
+        displayName: user.displayName,
+        email: user.email,
+        photoURL: user.photoURL,
+      }}
+      keys={keys}
+      loading={loading}
+      saving={saving}
+      error={error}
+      onAddKey={saveKey}
+      onDeleteKey={removeKey}
+      onBack={() => setLocation('/')}
+      onLogout={() => void handleLogout()}
+    />
   );
 }
 
@@ -494,7 +715,9 @@ function Router() {
     // survives a page crash.
     <RoutedErrorBoundary>
       <Switch>
-        <Route path="/" component={Home} />
+        <Route path="/login" component={LoginRoute} />
+        <Route path="/settings" component={ProtectedSettings} />
+        <Route path="/" component={ProtectedHome} />
         <Route component={NotFound} />
       </Switch>
     </RoutedErrorBoundary>
@@ -511,7 +734,9 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}>
-          <Router />
+          <AuthProvider>
+            <Router />
+          </AuthProvider>
         </WouterRouter>
         <Toaster />
       </TooltipProvider>

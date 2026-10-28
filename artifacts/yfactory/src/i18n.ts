@@ -21,6 +21,19 @@ void i18n.use(initReactI18next).init({
   resources: {
     en: {
       translation: {
+        common: {
+          loading: 'Loading…',
+          error: 'Something went wrong.',
+        },
+        auth: {
+          welcome: 'Welcome to YFactory',
+          tagline: 'Create amazing content with the power of AI.',
+          continueWithGoogle: 'Continue with Google',
+          signingIn: 'Connecting to Google…',
+          signInError: 'Google sign-in could not be completed. Please try again.',
+          firebaseConfigError: 'Firebase is not fully configured for sign-in.',
+          logout: 'Logout',
+        },
         tabs: { image: 'Image', video: 'Video', audio: 'Audio' },
         prompt: {
           image: 'Describe the image you want to generate...',
@@ -77,7 +90,7 @@ void i18n.use(initReactI18next).init({
           video: 'Your video prompt is ready. Generation is a UI preview only.',
           audioReady: 'Sample audio is ready to play.',
           invalidImage: 'Please choose an image file.',
-          profile: 'Profile menu is not available in this preview.',
+          signOutError: 'Could not sign out. Please try again.',
         },
         upload: {
           title: 'Drag & Drop or Click to Upload Image',
@@ -88,6 +101,28 @@ void i18n.use(initReactI18next).init({
         settings: {
           title: 'Settings',
           close: 'Close settings',
+          subtitle: 'Manage your account and provider API keys.',
+          account: 'Account',
+          apiKeysTitle: 'API keys',
+          securityNote: 'Keys are saved to your signed-in account in Firestore.',
+          emptyKeys: 'No API keys saved for this provider.',
+          keyPlaceholder: 'Paste an API key',
+          addKey: 'Add New Key',
+          saving: 'Saving…',
+          keySaved: 'Saved',
+          deleteKey: 'Delete key',
+          backToDashboard: 'Back to dashboard',
+          logout: 'Logout',
+          providers: {
+            zsky: 'ZSky',
+            agnes: 'Agnes',
+            glm: 'GLM',
+          },
+          providerDescriptions: {
+            zsky: 'Keys used for ZSky services.',
+            agnes: 'Keys used for Agnes services.',
+            glm: 'Keys used for GLM services.',
+          },
         },
         audio: {
           samplePlayer: 'Sample generated audio player',
@@ -97,6 +132,19 @@ void i18n.use(initReactI18next).init({
     },
     fr: {
       translation: {
+        common: {
+          loading: 'Chargement…',
+          error: 'Une erreur est survenue.',
+        },
+        auth: {
+          welcome: 'Bienvenue sur YFactory',
+          tagline: 'Créez du contenu remarquable grâce à l’IA.',
+          continueWithGoogle: 'Continuer avec Google',
+          signingIn: 'Connexion à Google…',
+          signInError: 'La connexion Google a échoué. Veuillez réessayer.',
+          firebaseConfigError: 'Firebase n’est pas entièrement configuré.',
+          logout: 'Se déconnecter',
+        },
         tabs: { image: 'Image', video: 'Vidéo', audio: 'Audio' },
         prompt: {
           image: 'Décrivez l’image que vous souhaitez générer...',
@@ -153,7 +201,7 @@ void i18n.use(initReactI18next).init({
           video: 'Votre prompt vidéo est prêt. La génération est une simple prévisualisation.',
           audioReady: 'L’audio de démonstration est prêt à être lu.',
           invalidImage: 'Veuillez choisir un fichier image.',
-          profile: 'Le profil n’est pas disponible dans cet aperçu.',
+          signOutError: 'La déconnexion a échoué. Veuillez réessayer.',
         },
         upload: {
           title: 'Glissez-déposez ou cliquez pour importer une image',
@@ -164,6 +212,28 @@ void i18n.use(initReactI18next).init({
         settings: {
           title: 'Paramètres',
           close: 'Fermer les paramètres',
+          subtitle: 'Gérez votre compte et les clés API de vos fournisseurs.',
+          account: 'Compte',
+          apiKeysTitle: 'Clés API',
+          securityNote: 'Les clés sont enregistrées dans votre compte Firestore.',
+          emptyKeys: 'Aucune clé API enregistrée pour ce fournisseur.',
+          keyPlaceholder: 'Collez une clé API',
+          addKey: 'Ajouter une clé',
+          saving: 'Enregistrement…',
+          keySaved: 'Enregistrée',
+          deleteKey: 'Supprimer la clé',
+          backToDashboard: 'Retour au tableau de bord',
+          logout: 'Se déconnecter',
+          providers: {
+            zsky: 'ZSky',
+            agnes: 'Agnes',
+            glm: 'GLM',
+          },
+          providerDescriptions: {
+            zsky: 'Clés utilisées pour les services ZSky.',
+            agnes: 'Clés utilisées pour les services Agnes.',
+            glm: 'Clés utilisées pour les services GLM.',
+          },
         },
         audio: {
           samplePlayer: 'Lecteur audio de démonstration',
@@ -173,6 +243,19 @@ void i18n.use(initReactI18next).init({
     },
     ar: {
       translation: {
+        common: {
+          loading: 'جارٍ التحميل…',
+          error: 'حدث خطأ ما.',
+        },
+        auth: {
+          welcome: 'مرحبًا بك في YFactory',
+          tagline: 'أنشئ محتوى رائعًا باستخدام الذكاء الاصطناعي.',
+          continueWithGoogle: 'المتابعة باستخدام Google',
+          signingIn: 'جارٍ الاتصال بـ Google…',
+          signInError: 'تعذّر إكمال تسجيل الدخول عبر Google. حاول مرة أخرى.',
+          firebaseConfigError: 'إعداد Firebase لتسجيل الدخول غير مكتمل.',
+          logout: 'تسجيل الخروج',
+        },
         tabs: { image: 'صورة', video: 'فيديو', audio: 'صوت' },
         prompt: {
           image: 'صِف الصورة التي تريد إنشاءها...',
@@ -229,7 +312,7 @@ void i18n.use(initReactI18next).init({
           video: 'وصف الفيديو جاهز. الإنشاء هنا للمعاينة فقط.',
           audioReady: 'الصوت التجريبي جاهز للتشغيل.',
           invalidImage: 'يرجى اختيار ملف صورة.',
-          profile: 'الملف الشخصي غير متاح في هذه المعاينة.',
+          signOutError: 'تعذّر تسجيل الخروج. حاول مرة أخرى.',
         },
         upload: {
           title: 'اسحب الصورة وأفلتها أو انقر لتحميلها',
@@ -240,6 +323,28 @@ void i18n.use(initReactI18next).init({
         settings: {
           title: 'الإعدادات',
           close: 'إغلاق الإعدادات',
+          subtitle: 'أدر حسابك ومفاتيح API الخاصة بالمزوّدين.',
+          account: 'الحساب',
+          apiKeysTitle: 'مفاتيح API',
+          securityNote: 'تُحفظ المفاتيح في حسابك المسجّل في Firestore.',
+          emptyKeys: 'لا توجد مفاتيح API محفوظة لهذا المزوّد.',
+          keyPlaceholder: 'ألصق مفتاح API',
+          addKey: 'إضافة مفتاح',
+          saving: 'جارٍ الحفظ…',
+          keySaved: 'تم الحفظ',
+          deleteKey: 'حذف المفتاح',
+          backToDashboard: 'العودة إلى لوحة التحكم',
+          logout: 'تسجيل الخروج',
+          providers: {
+            zsky: 'ZSky',
+            agnes: 'Agnes',
+            glm: 'GLM',
+          },
+          providerDescriptions: {
+            zsky: 'مفاتيح لخدمات ZSky.',
+            agnes: 'مفاتيح لخدمات Agnes.',
+            glm: 'مفاتيح لخدمات GLM.',
+          },
         },
         audio: {
           samplePlayer: 'مشغل الصوت التجريبي المُنشأ',
