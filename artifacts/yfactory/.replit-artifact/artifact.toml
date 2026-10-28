@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "YFactory"
+description = "A responsive creative generation workspace for shaping image, video, and audio ideas in English, Arabic, and French."
+version = "1.0.0"
+id = "artifacts/yfactory"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 18755
+
+[services.development]
+run = "pnpm --filter @workspace/yfactory run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/yfactory", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/yfactory/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "18755"
+BASE_PATH = "/"
