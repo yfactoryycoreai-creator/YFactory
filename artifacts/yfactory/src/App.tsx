@@ -3,6 +3,7 @@ import {
   AudioLines,
   ChevronDown,
   Clock3,
+  Download,
   Globe2,
   Image as ImageIcon,
   ImagePlus,
@@ -32,6 +33,7 @@ import {
   saveUserApiKeys,
   type UserApiKeys,
 } from '@/lib/userApiKeys';
+import { generateImage } from '@/lib/imageApi';
 import {
   firebaseIsConfigured,
   firebaseConfigurationIssues,
@@ -67,6 +69,11 @@ function Home() {
   const [videoImage, setVideoImage] = useState<File | null>(null);
   const [imagePreviewUrl, setImagePreviewUrl] = useState('');
   const [isDraggingImage, setIsDraggingImage] = useState(false);
+  const [generatedImages, setGeneratedImages] = useState<string[]>([]);
+  const [isImageGenerating, setIsImageGenerating] = useState(false);
+  const [imageError, setImageError] = useState('');
+  const [downloadingImageIndex, setDownloadingImageIndex] = useState<number | null>(null);
+  const generatedImageUrlsRef = useRef<string[]>([]);
   const [isAudioGenerating, setIsAudioGenerating] = useState(false);
   const [audioGenerated, setAudioGenerated] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -76,6 +83,9 @@ function Home() {
   const prompt = prompts[mode];
   const characterLimit = mode === 'audio' ? 5000 : 1000;
   const isCurrentAudioGenerating = mode === 'audio' && isAudioGenerating;
+  const isCurrentImageGenerating = mode === 'image' && isImageGenerating;
+  const isCurrentGenerateLoading =
+    isCurrentAudioGenerating || isCurrentImageGenerating;
   const statusMessage =
     mode === 'audio' && audioGenerated
       ? t('status.audioReady')
@@ -122,6 +132,7 @@ function Home() {
       if (audioTimeoutRef.current !== null) {
         window.clearTimeout(audioTimeoutRef.current);
       }
+      generatedImageUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
     },
     [],
   );
@@ -129,6 +140,7 @@ function Home() {
   const chooseMode = (next: Mode) => {
     setMode(next);
     setNoticeKey('');
+    setImageError('');
   };
 
   const handleImageFile = (file: File | undefined) => {
@@ -206,10 +218,46 @@ function Home() {
     { value: 'energetic', label: t('options.energetic') },
   ];
 
-  const handleGenerate = () => {
+  const handleGenerate = async () => {
     setNoticeKey('');
+    setImageError('');
+    if (mode === 'image') {
+      const promptToGenerate = prompts.image.trim();
+      if (!promptToGenerate) {
+        setImageError(t('status.imagePromptRequired'));
+        return;
+      }
+
+      setIsImageGenerating(true);
+      try {
+        const imageUrl = await generateImage(promptToGenerate);
+        generatedImageUrlsRef.current.push(imageUrl);
+        const nextImages = [...generatedImages, imageUrl].slice(-4);
+        const removedImages = generatedImages.filter(
+          (existingUrl) => !nextImages.includes(existingUrl),
+        );
+        removedImages.forEach((removedUrl) => {
+          URL.revokeObjectURL(removedUrl);
+          generatedImageUrlsRef.current =
+            generatedImageUrlsRef.current.filter((url) => url !== removedUrl);
+        });
+        setGeneratedImages(nextImages);
+      } catch (generationError) {
+        console.error('Image generation failed:', generationError);
+        setImageError(
+          generationError instanceof Error &&
+            generationError.message &&
+            generationError.message !== 'Failed to fetch'
+            ? generationError.message
+            : t('status.imageGenerateFailed'),
+        );
+      } finally {
+        setIsImageGenerating(false);
+      }
+      return;
+    }
     if (mode !== 'audio') {
-      setNoticeKey(`status.${mode}`);
+      setNoticeKey('status.video');
       return;
     }
     if (audioTimeoutRef.current !== null) {
@@ -221,6 +269,32 @@ function Home() {
       setIsAudioGenerating(false);
       setAudioGenerated(true);
     }, 900);
+  };
+
+  const handleDownloadImage = async (imageUrl: string, index: number) => {
+    setDownloadingImageIndex(index);
+    setImageError('');
+    try {
+      const response = await fetch(imageUrl);
+      if (!response.ok) {
+        throw new Error(`Image download failed with status ${response.status}.`);
+      }
+      const imageBlob = await response.blob();
+      const downloadUrl = URL.createObjectURL(imageBlob);
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      const extension = imageBlob.type.split('/')[1]?.replace('jpeg', 'jpg') || 'png';
+      link.download = `yfactory-image-${Date.now()}.${extension}`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
+    } catch (downloadError) {
+      console.error('Image download failed:', downloadError);
+      setImageError(t('status.imageDownloadFailed'));
+    } finally {
+      setDownloadingImageIndex(null);
+    }
   };
 
   const handleLogout = async () => {
@@ -415,11 +489,13 @@ function Home() {
             maxLength={characterLimit}
             disabled={isCurrentAudioGenerating}
             onChange={(event) => {
+              const value = event.currentTarget?.value ?? '';
               setPrompts((current) => ({
                 ...current,
-                [mode]: event.currentTarget.value,
+                [mode]: value,
               }));
               setNoticeKey('');
+              setImageError('');
               if (mode === 'audio') setAudioGenerated(false);
             }}
             placeholder={t(`prompt.${mode}`)}
@@ -459,13 +535,13 @@ function Home() {
 
         <button
           type="button"
-          className={`generate${isCurrentAudioGenerating ? ' is-loading' : ''}`}
-          onClick={handleGenerate}
-          disabled={isCurrentAudioGenerating}
-          aria-busy={isCurrentAudioGenerating}
+          className={`generate${isCurrentGenerateLoading ? ' is-loading' : ''}`}
+          onClick={() => void handleGenerate()}
+          disabled={isCurrentGenerateLoading}
+          aria-busy={isCurrentGenerateLoading}
           data-testid="button-generate"
         >
-          {isCurrentAudioGenerating ? (
+          {isCurrentGenerateLoading ? (
             <LoaderCircle className="loading-spinner" size={19} />
           ) : mode === 'image' ? (
             <Sparkles size={19} />
@@ -474,8 +550,19 @@ function Home() {
           ) : (
             <AudioLines size={20} />
           )}
-          <span>{isCurrentAudioGenerating ? t('generate.loading') : t('generate.button')}</span>
+          <span>
+            {isCurrentImageGenerating
+              ? t('generate.imageLoading')
+              : isCurrentAudioGenerating
+                ? t('generate.loading')
+                : t('generate.button')}
+          </span>
         </button>
+        {imageError && (
+          <div className="notice notice-error" role="alert" data-testid="image-generation-error">
+            {imageError}
+          </div>
+        )}
         {statusMessage && (
           <div className="notice" role="status" aria-live="polite" data-testid="status-response">
             {statusMessage}
@@ -489,34 +576,76 @@ function Home() {
         >
           {Array.from({ length: 4 }, (_, index) => (
             <div
-              className={`result-tile${mode === 'audio' ? ' audio-tile' : ''}`}
+              className={`result-tile${mode === 'audio' ? ' audio-tile' : ''}${mode === 'image' && generatedImages[index] ? ' image-tile' : ''}`}
               key={`${mode}-${index}`}
               data-testid={`result-tile-${mode}-${index + 1}`}
             >
-              <div
-                className={`result-inner${mode === 'audio' ? ' audio-inner' : ''}`}
-                aria-label={
-                  mode === 'image'
-                    ? t('tabs.image')
-                    : mode === 'video'
-                      ? t('empty.video')
-                      : t('empty.audio')
-                }
-              >
-                {mode === 'image' ? (
-                  <ImagePlus size={36} strokeWidth={1.5} />
-                ) : mode === 'video' ? (
-                  <>
-                    <SquarePlay size={34} strokeWidth={1.5} />
-                    <span className="result-message">{t('empty.video')}</span>
-                  </>
-                ) : (
-                  <>
-                    <Music2 size={34} strokeWidth={1.7} />
-                    <span className="result-message">{t('empty.audio')}</span>
-                  </>
-                )}
-              </div>
+              {mode === 'image' && generatedImages[index] ? (
+                <div className="generated-image-wrap">
+                  <img
+                    className="generated-image"
+                    src={generatedImages[index]}
+                    alt={t('labels.generatedImage')}
+                    data-testid={`generated-image-${index + 1}`}
+                    onError={() => {
+                      setImageError(t('status.imageGenerateFailed'));
+                      const failedUrl = generatedImages[index];
+                      if (failedUrl) {
+                        URL.revokeObjectURL(failedUrl);
+                        generatedImageUrlsRef.current =
+                          generatedImageUrlsRef.current.filter(
+                            (url) => url !== failedUrl,
+                          );
+                        setGeneratedImages((current) =>
+                          current.filter((url) => url !== failedUrl),
+                        );
+                      }
+                    }}
+                  />
+                  <button
+                    className="image-download"
+                    type="button"
+                    disabled={downloadingImageIndex === index}
+                    aria-busy={downloadingImageIndex === index}
+                    onClick={() =>
+                      void handleDownloadImage(generatedImages[index], index)
+                    }
+                    data-testid={`button-download-image-${index + 1}`}
+                  >
+                    <Download size={14} aria-hidden="true" />
+                    <span>
+                      {downloadingImageIndex === index
+                        ? t('labels.downloading')
+                        : t('labels.download')}
+                    </span>
+                  </button>
+                </div>
+              ) : (
+                <div
+                  className={`result-inner${mode === 'audio' ? ' audio-inner' : ''}`}
+                  aria-label={
+                    mode === 'image'
+                      ? t('tabs.image')
+                      : mode === 'video'
+                        ? t('empty.video')
+                        : t('empty.audio')
+                  }
+                >
+                  {mode === 'image' ? (
+                    <ImagePlus size={36} strokeWidth={1.5} />
+                  ) : mode === 'video' ? (
+                    <>
+                      <SquarePlay size={34} strokeWidth={1.5} />
+                      <span className="result-message">{t('empty.video')}</span>
+                    </>
+                  ) : (
+                    <>
+                      <Music2 size={34} strokeWidth={1.7} />
+                      <span className="result-message">{t('empty.audio')}</span>
+                    </>
+                  )}
+                </div>
+              )}
               {mode === 'audio' && (
                 <audio
                   className="native-audio-player"

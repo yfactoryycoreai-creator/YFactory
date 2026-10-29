@@ -44,6 +44,7 @@ void i18n.use(initReactI18next).init({
         generate: {
           button: 'Generate',
           loading: 'Preparing audio...',
+          imageLoading: 'Generating image...',
         },
         labels: {
           language: 'Language',
@@ -61,6 +62,9 @@ void i18n.use(initReactI18next).init({
           volume: 'Audio volume',
           upload: 'Upload a source image',
           characterCount: '{{count}}/{{max}}',
+          generatedImage: 'AI-generated image',
+          download: 'Download',
+          downloading: 'Downloading...',
         },
         options: {
           video5: '5 seconds',
@@ -87,11 +91,14 @@ void i18n.use(initReactI18next).init({
           audio: 'Your generated audio will appear here',
         },
         status: {
-          image: 'Your image prompt is ready. Generation is a UI preview only.',
+          image: 'Your image is ready.',
           video: 'Your video prompt is ready. Generation is a UI preview only.',
           audioReady: 'Sample audio is ready to play.',
           invalidImage: 'Please choose an image file.',
           signOutError: 'Could not sign out. Please try again.',
+          imagePromptRequired: 'Enter a prompt before generating an image.',
+          imageGenerateFailed: 'The image could not be generated. Please try again.',
+          imageDownloadFailed: 'The image could not be downloaded. Please try again.',
         },
         upload: {
           title: 'Drag & Drop or Click to Upload Image',
@@ -157,6 +164,7 @@ void i18n.use(initReactI18next).init({
         generate: {
           button: 'Générer',
           loading: 'Préparation de l’audio...',
+          imageLoading: 'Génération de l’image...',
         },
         labels: {
           language: 'Langue',
@@ -174,6 +182,9 @@ void i18n.use(initReactI18next).init({
           volume: 'Volume audio',
           upload: 'Importer une image source',
           characterCount: '{{count}}/{{max}}',
+          generatedImage: 'Image générée par l’IA',
+          download: 'Télécharger',
+          downloading: 'Téléchargement...',
         },
         options: {
           video5: '5 secondes',
@@ -200,11 +211,14 @@ void i18n.use(initReactI18next).init({
           audio: 'Votre audio généré apparaîtra ici',
         },
         status: {
-          image: 'Votre prompt image est prêt. La génération est une simple prévisualisation.',
+          image: 'Votre image est prête.',
           video: 'Votre prompt vidéo est prêt. La génération est une simple prévisualisation.',
           audioReady: 'L’audio de démonstration est prêt à être lu.',
           invalidImage: 'Veuillez choisir un fichier image.',
           signOutError: 'La déconnexion a échoué. Veuillez réessayer.',
+          imagePromptRequired: 'Saisissez un prompt avant de générer une image.',
+          imageGenerateFailed: 'Impossible de générer l’image. Veuillez réessayer.',
+          imageDownloadFailed: 'Impossible de télécharger l’image. Veuillez réessayer.',
         },
         upload: {
           title: 'Glissez-déposez ou cliquez pour importer une image',
@@ -270,6 +284,7 @@ void i18n.use(initReactI18next).init({
         generate: {
           button: 'إنشاء',
           loading: 'جارٍ تجهيز الصوت...',
+          imageLoading: 'جارٍ إنشاء الصورة...',
         },
         labels: {
           language: 'اللغة',
@@ -287,6 +302,9 @@ void i18n.use(initReactI18next).init({
           volume: 'مستوى الصوت',
           upload: 'تحميل صورة مصدر',
           characterCount: '{{count}}/{{max}}',
+          generatedImage: 'صورة مُنشأة بالذكاء الاصطناعي',
+          download: 'تنزيل',
+          downloading: 'جارٍ التنزيل...',
         },
         options: {
           video5: '٥ ثوانٍ',
@@ -313,11 +331,14 @@ void i18n.use(initReactI18next).init({
           audio: 'سيظهر الصوت الذي تم إنشاؤه هنا',
         },
         status: {
-          image: 'وصف الصورة جاهز. الإنشاء هنا للمعاينة فقط.',
+          image: 'الصورة جاهزة.',
           video: 'وصف الفيديو جاهز. الإنشاء هنا للمعاينة فقط.',
           audioReady: 'الصوت التجريبي جاهز للتشغيل.',
           invalidImage: 'يرجى اختيار ملف صورة.',
           signOutError: 'تعذّر تسجيل الخروج. حاول مرة أخرى.',
+          imagePromptRequired: 'أدخل وصفًا قبل إنشاء الصورة.',
+          imageGenerateFailed: 'تعذّر إنشاء الصورة. حاول مرة أخرى.',
+          imageDownloadFailed: 'تعذّر تنزيل الصورة. حاول مرة أخرى.',
         },
         upload: {
           title: 'اسحب الصورة وأفلتها أو انقر لتحميلها',
