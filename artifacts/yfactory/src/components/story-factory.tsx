@@ -106,6 +106,7 @@ export default function StoryFactory({
   );
 
   useEffect(() => {
+    if (!visible) return;
     setStoriesLoading(true);
     setError('');
     return subscribeToStories(
@@ -120,10 +121,10 @@ export default function StoryFactory({
         setStoriesLoading(false);
       },
     );
-  }, [uid, t]);
+  }, [uid, t, visible]);
 
   useEffect(() => {
-    if (!selectedStoryId) {
+    if (!visible || !selectedStoryId) {
       setImages([]);
       setImagesLoading(false);
       return;
@@ -143,7 +144,7 @@ export default function StoryFactory({
         setImagesLoading(false);
       },
     );
-  }, [uid, selectedStoryId, t]);
+  }, [uid, selectedStoryId, t, visible]);
 
   useEffect(() => {
     if (selectedStory) {
@@ -350,7 +351,7 @@ export default function StoryFactory({
           )}
           {pendingImage && (
             <div className="factory-pending-image" data-testid="pending-image-save">
-              <img src={pendingImage.imageData} alt={t('labels.generatedImage')} />
+              <img src={pendingImage.imageData} alt={t('labels.generatedImage')} loading="lazy" />
               <div>
                 <strong>{t('stories.saveTemporaryTitle')}</strong>
                 <span>{t('stories.saveTemporaryDescription')}</span>
@@ -414,7 +415,7 @@ export default function StoryFactory({
             <div className="story-images-grid">
               {images.map((image) => (
                 <article className="story-image-card" key={image.id}>
-                  <img src={image.url} alt={image.prompt || t('labels.generatedImage')} />
+                  <img src={image.url} alt={image.prompt || t('labels.generatedImage')} loading="lazy" />
                   <div className="story-image-caption">
                     <p>{image.prompt}</p>
                     <button
@@ -459,7 +460,7 @@ export default function StoryFactory({
 
           {pendingImage && (
             <div className="factory-pending-image" data-testid="pending-image-save">
-              <img src={pendingImage.imageData} alt={t('labels.generatedImage')} />
+              <img src={pendingImage.imageData} alt={t('labels.generatedImage')} loading="lazy" />
               <div>
                 <strong>{t('stories.saveTemporaryTitle')}</strong>
                 <span>{t('stories.saveTemporaryDescription')}</span>

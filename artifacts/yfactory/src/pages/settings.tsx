@@ -65,7 +65,8 @@ export default function SettingsPage({
   const [draftKeys, setDraftKeys] = useState<UserApiKeys>(keys);
   const [revealed, setRevealed] = useState<Record<string, boolean>>({});
   const [saved, setSaved] = useState(false);
-  const [logoutConfirmationOpen, setLogoutConfirmationOpen] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
+  const [logoutError, setLogoutError] = useState('');
   const [deleteConfirmationOpen, setDeleteConfirmationOpen] = useState(false);
   const displayName = user.displayName || user.email || 'YFactory creator';
   const initials = (user.displayName || user.email || 'Y')
@@ -78,6 +79,18 @@ export default function SettingsPage({
   useEffect(() => {
     if (!loading) setDraftKeys(keys);
   }, [keys, loading]);
+
+  const handleLogout = async () => {
+    if (signingOut) return;
+    setSigningOut(true);
+    setLogoutError('');
+    try {
+      await onLogout();
+    } catch {
+      setLogoutError(t('confirmation.logoutFailed'));
+      setSigningOut(false);
+    }
+  };
 
   const updateKey = (provider: ProviderKey, index: number, value: string) => {
     setSaved(false);
@@ -133,11 +146,13 @@ export default function SettingsPage({
           <button
             className="settings-logout"
             type="button"
-            onClick={() => setLogoutConfirmationOpen(true)}
+            onClick={() => void handleLogout()}
+            disabled={signingOut}
+            aria-busy={signingOut}
             data-testid="button-settings-logout"
           >
             <LogOut size={16} aria-hidden="true" />
-            <span>{t('settings.logout')}</span>
+            <span>{signingOut ? t('auth.signingOut') : t('settings.logout')}</span>
           </button>
         </header>
 
@@ -153,10 +168,10 @@ export default function SettingsPage({
             </button>
           </div>
 
-          {error && (
+          {(error || logoutError) && (
             <div className="settings-error" role="alert" data-testid="status-settings-error">
               <span className="error-dot" />
-              {error || t('common.error')}
+              {logoutError || error || t('common.error')}
             </div>
           )}
 
@@ -164,7 +179,7 @@ export default function SettingsPage({
             <div className="section-kicker">{t('settings.account')}</div>
             <div className="account-info">
               {user.photoURL ? (
-                <img className="account-avatar" src={user.photoURL} alt="" data-testid="img-account-avatar" />
+                <img className="account-avatar" src={user.photoURL} alt="" loading="lazy" data-testid="img-account-avatar" />
               ) : (
                 <div className="account-avatar account-avatar-fallback" aria-hidden="true">
                   {initials || <UserRound size={21} />}
@@ -188,18 +203,11 @@ export default function SettingsPage({
               <span className="keys-count">{providers.reduce((count, provider) => count + (draftKeys[keyField[provider]]?.filter((key) => key.trim()).length ?? 0), 0)} <span>KEYS</span></span>
             </div>
 
-            {loading ? (
-              <div className="settings-loading" aria-live="polite" data-testid="status-settings-loading">
-                <span className="skeleton-line" />
-                <span className="skeleton-line short" />
-                <span className="skeleton-line" />
-              </div>
-            ) : (
-              <div className="provider-list">
-                {providers.map((provider) => {
-                  const providerKeys = draftKeys[keyField[provider]] ?? [];
-                  const savedKeyCount = providerKeys.filter((key) => key.trim()).length;
-                  return (
+            <div className="provider-list">
+              {providers.map((provider) => {
+                const providerKeys = draftKeys[keyField[provider]] ?? [];
+                const savedKeyCount = providerKeys.filter((key) => key.trim()).length;
+                return (
                     <article className="provider-card" key={provider} data-testid={`card-provider-${provider}`}>
                       <div className="provider-card-head">
                         <div className={`provider-symbol provider-symbol-${provider}`} aria-hidden="true">
@@ -212,7 +220,7 @@ export default function SettingsPage({
                          <span className="provider-count">{savedKeyCount}</span>
                       </div>
 
-                      {providerKeys.length ? (
+                      {providerKeys.length > 0 ? (
                         <ul className="provider-key-list" aria-label={`${t(`settings.providers.${provider}`)} API keys`}>
                           {providerKeys.map((key, index) => {
                              const revealId = `${provider}-${index}`;
@@ -229,7 +237,7 @@ export default function SettingsPage({
                                    value={key}
                                    onChange={(event) => updateKey(provider, index, event.currentTarget.value)}
                                    placeholder={t('settings.keyPlaceholder')}
-                                   disabled={saving || !ready}
+                                    disabled={loading || saving || !ready}
                                    data-testid={`input-api-key-${provider}${index ? `-${index}` : ''}`}
                                  />
                                 <button
@@ -238,6 +246,7 @@ export default function SettingsPage({
                                   aria-label={revealed[revealId] ? 'Hide API key' : 'Reveal API key'}
                                   aria-pressed={Boolean(revealed[revealId])}
                                   onClick={() => setRevealed((current) => ({ ...current, [revealId]: !current[revealId] }))}
+                                   disabled={loading || saving || !ready}
                                   data-testid={`button-toggle-key-${provider}-${index}`}
                                 >
                                   {revealed[revealId] ? <EyeOff size={15} /> : <Eye size={15} />}
@@ -256,7 +265,7 @@ export default function SettingsPage({
                             );
                           })}
                         </ul>
-                       ) : providerKeys.length === 0 ? (
+                       ) : !loading ? (
                         <div className="provider-empty" data-testid={`text-empty-keys-${provider}`}>
                           <span className="empty-indicator" />
                           {t('settings.emptyKeys')}
@@ -276,10 +285,9 @@ export default function SettingsPage({
                         </button>
                        </div>
                     </article>
-                  );
-                })}
-              </div>
-            )}
+                );
+              })}
+            </div>
             <div className="settings-save-row">
               <button
                 className="settings-save-button"
@@ -288,8 +296,8 @@ export default function SettingsPage({
                 disabled={loading || saving || !ready}
                 data-testid="button-save-api-keys"
               >
-                {saving ? <LoaderCircle className="auth-spinner" size={16} /> : saved ? <Check size={16} /> : null}
-                <span>{saving ? t('settings.saving') : saved ? t('settings.keySaved') : t('settings.saveKeys')}</span>
+                {loading || saving ? <LoaderCircle className="auth-spinner" size={16} /> : saved ? <Check size={16} /> : null}
+                <span>{loading ? t('common.loading') : saving ? t('settings.saving') : saved ? t('settings.keySaved') : t('settings.saveKeys')}</span>
               </button>
             </div>
             <div className="security-note">
@@ -319,18 +327,6 @@ export default function SettingsPage({
           <span>Creator workspace</span>
         </footer>
       </div>
-      <ConfirmActionDialog
-        open={logoutConfirmationOpen}
-        onOpenChange={setLogoutConfirmationOpen}
-        title={t('confirmation.logoutTitle')}
-        description={t('confirmation.logoutDescription')}
-        confirmLabel={t('confirmation.confirm')}
-        busyLabel={t('confirmation.loggingOut')}
-        cancelLabel={t('confirmation.cancel')}
-        failureMessage={t('confirmation.logoutFailed')}
-        onConfirm={onLogout}
-        dir={isRtl ? 'rtl' : 'ltr'}
-      />
       <ConfirmActionDialog
         open={deleteConfirmationOpen}
         onOpenChange={setDeleteConfirmationOpen}

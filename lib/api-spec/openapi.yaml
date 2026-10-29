@@ -10,6 +10,8 @@ servers:
 tags:
   - name: health
     description: Health operations
+  - name: images
+    description: Image generation operations
 paths:
   /healthz:
     get:
@@ -24,6 +26,51 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /images/generate:
+    post:
+      operationId: generateStoryImages
+      tags: [images]
+      summary: Generate images for a story
+      description: Generates images on the server using the configured provider fallback chain.
+      security:
+        - FirebaseBearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImageGenerationInput"
+      responses:
+        "200":
+          description: Generated images, including partial success information.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImageGenerationResult"
+        "400":
+          description: Invalid generation request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: Missing or invalid Firebase ID token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "409":
+          description: The story has reached its image limit.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "502":
+          description: All image providers failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
 components:
   schemas:
     HealthStatus:
@@ -33,4 +80,59 @@ components:
           type: string
       required:
         - status
+    ImageGenerationInput:
+      type: object
+      properties:
+        storyId:
+          type: ["string", "null"]
+          maxLength: 200
+        prompt:
+          type: string
+          minLength: 1
+          maxLength: 4000
+        count:
+          type: integer
+          minimum: 1
+          maximum: 4
+      required: [storyId, prompt, count]
+    GeneratedImage:
+      type: object
+      properties:
+        base64:
+          type: string
+        mimeType:
+          type: string
+        provider:
+          type: string
+          enum: [agnes, glm, pollinations]
+      required: [base64, mimeType, provider]
+    ImageGenerationResult:
+      type: object
+      properties:
+        images:
+          type: array
+          items:
+            $ref: "#/components/schemas/GeneratedImage"
+        failedCount:
+          type: integer
+        skippedCount:
+          type: integer
+      required: [images, failedCount, skippedCount]
+    ApiError:
+      type: object
+      properties:
+        error:
+          type: string
+        code:
+          type: string
+        failedCount:
+          type: integer
+        skippedCount:
+          type: integer
+      required: [error, code]
+  securitySchemes:
+    FirebaseBearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: Firebase ID token
 

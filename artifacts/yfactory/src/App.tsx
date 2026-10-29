@@ -32,7 +32,6 @@ import { AuthProvider, useAuth } from '@/auth/AuthProvider';
 import LoginPage from '@/pages/login';
 import SettingsPage from '@/pages/settings';
 import NotFound from '@/pages/not-found';
-import ConfirmActionDialog from '@/components/confirm-action-dialog';
 import StoryFactory from '@/components/story-factory';
 import {
   deleteUserDocument,
@@ -42,9 +41,8 @@ import {
   type UserApiKeys,
 } from '@/lib/userApiKeys';
 import {
-  generateImage,
+  generateImages,
   ImageGenerationError,
-  POLLINATIONS_FREE_IMAGE_INTERVAL_MS,
 } from '@/lib/imageApi';
 import {
   MAX_PERSISTED_IMAGES,
@@ -114,7 +112,7 @@ function Home() {
     useState<GeneratorSettings>(readGeneratorSettings);
   const [noticeKey, setNoticeKey] = useState('');
   const [profileOpen, setProfileOpen] = useState(false);
-  const [logoutConfirmationOpen, setLogoutConfirmationOpen] = useState(false);
+  const [isSigningOut, setIsSigningOut] = useState(false);
   const [storiesOpen, setStoriesOpen] = useState(false);
   const [activeStory, setActiveStory] = useState<StoryRecord | null>(null);
   const [pendingStorySave, setPendingStorySave] =
@@ -125,11 +123,6 @@ function Home() {
   const [generatedImages, setGeneratedImages] =
     useState<GeneratedImageHistoryItem[]>(readGeneratedImageHistory);
   const [isImageGenerating, setIsImageGenerating] = useState(false);
-  const [imageBatchProgress, setImageBatchProgress] = useState({
-    current: 0,
-    total: 0,
-  });
-  const [cooldownSeconds, setCooldownSeconds] = useState(0);
   const [imageError, setImageError] = useState('');
   const [historyWarning, setHistoryWarning] = useState('');
   const [downloadingImageIndex, setDownloadingImageIndex] = useState<number | null>(null);
@@ -363,6 +356,10 @@ function Home() {
         setImageError(t('status.imagePromptRequired'));
         return;
       }
+      if (!user) {
+        setImageError(t('status.authRequired'));
+        return;
+      }
 
       if (activeStory && activeStory.imageCount >= MAX_STORY_IMAGES) {
         setImageError(t('stories.limitReached'));
@@ -376,104 +373,113 @@ function Home() {
           )
         : requestedImages;
       setIsImageGenerating(true);
-      setImageBatchProgress({ current: 0, total: totalImages });
       try {
-        const waitForCooldown = async (durationMs: number) => {
-          const cooldownEndsAt = Date.now() + durationMs;
-          while (Date.now() < cooldownEndsAt) {
-            const remainingMs = cooldownEndsAt - Date.now();
-            setCooldownSeconds(Math.ceil(remainingMs / 1000));
-            await new Promise<void>((resolve) =>
-              window.setTimeout(resolve, Math.min(1000, remainingMs)),
-            );
-          }
-          setCooldownSeconds(0);
-        };
+        const result = await generateImages(
+          await user.getIdToken(),
+          activeStory?.id ?? null,
+          promptToGenerate,
+          totalImages,
+        );
+        const batch: GeneratedImageHistoryItem[] = result.images.map((image) => ({
+          id: crypto.randomUUID(),
+          prompt: promptToGenerate,
+          createdAt: Date.now(),
+          imageData: image.imageData,
+          provider: image.provider,
+        }));
 
-        const generateWithRateLimitRetry = async () => {
-          try {
-            return await generateImage(promptToGenerate);
-          } catch (error) {
-            const retryAfterMs =
-              error instanceof ImageGenerationError ? error.retryAfterMs : null;
-            if (!retryAfterMs || retryAfterMs <= 0) throw error;
-            await waitForCooldown(retryAfterMs);
-            return await generateImage(promptToGenerate);
-          }
-        };
-
-        for (let index = 0; index < totalImages; index += 1) {
-          if (index > 0) {
-            await waitForCooldown(POLLINATIONS_FREE_IMAGE_INTERVAL_MS);
-          }
-          setImageBatchProgress({ current: index + 1, total: totalImages });
-          const imageData = await generateWithRateLimitRetry();
-          const generatedImage: GeneratedImageHistoryItem = {
-            id: crypto.randomUUID(),
-            prompt: promptToGenerate,
-            createdAt: Date.now(),
-            imageData,
-          };
-          if (activeStory) {
-            try {
-              if (!user) throw new Error('Please sign in again before saving images.');
-              const imageBlob = await (await fetch(imageData)).blob();
+        if (activeStory) {
+          const savedResults = await Promise.allSettled(
+            batch.map(async (generatedImage) => {
+              const response = await fetch(generatedImage.imageData);
+              if (!response.ok) throw new Error('Could not read generated image data.');
               const savedImage = await saveImageToStory(
                 user.uid,
                 activeStory.id,
-                imageBlob,
+                await response.blob(),
                 promptToGenerate,
+                generatedImage.provider,
               );
-              setGeneratedImages((current) =>
-                [
-                  {
-                    ...generatedImage,
-                    imageData: savedImage.url,
-                    savedToFactory: true,
-                  },
-                  ...current,
-                ].slice(0, MAX_PERSISTED_IMAGES),
-              );
-              setActiveStory((current) =>
-                current?.id === activeStory.id
-                  ? {
-                      ...current,
-                      imageCount: Math.min(
-                        MAX_STORY_IMAGES,
-                        current.imageCount + 1,
-                      ),
-                      storageBytes: current.storageBytes + savedImage.sizeBytes,
-                    }
-                  : current,
-              );
-            } catch (saveError) {
-              setGeneratedImages((current) =>
-                [generatedImage, ...current].slice(0, MAX_PERSISTED_IMAGES),
-              );
-              throw saveError;
-            }
-          } else {
-            setGeneratedImages((current) =>
-              [generatedImage, ...current].slice(0, MAX_PERSISTED_IMAGES),
+              return {
+                image: {
+                  ...generatedImage,
+                  imageData: savedImage.url,
+                  savedToFactory: true,
+                },
+                sizeBytes: savedImage.sizeBytes,
+              };
+            }),
+          );
+          const savedImages = savedResults.flatMap((item) =>
+            item.status === 'fulfilled' ? [item.value.image] : [],
+          );
+          const temporaryImages = savedResults.flatMap((item, index) =>
+            item.status === 'rejected' && batch[index] ? [batch[index]] : [],
+          );
+          setGeneratedImages((current) =>
+            [...savedImages, ...temporaryImages, ...current].slice(
+              0,
+              MAX_PERSISTED_IMAGES,
+            ),
+          );
+          const savedBytes = savedResults.reduce(
+            (total, item) =>
+              total + (item.status === 'fulfilled' ? item.value.sizeBytes : 0),
+            0,
+          );
+          if (savedImages.length) {
+            setActiveStory((current) =>
+              current?.id === activeStory.id
+                ? {
+                    ...current,
+                    imageCount: Math.min(
+                      MAX_STORY_IMAGES,
+                      current.imageCount + savedImages.length,
+                    ),
+                    storageBytes: current.storageBytes + savedBytes,
+                  }
+                : current,
             );
           }
+          const failedCount =
+            result.failedCount +
+            result.skippedCount +
+            savedResults.filter((item) => item.status === 'rejected').length;
+          if (failedCount > 0) {
+            setImageError(
+              t('status.partialImageFailure', {
+                failed: failedCount,
+                total: requestedImages,
+              }),
+            );
+          } else {
+            setNoticeKey('status.imageBatchReady');
+          }
+        } else {
+          setGeneratedImages((current) =>
+            [...batch, ...current].slice(0, MAX_PERSISTED_IMAGES),
+          );
+          if (result.failedCount > 0 || result.skippedCount > 0) {
+            setImageError(
+              t('status.partialImageFailure', {
+                failed: result.failedCount + result.skippedCount,
+                total: requestedImages,
+              }),
+            );
+          } else {
+            setNoticeKey('status.imageBatchReady');
+          }
         }
-        setNoticeKey('status.imageBatchReady');
       } catch (generationError) {
-        console.error('Image generation failed:', generationError);
         setImageError(
-          generationError instanceof StoryLimitReachedError
+          generationError instanceof StoryLimitReachedError ||
+            (generationError instanceof ImageGenerationError &&
+              generationError.code === 'story_limit')
             ? t('stories.limitReached')
-            : generationError instanceof Error &&
-                generationError.message &&
-                generationError.message !== 'Failed to fetch'
-              ? generationError.message
-              : t('status.imageGenerateFailed'),
+            : t('status.imageGenerateFailed'),
         );
       } finally {
         setIsImageGenerating(false);
-        setImageBatchProgress({ current: 0, total: 0 });
-        setCooldownSeconds(0);
       }
       return;
     }
@@ -519,8 +525,20 @@ function Home() {
   };
 
   const handleLogout = async () => {
-    await signOutFromFirebase();
-    setLocation('/login');
+    if (isSigningOut) return;
+    setIsSigningOut(true);
+    setGeneratedImages([]);
+    setPrompts({ image: '', video: '', audio: '' });
+    setActiveStory(null);
+    setPendingStorySave(null);
+    try {
+      await signOutFromFirebase();
+      setProfileOpen(false);
+      setLocation('/login');
+    } catch {
+      setImageError(t('status.signOutError'));
+      setIsSigningOut(false);
+    }
   };
 
   const profileName = user?.displayName || user?.email || 'YFactory creator';
@@ -573,7 +591,7 @@ function Home() {
               onClick={() => setProfileOpen((open) => !open)}
             >
               {user?.photoURL ? (
-                <img className="profile-avatar-image" src={user.photoURL} alt="" />
+                <img className="profile-avatar-image" src={user.photoURL} alt="" loading="lazy" />
               ) : (
                 <span className="profile-avatar-initials" aria-hidden="true">
                   {profileInitials || <UserRound size={17} />}
@@ -601,14 +619,12 @@ function Home() {
                 <button
                   type="button"
                   role="menuitem"
-                  onClick={() => {
-                    setProfileOpen(false);
-                    setLogoutConfirmationOpen(true);
-                  }}
+                  onClick={() => void handleLogout()}
+                  disabled={isSigningOut}
                   data-testid="button-profile-logout"
                 >
                   <LogOut size={16} />
-                  <span>{t('auth.logout')}</span>
+                  <span>{isSigningOut ? t('auth.signingOut') : t('auth.logout')}</span>
                 </button>
               </div>
             )}
@@ -733,6 +749,7 @@ function Home() {
                       className="upload-thumbnail"
                       src={imagePreviewUrls[index]}
                       alt={file.name}
+                      loading="lazy"
                       data-testid={`img-video-reference-${index + 1}`}
                     />
                     <button
@@ -843,22 +860,12 @@ function Home() {
           )}
           <span>
             {isCurrentImageGenerating
-              ? imageBatchProgress.total > 1
-                ? t('generate.batchLoading', {
-                    current: imageBatchProgress.current,
-                    total: imageBatchProgress.total,
-                  })
-                : t('generate.imageLoading')
+              ? t('generate.imageLoading')
               : isCurrentAudioGenerating
                 ? t('generate.loading')
                 : t('generate.button')}
           </span>
         </button>
-        {isCurrentImageGenerating && cooldownSeconds > 0 && (
-          <div className="notice cooldown-notice" role="status" aria-live="polite">
-            {t('generate.cooldown', { seconds: cooldownSeconds })}
-          </div>
-        )}
         {imageError && (
           <div className="notice notice-error" role="alert" data-testid="image-generation-error">
             {imageError}
@@ -900,6 +907,7 @@ function Home() {
                     className="generated-image"
                     src={generatedImages[index].imageData}
                     alt={t('labels.generatedImage')}
+                    loading="lazy"
                     data-testid={`generated-image-${index + 1}`}
                     onError={() => {
                       setImageError(t('status.imageGenerateFailed'));
@@ -1014,18 +1022,6 @@ function Home() {
           </>
         )}
       </main>
-      <ConfirmActionDialog
-        open={logoutConfirmationOpen}
-        onOpenChange={setLogoutConfirmationOpen}
-        title={t('confirmation.logoutTitle')}
-        description={t('confirmation.logoutDescription')}
-        confirmLabel={t('confirmation.confirm')}
-        busyLabel={t('confirmation.loggingOut')}
-        cancelLabel={t('confirmation.cancel')}
-        failureMessage={t('confirmation.logoutFailed')}
-        onConfirm={handleLogout}
-        dir={isRtl ? 'rtl' : 'ltr'}
-      />
     </div>
   );
 }
@@ -1079,7 +1075,6 @@ function LoginRoute() {
     }
   };
 
-  if (loading || user) return null;
   return (
     <LoginPage
       loading={signInLoading}
@@ -1098,7 +1093,6 @@ function ProtectedHome() {
     if (!loading && !user) setLocation('/login');
   }, [loading, setLocation, user]);
 
-  if (loading || !user) return null;
   return <Home />;
 }
 
@@ -1166,6 +1160,8 @@ function ProtectedSettings() {
 
   const handleLogout = async () => {
     await signOutFromFirebase();
+    setKeys({ zsky_keys: [], agnes_keys: [], glm_keys: [] });
+    setKeysLoaded(false);
     setLocation('/login');
   };
 
@@ -1189,17 +1185,16 @@ function ProtectedSettings() {
     setLocation('/login');
   };
 
-  if (authLoading || !user) return null;
   return (
     <SettingsPage
       user={{
-        displayName: user.displayName,
-        email: user.email,
-        photoURL: user.photoURL,
+        displayName: user?.displayName ?? null,
+        email: user?.email ?? null,
+        photoURL: user?.photoURL ?? null,
       }}
       keys={keys}
-      loading={loading}
-      ready={keysLoaded}
+      loading={loading || authLoading}
+      ready={keysLoaded && Boolean(user)}
       saving={saving}
       error={error}
       onSaveKeys={saveKeys}

@@ -1,119 +1,145 @@
-export const POLLINATIONS_FREE_IMAGE_INTERVAL_MS = 45_000;
+export type ImageProvider = 'agnes' | 'glm' | 'pollinations';
+
+export type GeneratedImage = {
+  imageData: string;
+  provider: ImageProvider;
+};
 
 export class ImageGenerationError extends Error {
   constructor(
     message: string,
-    public readonly retryAfterMs: number | null = null,
+    public readonly code: string,
+    public readonly failedCount = 0,
+    public readonly skippedCount = 0,
   ) {
     super(message);
     this.name = 'ImageGenerationError';
   }
 }
 
-export function createPollinationsImageUrl(prompt: string): string {
-  const normalizedPrompt = prompt.trim();
-  if (!normalizedPrompt) {
-    throw new Error('Enter a prompt before generating an image.');
-  }
+type GenerationResponse = {
+  images: GeneratedImage[];
+  failedCount: number;
+  skippedCount: number;
+};
 
-  const seed = Math.floor(Math.random() * 2_147_483_647);
-  return `https://image.pollinations.ai/prompt/${encodeURIComponent(normalizedPrompt)}?width=1024&height=1024&seed=${seed}`;
-}
+async function imageDataToStorageDataUrl(imageData: string): Promise<string> {
+  const response = await fetch(imageData);
+  if (!response.ok) throw new Error('Generated image data could not be read.');
+  const originalBlob = await response.blob();
+  let storageBlob = originalBlob;
 
-function retryAfterFromResponse(
-  response: Response,
-  message: string,
-): number | null {
-  const header = response.headers.get('retry-after');
-  if (header) {
-    const seconds = Number(header);
-    if (Number.isFinite(seconds) && seconds > 0) return seconds * 1000;
-    const date = Date.parse(header);
-    if (Number.isFinite(date)) return Math.max(0, date - Date.now());
-  }
-
-  const messageMatch = message.match(/retry after\s+(\d+)\s*s(?:ec(?:onds?)?)?/i);
-  return messageMatch ? Number(messageMatch[1]) * 1000 : null;
-}
-
-function imageBlobToDataUrl(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error('The generated image could not be saved.'));
-    reader.onload = () => {
-      if (typeof reader.result === 'string') resolve(reader.result);
-      else reject(new Error('The generated image could not be saved.'));
-    };
-    reader.readAsDataURL(blob);
-  });
-}
-
-async function compressImageForStorage(imageBlob: Blob): Promise<Blob> {
   try {
-    const bitmap = await createImageBitmap(imageBlob);
+    const bitmap = await createImageBitmap(originalBlob);
+    const scale = Math.min(1, 1024 / Math.max(bitmap.width, bitmap.height));
     const canvas = document.createElement('canvas');
-    const maxDimension = 1024;
-    const scale = Math.min(1, maxDimension / Math.max(bitmap.width, bitmap.height));
     canvas.width = Math.max(1, Math.round(bitmap.width * scale));
     canvas.height = Math.max(1, Math.round(bitmap.height * scale));
     const context = canvas.getContext('2d');
-    if (!context) {
-      bitmap.close();
-      return imageBlob;
+    if (context) {
+      context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      storageBlob =
+        (await new Promise<Blob | null>((resolve) =>
+          canvas.toBlob(resolve, 'image/webp', 0.78),
+        )) ?? originalBlob;
     }
-    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
     bitmap.close();
-    const compressed = await new Promise<Blob | null>((resolve) =>
-      canvas.toBlob(resolve, 'image/webp', 0.78),
-    );
-    return compressed ?? imageBlob;
   } catch {
-    return imageBlob;
+    storageBlob = originalBlob;
   }
+
+  return await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Generated image could not be prepared.'));
+    reader.onload = () => {
+      if (typeof reader.result === 'string') resolve(reader.result);
+      else reject(new Error('Generated image could not be prepared.'));
+    };
+    reader.readAsDataURL(storageBlob);
+  });
 }
 
-export async function generateImage(prompt: string): Promise<string> {
-  const imageUrl = createPollinationsImageUrl(prompt);
-  const controller = new AbortController();
-  const timeoutId = window.setTimeout(() => controller.abort(), 180_000);
-
+export async function generateImages(
+  idToken: string,
+  storyId: string | null,
+  prompt: string,
+  count: number,
+): Promise<GenerationResponse> {
+  let response: Response;
   try {
-    const response = await fetch(imageUrl, { signal: controller.signal });
-    if (!response.ok) {
-      const payload = (await response.json().catch(() => null)) as
-        | {
-            error?: { message?: unknown };
-            message?: unknown;
-          }
-        | null;
-      const apiMessage =
-        typeof payload?.error?.message === 'string'
-          ? payload.error.message
-          : typeof payload?.message === 'string'
-            ? payload.message
-            : '';
-      const message =
-        apiMessage || `Image generation failed with status ${response.status}.`;
-      throw new ImageGenerationError(
-        message,
-        retryAfterFromResponse(response, message),
-      );
-    }
-
-    const imageBlob = await response.blob();
-    if (!imageBlob.type.startsWith('image/')) {
-      throw new ImageGenerationError(
-        'The image service returned an unsupported response.',
-      );
-    }
-    const compressedBlob = await compressImageForStorage(imageBlob);
-    return await imageBlobToDataUrl(compressedBlob);
-  } catch (error) {
-    if (error instanceof DOMException && error.name === 'AbortError') {
-      throw new ImageGenerationError('Image generation timed out.');
-    }
-    throw error;
-  } finally {
-    window.clearTimeout(timeoutId);
+    response = await fetch('/api/images/generate', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${idToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ storyId, prompt, count }),
+    });
+  } catch {
+    throw new ImageGenerationError('Image generation failed.', 'network_error');
   }
+
+  const payload: unknown = await response.json().catch(() => null);
+  const result =
+    typeof payload === 'object' && payload !== null
+      ? (payload as Record<string, unknown>)
+      : {};
+  const code = typeof result.code === 'string' ? result.code : 'generation_failed';
+
+  if (!response.ok) {
+    throw new ImageGenerationError(
+      code === 'story_limit' ? 'Story limit reached.' : 'Image generation failed.',
+      code,
+      typeof result.failedCount === 'number' ? result.failedCount : 0,
+      typeof result.skippedCount === 'number' ? result.skippedCount : 0,
+    );
+  }
+
+  if (
+    !Array.isArray(result.images) ||
+    typeof result.failedCount !== 'number' ||
+    typeof result.skippedCount !== 'number'
+  ) {
+    throw new ImageGenerationError('Image generation returned an invalid response.', 'invalid_response');
+  }
+
+  const images: GeneratedImage[] = [];
+  for (const item of result.images) {
+    if (typeof item !== 'object' || item === null) continue;
+    const image = item as Record<string, unknown>;
+    if (
+      typeof image.base64 !== 'string' ||
+      typeof image.mimeType !== 'string' ||
+      !['agnes', 'glm', 'pollinations'].includes(String(image.provider))
+    ) {
+      continue;
+    }
+    images.push({
+      imageData: `data:${image.mimeType};base64,${image.base64}`,
+      provider: image.provider as ImageProvider,
+    });
+  }
+
+  if (!images.length) {
+    throw new ImageGenerationError('Image generation failed.', 'all_providers_failed');
+  }
+  const preparedResults = await Promise.allSettled(
+    images.map(async (image) => ({
+      ...image,
+      imageData: await imageDataToStorageDataUrl(image.imageData),
+    })),
+  );
+  const preparedImages = preparedResults.flatMap((item) =>
+    item.status === 'fulfilled' ? [item.value] : [],
+  );
+  if (!preparedImages.length) {
+    throw new ImageGenerationError('Image generation failed.', 'image_preparation_failed');
+  }
+  return {
+    images: preparedImages,
+    failedCount:
+      result.failedCount +
+      preparedResults.filter((item) => item.status === 'rejected').length,
+    skippedCount: result.skippedCount,
+  };
 }

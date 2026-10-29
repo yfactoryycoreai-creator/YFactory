@@ -37,6 +37,7 @@ export type StoryImageRecord = {
   createdAt: unknown;
   sizeBytes: number;
   storagePath: string;
+  provider?: 'agnes' | 'glm' | 'pollinations';
 };
 
 export class StoryLimitReachedError extends Error {
@@ -104,6 +105,12 @@ function normalizeImage(id: string, data: DocumentData): StoryImageRecord {
     createdAt: data.createdAt ?? null,
     sizeBytes: typeof data.sizeBytes === 'number' ? data.sizeBytes : 0,
     storagePath: typeof data.storagePath === 'string' ? data.storagePath : '',
+    provider:
+      data.provider === 'agnes' ||
+      data.provider === 'glm' ||
+      data.provider === 'pollinations'
+        ? data.provider
+        : undefined,
   };
 }
 
@@ -166,6 +173,7 @@ export async function saveImageToStory(
   storyId: string,
   imageBlob: Blob,
   prompt: string,
+  provider?: 'agnes' | 'glm' | 'pollinations',
 ): Promise<StoryImageRecord> {
   const db = requireFirestore();
   const storage = requireStorage();
@@ -195,6 +203,7 @@ export async function saveImageToStory(
         createdAt: serverTimestamp(),
         sizeBytes,
         storagePath,
+        ...(provider ? { provider } : {}),
       });
       transaction.update(storyRef, {
         imageCount: imageCount + 1,
@@ -209,6 +218,7 @@ export async function saveImageToStory(
       createdAt: new Date(),
       sizeBytes,
       storagePath,
+      ...(provider ? { provider } : {}),
     };
   } catch (error) {
     await deleteObject(storageRef).catch((cleanupError) => {
@@ -232,6 +242,7 @@ export async function deleteStoryImage(
     createdAt: image.createdAt,
     sizeBytes: image.sizeBytes,
     storagePath: image.storagePath,
+    ...(image.provider ? { provider: image.provider } : {}),
   };
 
   await runTransaction(db, async (transaction) => {
