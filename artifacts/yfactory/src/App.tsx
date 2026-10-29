@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   AudioLines,
-  ChevronDown,
   Clock3,
   Download,
   Globe2,
@@ -18,6 +17,7 @@ import {
   UploadCloud,
   UserRound,
   Video,
+  X,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -33,7 +33,27 @@ import {
   saveUserApiKeys,
   type UserApiKeys,
 } from '@/lib/userApiKeys';
-import { generateImage } from '@/lib/imageApi';
+import {
+  generateImage,
+  ImageGenerationError,
+  POLLINATIONS_FREE_IMAGE_INTERVAL_MS,
+} from '@/lib/imageApi';
+import {
+  MAX_PERSISTED_IMAGES,
+  readGeneratedImageHistory,
+  readGeneratorSettings,
+  writeGeneratedImageHistory,
+  writeGeneratorSettings,
+  type GeneratedImageHistoryItem,
+  type GeneratorSettings,
+} from '@/lib/generationStorage';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import {
   firebaseIsConfigured,
   firebaseConfigurationIssues,
@@ -52,6 +72,17 @@ const queryClient = new QueryClient();
 
 type Mode = 'image' | 'video' | 'audio';
 const sampleAudioUrl = 'https://samplelib.com/lib/preview/mp3/sample-3s.mp3';
+const maxVideoReferenceImages = 6;
+const settingBySelectId = {
+  'image-count': 'imageCount',
+  'video-duration': 'videoDuration',
+  'video-ratio': 'videoRatio',
+  'video-quality': 'videoQuality',
+  'audio-voice': 'audioVoice',
+  'audio-duration': 'audioDuration',
+  'audio-style': 'audioStyle',
+} as const;
+type GeneratorSelectId = keyof typeof settingBySelectId;
 
 function Home() {
   const { t, i18n } = useTranslation();
@@ -64,16 +95,24 @@ function Home() {
     video: '',
     audio: '',
   });
+  const [generatorSettings, setGeneratorSettings] =
+    useState<GeneratorSettings>(readGeneratorSettings);
   const [noticeKey, setNoticeKey] = useState('');
   const [profileOpen, setProfileOpen] = useState(false);
-  const [videoImage, setVideoImage] = useState<File | null>(null);
-  const [imagePreviewUrl, setImagePreviewUrl] = useState('');
+  const [videoImages, setVideoImages] = useState<File[]>([]);
+  const [imagePreviewUrls, setImagePreviewUrls] = useState<string[]>([]);
   const [isDraggingImage, setIsDraggingImage] = useState(false);
-  const [generatedImages, setGeneratedImages] = useState<string[]>([]);
+  const [generatedImages, setGeneratedImages] =
+    useState<GeneratedImageHistoryItem[]>(readGeneratedImageHistory);
   const [isImageGenerating, setIsImageGenerating] = useState(false);
+  const [imageBatchProgress, setImageBatchProgress] = useState({
+    current: 0,
+    total: 0,
+  });
+  const [cooldownSeconds, setCooldownSeconds] = useState(0);
   const [imageError, setImageError] = useState('');
+  const [historyWarning, setHistoryWarning] = useState('');
   const [downloadingImageIndex, setDownloadingImageIndex] = useState<number | null>(null);
-  const generatedImageUrlsRef = useRef<string[]>([]);
   const [isAudioGenerating, setIsAudioGenerating] = useState(false);
   const [audioGenerated, setAudioGenerated] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -96,18 +135,35 @@ function Home() {
   useEffect(() => {
     document.documentElement.lang = locale;
     document.documentElement.dir = isRtl ? 'rtl' : 'ltr';
-    window.localStorage.setItem('yfactory.locale', locale);
+    try {
+      window.localStorage.setItem('yfactory.locale', locale);
+    } catch {
+      // Keep the current language active even if browser storage is unavailable.
+    }
   }, [locale, isRtl]);
 
   useEffect(() => {
-    if (!videoImage) {
-      setImagePreviewUrl('');
-      return;
+    try {
+      writeGeneratorSettings(generatorSettings);
+    } catch {
+      // Settings remain usable for this session if local storage is unavailable.
     }
-    const objectUrl = URL.createObjectURL(videoImage);
-    setImagePreviewUrl(objectUrl);
-    return () => URL.revokeObjectURL(objectUrl);
-  }, [videoImage]);
+  }, [generatorSettings]);
+
+  useEffect(() => {
+    try {
+      writeGeneratedImageHistory(generatedImages);
+      setHistoryWarning('');
+    } catch {
+      setHistoryWarning(t('status.historySaveFailed'));
+    }
+  }, [generatedImages, t]);
+
+  useEffect(() => {
+    const previewUrls = videoImages.map((file) => URL.createObjectURL(file));
+    setImagePreviewUrls(previewUrls);
+    return () => previewUrls.forEach((url) => URL.revokeObjectURL(url));
+  }, [videoImages]);
 
   useEffect(() => {
     if (!profileOpen) return;
@@ -132,7 +188,6 @@ function Home() {
       if (audioTimeoutRef.current !== null) {
         window.clearTimeout(audioTimeoutRef.current);
       }
-      generatedImageUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
     },
     [],
   );
@@ -143,50 +198,82 @@ function Home() {
     setImageError('');
   };
 
-  const handleImageFile = (file: File | undefined) => {
-    if (!file) return;
-    if (!file.type.startsWith('image/')) {
+  const handleImageFiles = (files: FileList | File[] | null) => {
+    if (!files?.length) return;
+    const receivedFiles = Array.from(files);
+    const validFiles = receivedFiles.filter((file) =>
+      file.type.startsWith('image/'),
+    );
+    if (validFiles.length === 0) {
       setNoticeKey('status.invalidImage');
       return;
     }
-    setVideoImage(file);
+    const nextCount = videoImages.length + validFiles.length;
+    setVideoImages((current) =>
+      [...current, ...validFiles].slice(0, maxVideoReferenceImages),
+    );
+    if (nextCount > maxVideoReferenceImages) {
+      setNoticeKey('status.maxReferenceImages');
+      return;
+    }
     setNoticeKey('');
+  };
+
+  const updateGeneratorSetting = (
+    id: GeneratorSelectId,
+    value: string,
+  ) => {
+    const key = settingBySelectId[id];
+    setGeneratorSettings((current) => ({
+      ...current,
+      [key]: value,
+    }) as GeneratorSettings);
   };
 
   const selectField = (
     label: string,
     icon: ReactNode,
     options: readonly { value: string; label: string }[],
-    id: string,
+    id: GeneratorSelectId,
   ) => (
     <div className="control-group" key={id}>
       <label className="control-label" htmlFor={id}>
         {icon}
         {label}
       </label>
-      <div className="select-wrap">
-        <select
+      <Select
+        dir={isRtl ? 'rtl' : 'ltr'}
+        value={generatorSettings[settingBySelectId[id]]}
+        onValueChange={(value) => updateGeneratorSetting(id, value)}
+      >
+        <SelectTrigger
           className="control-select"
           id={id}
           data-testid={`select-${id}`}
           aria-label={label}
-          defaultValue={options[0]?.value}
         >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent className="custom-select-content">
           {options.map((option) => (
-            <option key={option.value} value={option.value}>
+            <SelectItem
+              key={option.value}
+              value={option.value}
+              className="custom-select-item"
+            >
               {option.label}
-            </option>
+            </SelectItem>
           ))}
-        </select>
-        <ChevronDown
-          size={14}
-          className="select-chevron"
-          aria-hidden="true"
-        />
-      </div>
+        </SelectContent>
+      </Select>
     </div>
   );
 
+  const imageCountOptions = [
+    { value: '1', label: t('options.imageCountOne') },
+    { value: '2', label: t('options.imageCountTwo') },
+    { value: '4', label: t('options.imageCountFour') },
+  ];
   const videoDurationOptions = [
     { value: '5', label: t('options.video5') },
     { value: '10', label: t('options.video10') },
@@ -228,20 +315,51 @@ function Home() {
         return;
       }
 
+      const totalImages = Number(generatorSettings.imageCount);
       setIsImageGenerating(true);
+      setImageBatchProgress({ current: 0, total: totalImages });
       try {
-        const imageUrl = await generateImage(promptToGenerate);
-        generatedImageUrlsRef.current.push(imageUrl);
-        const nextImages = [...generatedImages, imageUrl].slice(-4);
-        const removedImages = generatedImages.filter(
-          (existingUrl) => !nextImages.includes(existingUrl),
-        );
-        removedImages.forEach((removedUrl) => {
-          URL.revokeObjectURL(removedUrl);
-          generatedImageUrlsRef.current =
-            generatedImageUrlsRef.current.filter((url) => url !== removedUrl);
-        });
-        setGeneratedImages(nextImages);
+        const waitForCooldown = async (durationMs: number) => {
+          const cooldownEndsAt = Date.now() + durationMs;
+          while (Date.now() < cooldownEndsAt) {
+            const remainingMs = cooldownEndsAt - Date.now();
+            setCooldownSeconds(Math.ceil(remainingMs / 1000));
+            await new Promise<void>((resolve) =>
+              window.setTimeout(resolve, Math.min(1000, remainingMs)),
+            );
+          }
+          setCooldownSeconds(0);
+        };
+
+        const generateWithRateLimitRetry = async () => {
+          try {
+            return await generateImage(promptToGenerate);
+          } catch (error) {
+            const retryAfterMs =
+              error instanceof ImageGenerationError ? error.retryAfterMs : null;
+            if (!retryAfterMs || retryAfterMs <= 0) throw error;
+            await waitForCooldown(retryAfterMs);
+            return await generateImage(promptToGenerate);
+          }
+        };
+
+        for (let index = 0; index < totalImages; index += 1) {
+          if (index > 0) {
+            await waitForCooldown(POLLINATIONS_FREE_IMAGE_INTERVAL_MS);
+          }
+          setImageBatchProgress({ current: index + 1, total: totalImages });
+          const imageData = await generateWithRateLimitRetry();
+          const image: GeneratedImageHistoryItem = {
+            id: crypto.randomUUID(),
+            prompt: promptToGenerate,
+            createdAt: Date.now(),
+            imageData,
+          };
+          setGeneratedImages((current) =>
+            [image, ...current].slice(0, MAX_PERSISTED_IMAGES),
+          );
+        }
+        setNoticeKey('status.imageBatchReady');
       } catch (generationError) {
         console.error('Image generation failed:', generationError);
         setImageError(
@@ -253,6 +371,8 @@ function Home() {
         );
       } finally {
         setIsImageGenerating(false);
+        setImageBatchProgress({ current: 0, total: 0 });
+        setCooldownSeconds(0);
       }
       return;
     }
@@ -271,11 +391,11 @@ function Home() {
     }, 900);
   };
 
-  const handleDownloadImage = async (imageUrl: string, index: number) => {
+  const handleDownloadImage = async (imageData: string, index: number) => {
     setDownloadingImageIndex(index);
     setImageError('');
     try {
-      const response = await fetch(imageUrl);
+      const response = await fetch(imageData);
       if (!response.ok) {
         throw new Error(`Image download failed with status ${response.status}.`);
       }
@@ -322,25 +442,28 @@ function Home() {
           <span className="brand-mark" aria-hidden="true">Y</span><span>YFactory</span>
         </div>
         <div className="header-tools">
-          <div className="locale-wrap">
-            <Globe2 className="locale-globe" size={17} aria-hidden="true" />
-            <span className="locale-summary" aria-hidden="true">English / العربية / Français</span>
-            <select
-              className="locale-select"
-              value={locale}
-              onChange={(event) => {
-                void i18n.changeLanguage(event.currentTarget.value);
-                setNoticeKey('');
-              }}
+          <Select
+            dir={isRtl ? 'rtl' : 'ltr'}
+            value={locale}
+            onValueChange={(language) => {
+              void i18n.changeLanguage(language);
+              setNoticeKey('');
+            }}
+          >
+            <SelectTrigger
+              className="locale-trigger"
               aria-label={t('labels.language')}
               data-testid="select-language"
             >
-              <option value="en">English</option>
-              <option value="ar">العربية</option>
-              <option value="fr">Français</option>
-            </select>
-            <ChevronDown className="locale-chevron" size={13} aria-hidden="true" />
-          </div>
+              <Globe2 size={16} aria-hidden="true" />
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent className="custom-select-content locale-content">
+              <SelectItem className="custom-select-item" value="en">English</SelectItem>
+              <SelectItem className="custom-select-item" value="ar">العربية</SelectItem>
+              <SelectItem className="custom-select-item" value="fr">Français</SelectItem>
+            </SelectContent>
+          </Select>
           <div className="profile-menu-wrap" ref={profileMenuRef}>
             <button
               className="profile-button"
@@ -429,19 +552,20 @@ function Home() {
               id="video-source-image"
               type="file"
               accept="image/*"
+              multiple
               aria-label={t('labels.upload')}
               data-testid="input-video-source-image"
               onChange={(event) => {
-                handleImageFile(event.currentTarget.files?.[0]);
+                handleImageFiles(event.currentTarget.files);
                 event.currentTarget.value = '';
               }}
             />
             <button
               type="button"
-              className={`upload-drop${isDraggingImage ? ' is-dragging' : ''}${imagePreviewUrl ? ' has-preview' : ''}`}
+              className={`upload-drop${isDraggingImage ? ' is-dragging' : ''}${videoImages.length ? ' has-preview' : ''}`}
               aria-label={
-                videoImage
-                  ? `${t('upload.selected')}: ${videoImage.name}`
+                videoImages.length
+                  ? t('upload.selectedCount', { count: videoImages.length })
                   : t('upload.title')
               }
               data-testid="button-upload-video-image"
@@ -454,28 +578,49 @@ function Home() {
               onDrop={(event) => {
                 event.preventDefault();
                 setIsDraggingImage(false);
-                handleImageFile(event.dataTransfer.files[0]);
+                handleImageFiles(event.dataTransfer.files);
               }}
             >
-              {imagePreviewUrl ? (
-                <>
-                  <img className="upload-thumbnail" src={imagePreviewUrl} alt={t('upload.selected')} />
-                  <span className="upload-copy">
-                    <strong>{videoImage?.name ?? t('upload.selected')}</strong>
-                    <span>{t('upload.replace')}</span>
-                  </span>
-                  <UploadCloud className="upload-action-icon" size={20} />
-                </>
-              ) : (
-                <>
-                  <UploadCloud size={22} aria-hidden="true" />
-                  <span className="upload-copy">
-                    <strong>{t('upload.title')}</strong>
-                    <span>{t('upload.helper')}</span>
-                  </span>
-                </>
-              )}
+              <UploadCloud size={22} aria-hidden="true" />
+              <span className="upload-copy">
+                <strong>{t('upload.title')}</strong>
+                <span>
+                  {videoImages.length
+                    ? t('upload.selectedCount', { count: videoImages.length })
+                    : t('upload.helper')}
+                </span>
+              </span>
+              <span className="upload-limit">
+                {videoImages.length}/{maxVideoReferenceImages}
+              </span>
             </button>
+            {videoImages.length > 0 && (
+              <div className="upload-preview-list" aria-label={t('upload.selectedImages')}>
+                {videoImages.map((file, index) => (
+                  <div className="upload-preview-item" key={`${file.name}-${index}`}>
+                    <img
+                      className="upload-thumbnail"
+                      src={imagePreviewUrls[index]}
+                      alt={file.name}
+                      data-testid={`img-video-reference-${index + 1}`}
+                    />
+                    <button
+                      type="button"
+                      className="remove-upload"
+                      aria-label={t('upload.removeImage', { name: file.name })}
+                      onClick={() =>
+                        setVideoImages((current) =>
+                          current.filter((_, currentIndex) => currentIndex !== index),
+                        )
+                      }
+                      data-testid={`button-remove-video-reference-${index + 1}`}
+                    >
+                      <X size={13} aria-hidden="true" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
@@ -506,6 +651,21 @@ function Home() {
             {t('labels.characterCount', { count: prompt.length, max: characterLimit })}
           </div>
         </section>
+
+        {mode === 'image' && (
+          <section
+            className="controls image-controls"
+            aria-label={t('labels.imageCount')}
+            data-testid="image-controls"
+          >
+            {selectField(
+              t('labels.imageCount'),
+              <ImageIcon size={16} />,
+              imageCountOptions,
+              'image-count',
+            )}
+          </section>
+        )}
 
         {mode !== 'image' && (
           <section
@@ -552,15 +712,30 @@ function Home() {
           )}
           <span>
             {isCurrentImageGenerating
-              ? t('generate.imageLoading')
+              ? imageBatchProgress.total > 1
+                ? t('generate.batchLoading', {
+                    current: imageBatchProgress.current,
+                    total: imageBatchProgress.total,
+                  })
+                : t('generate.imageLoading')
               : isCurrentAudioGenerating
                 ? t('generate.loading')
                 : t('generate.button')}
           </span>
         </button>
+        {isCurrentImageGenerating && cooldownSeconds > 0 && (
+          <div className="notice cooldown-notice" role="status" aria-live="polite">
+            {t('generate.cooldown', { seconds: cooldownSeconds })}
+          </div>
+        )}
         {imageError && (
           <div className="notice notice-error" role="alert" data-testid="image-generation-error">
             {imageError}
+          </div>
+        )}
+        {historyWarning && (
+          <div className="notice notice-error" role="status" data-testid="image-history-warning">
+            {historyWarning}
           </div>
         )}
         {statusMessage && (
@@ -569,12 +744,20 @@ function Home() {
           </div>
         )}
 
+        {mode === 'image' && (
+          <div className="results-heading">
+            <h2>{t('labels.recentGenerations')}</h2>
+            <span>{generatedImages.length}</span>
+          </div>
+        )}
         <section
           className="results"
           aria-label={`${t(`tabs.${mode}`)} — ${t('labels.results')}`}
           data-testid="results-grid"
         >
-          {Array.from({ length: 4 }, (_, index) => (
+          {Array.from(
+            { length: mode === 'image' ? Math.max(4, generatedImages.length) : 4 },
+            (_, index) => (
             <div
               className={`result-tile${mode === 'audio' ? ' audio-tile' : ''}${mode === 'image' && generatedImages[index] ? ' image-tile' : ''}`}
               key={`${mode}-${index}`}
@@ -584,20 +767,15 @@ function Home() {
                 <div className="generated-image-wrap">
                   <img
                     className="generated-image"
-                    src={generatedImages[index]}
+                    src={generatedImages[index].imageData}
                     alt={t('labels.generatedImage')}
                     data-testid={`generated-image-${index + 1}`}
                     onError={() => {
                       setImageError(t('status.imageGenerateFailed'));
-                      const failedUrl = generatedImages[index];
-                      if (failedUrl) {
-                        URL.revokeObjectURL(failedUrl);
-                        generatedImageUrlsRef.current =
-                          generatedImageUrlsRef.current.filter(
-                            (url) => url !== failedUrl,
-                          );
+                      const failedImage = generatedImages[index];
+                      if (failedImage) {
                         setGeneratedImages((current) =>
-                          current.filter((url) => url !== failedUrl),
+                          current.filter((image) => image.id !== failedImage.id),
                         );
                       }
                     }}
@@ -608,9 +786,12 @@ function Home() {
                     disabled={downloadingImageIndex === index}
                     aria-busy={downloadingImageIndex === index}
                     onClick={() =>
-                      void handleDownloadImage(generatedImages[index], index)
+                      void handleDownloadImage(
+                        generatedImages[index].imageData,
+                        index,
+                      )
                     }
-                    data-testid={`button-download-image-${index + 1}`}
+                    data-testid={`button-download-image-${generatedImages[index].id}`}
                   >
                     <Download size={14} aria-hidden="true" />
                     <span>
@@ -659,20 +840,12 @@ function Home() {
                 </audio>
               )}
             </div>
-          ))}
+            ),
+          )}
         </section>
       </main>
 
     </div>
-  );
-}
-
-function RouteLoading() {
-  return (
-    <main className="route-loading" role="status" aria-live="polite">
-      <LoaderCircle className="loading-spinner" size={24} />
-      <span>Loading YFactory…</span>
-    </main>
   );
 }
 
@@ -725,7 +898,7 @@ function LoginRoute() {
     }
   };
 
-  if (loading || user) return <RouteLoading />;
+  if (loading || user) return null;
   return (
     <LoginPage
       loading={signInLoading}
@@ -744,7 +917,7 @@ function ProtectedHome() {
     if (!loading && !user) setLocation('/login');
   }, [loading, setLocation, user]);
 
-  if (loading || !user) return <RouteLoading />;
+  if (loading || !user) return null;
   return <Home />;
 }
 
@@ -819,7 +992,7 @@ function ProtectedSettings() {
     }
   };
 
-  if (authLoading || !user) return <RouteLoading />;
+  if (authLoading || !user) return null;
   return (
     <SettingsPage
       user={{
