@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { deleteUser } from 'firebase/auth';
 import {
   AudioLines,
+  BookOpen,
   Clock3,
   Download,
   Globe2,
@@ -12,9 +13,11 @@ import {
   Mic,
   Music2,
   Play,
+  Save,
   Settings,
   Sparkles,
   SquarePlay,
+  Trash2,
   UploadCloud,
   UserRound,
   Video,
@@ -30,6 +33,7 @@ import LoginPage from '@/pages/login';
 import SettingsPage from '@/pages/settings';
 import NotFound from '@/pages/not-found';
 import ConfirmActionDialog from '@/components/confirm-action-dialog';
+import StoryFactory from '@/components/story-factory';
 import {
   deleteUserDocument,
   loadUserApiKeys,
@@ -51,6 +55,13 @@ import {
   type GeneratedImageHistoryItem,
   type GeneratorSettings,
 } from '@/lib/generationStorage';
+import {
+  MAX_STORY_IMAGES,
+  saveImageToStory,
+  StoryLimitReachedError,
+  type StoryImageRecord,
+  type StoryRecord,
+} from '@/lib/stories';
 import {
   Select,
   SelectContent,
@@ -104,6 +115,10 @@ function Home() {
   const [noticeKey, setNoticeKey] = useState('');
   const [profileOpen, setProfileOpen] = useState(false);
   const [logoutConfirmationOpen, setLogoutConfirmationOpen] = useState(false);
+  const [storiesOpen, setStoriesOpen] = useState(false);
+  const [activeStory, setActiveStory] = useState<StoryRecord | null>(null);
+  const [pendingStorySave, setPendingStorySave] =
+    useState<GeneratedImageHistoryItem | null>(null);
   const [videoImages, setVideoImages] = useState<File[]>([]);
   const [imagePreviewUrls, setImagePreviewUrls] = useState<string[]>([]);
   const [isDraggingImage, setIsDraggingImage] = useState(false);
@@ -199,8 +214,37 @@ function Home() {
 
   const chooseMode = (next: Mode) => {
     setMode(next);
+    setStoriesOpen(false);
     setNoticeKey('');
     setImageError('');
+  };
+
+  const handleStorySelected = useCallback((story: StoryRecord | null) => {
+    setActiveStory(story);
+  }, []);
+
+  const handleOpenStoryGenerator = (story: StoryRecord) => {
+    setActiveStory(story);
+    setPrompts((current) => ({ ...current, image: story.script }));
+    setMode('image');
+    setStoriesOpen(false);
+    setNoticeKey('');
+    setImageError('');
+  };
+
+  const handleTemporaryImageSaved = (
+    image: GeneratedImageHistoryItem,
+    story: StoryRecord,
+    savedImage: StoryImageRecord,
+  ) => {
+    setGeneratedImages((current) => current.filter((item) => item.id !== image.id));
+    setPendingStorySave(null);
+    setActiveStory({
+      ...story,
+      imageCount: Math.min(MAX_STORY_IMAGES, story.imageCount + 1),
+      storageBytes: story.storageBytes + savedImage.sizeBytes,
+    });
+    setStoriesOpen(true);
   };
 
   const handleImageFiles = (files: FileList | File[] | null) => {
@@ -320,7 +364,17 @@ function Home() {
         return;
       }
 
-      const totalImages = Number(generatorSettings.imageCount);
+      if (activeStory && activeStory.imageCount >= MAX_STORY_IMAGES) {
+        setImageError(t('stories.limitReached'));
+        return;
+      }
+      const requestedImages = Number(generatorSettings.imageCount);
+      const totalImages = activeStory
+        ? Math.min(
+            requestedImages,
+            MAX_STORY_IMAGES - activeStory.imageCount,
+          )
+        : requestedImages;
       setIsImageGenerating(true);
       setImageBatchProgress({ current: 0, total: totalImages });
       try {
@@ -354,25 +408,67 @@ function Home() {
           }
           setImageBatchProgress({ current: index + 1, total: totalImages });
           const imageData = await generateWithRateLimitRetry();
-          const image: GeneratedImageHistoryItem = {
+          const generatedImage: GeneratedImageHistoryItem = {
             id: crypto.randomUUID(),
             prompt: promptToGenerate,
             createdAt: Date.now(),
             imageData,
           };
-          setGeneratedImages((current) =>
-            [image, ...current].slice(0, MAX_PERSISTED_IMAGES),
-          );
+          if (activeStory) {
+            try {
+              if (!user) throw new Error('Please sign in again before saving images.');
+              const imageBlob = await (await fetch(imageData)).blob();
+              const savedImage = await saveImageToStory(
+                user.uid,
+                activeStory.id,
+                imageBlob,
+                promptToGenerate,
+              );
+              setGeneratedImages((current) =>
+                [
+                  {
+                    ...generatedImage,
+                    imageData: savedImage.url,
+                    savedToFactory: true,
+                  },
+                  ...current,
+                ].slice(0, MAX_PERSISTED_IMAGES),
+              );
+              setActiveStory((current) =>
+                current?.id === activeStory.id
+                  ? {
+                      ...current,
+                      imageCount: Math.min(
+                        MAX_STORY_IMAGES,
+                        current.imageCount + 1,
+                      ),
+                      storageBytes: current.storageBytes + savedImage.sizeBytes,
+                    }
+                  : current,
+              );
+            } catch (saveError) {
+              setGeneratedImages((current) =>
+                [generatedImage, ...current].slice(0, MAX_PERSISTED_IMAGES),
+              );
+              throw saveError;
+            }
+          } else {
+            setGeneratedImages((current) =>
+              [generatedImage, ...current].slice(0, MAX_PERSISTED_IMAGES),
+            );
+          }
         }
         setNoticeKey('status.imageBatchReady');
       } catch (generationError) {
         console.error('Image generation failed:', generationError);
         setImageError(
-          generationError instanceof Error &&
-            generationError.message &&
-            generationError.message !== 'Failed to fetch'
-            ? generationError.message
-            : t('status.imageGenerateFailed'),
+          generationError instanceof StoryLimitReachedError
+            ? t('stories.limitReached')
+            : generationError instanceof Error &&
+                generationError.message &&
+                generationError.message !== 'Failed to fetch'
+              ? generationError.message
+              : t('status.imageGenerateFailed'),
         );
       } finally {
         setIsImageGenerating(false);
@@ -538,8 +634,8 @@ function Home() {
               key={tab}
               type="button"
               role="tab"
-              aria-selected={mode === tab}
-              className={`tab${mode === tab ? ' active' : ''}`}
+              aria-selected={!storiesOpen && mode === tab}
+              className={`tab${!storiesOpen && mode === tab ? ' active' : ''}`}
               onClick={() => chooseMode(tab)}
               data-testid={`tab-${tab}`}
             >
@@ -547,8 +643,38 @@ function Home() {
               <span>{t(`tabs.${tab}`)}</span>
             </button>
           ))}
+          <button
+            type="button"
+            role="tab"
+            aria-selected={storiesOpen}
+            className={`tab${storiesOpen ? ' active' : ''}`}
+            onClick={() => {
+              setStoriesOpen(true);
+              setNoticeKey('');
+              setImageError('');
+            }}
+            data-testid="tab-stories"
+          >
+            <BookOpen size={19} />
+            <span>{t('tabs.stories')}</span>
+          </button>
         </nav>
 
+        {user && (
+          <StoryFactory
+            uid={user.uid}
+            visible={storiesOpen}
+            selectedStoryId={activeStory?.id ?? null}
+            pendingImage={pendingStorySave}
+            onStorySelected={handleStorySelected}
+            onOpenGenerator={handleOpenStoryGenerator}
+            onTemporaryImageSaved={handleTemporaryImageSaved}
+            onCancelPendingSave={() => setPendingStorySave(null)}
+          />
+        )}
+
+        {!storiesOpen && (
+          <>
         {mode === 'video' && (
           <div className="video-upload">
             <input
@@ -805,6 +931,43 @@ function Home() {
                         : t('labels.download')}
                     </span>
                   </button>
+                  {!generatedImages[index].savedToFactory ? (
+                    <div className="temporary-image-actions">
+                      <button
+                        className="factory-save-button"
+                        type="button"
+                        onClick={() => {
+                          setPendingStorySave(generatedImages[index]);
+                          setStoriesOpen(true);
+                          setImageError('');
+                        }}
+                        data-testid={`button-save-temporary-${generatedImages[index].id}`}
+                      >
+                        <Save size={14} aria-hidden="true" />
+                        <span>{t('stories.saveToFactory')}</span>
+                      </button>
+                      <button
+                        className="factory-quiet-button"
+                        type="button"
+                        onClick={() =>
+                          setGeneratedImages((current) =>
+                            current.filter(
+                              (image) => image.id !== generatedImages[index].id,
+                            ),
+                          )
+                        }
+                        data-testid={`button-delete-temporary-${generatedImages[index].id}`}
+                      >
+                        <Trash2 size={14} aria-hidden="true" />
+                        <span>{t('stories.deleteTemporary')}</span>
+                      </button>
+                    </div>
+                  ) : (
+                    <span className="factory-saved-badge">
+                      <BookOpen size={13} />
+                      {t('stories.savedToFactory')}
+                    </span>
+                  )}
                 </div>
               ) : (
                 <div
@@ -848,6 +1011,8 @@ function Home() {
             ),
           )}
         </section>
+          </>
+        )}
       </main>
       <ConfirmActionDialog
         open={logoutConfirmationOpen}

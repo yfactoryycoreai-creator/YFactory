@@ -6,6 +6,7 @@ import {
   signOut,
 } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
+import { getStorage } from 'firebase/storage';
 
 export { getAuth };
 
@@ -59,6 +60,8 @@ const app = firebaseIsConfigured
 export const auth = app ? getAuth(app) : null;
 export const firebaseAuth = auth;
 export const firestore = app ? getFirestore(app) : null;
+export const firebaseStorage =
+  app && firebaseConfig.storageBucket ? getStorage(app) : null;
 
 export async function signInWithGoogle() {
   if (!auth) {

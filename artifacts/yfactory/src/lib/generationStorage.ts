@@ -13,6 +13,7 @@ export type GeneratedImageHistoryItem = {
   prompt: string;
   createdAt: number;
   imageData: string;
+  savedToFactory?: boolean;
 };
 
 export const DEFAULT_GENERATOR_SETTINGS: GeneratorSettings = {
@@ -89,7 +90,9 @@ function isGeneratedImageHistoryItem(
     typeof item.prompt === 'string' &&
     typeof item.createdAt === 'number' &&
     typeof item.imageData === 'string' &&
-    item.imageData.startsWith('data:image/')
+    (item.imageData.startsWith('data:image/') ||
+      (item.savedToFactory === true &&
+        item.imageData.startsWith('https://')))
   );
 }
 
