@@ -9,33 +9,15 @@ import { getFirestore } from 'firebase/firestore';
 
 export { getAuth };
 
-const clientEnv = import.meta.env as unknown as Record<
-  string,
-  string | undefined
->;
-
 const firebaseConfig = {
-  apiKey:
-    clientEnv.VITE_FIREBASE_API_KEY ||
-    clientEnv.NEXT_PUBLIC_FIREBASE_API_KEY,
-  authDomain:
-    clientEnv.VITE_FIREBASE_AUTH_DOMAIN ||
-    clientEnv.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
-  projectId:
-    clientEnv.VITE_FIREBASE_PROJECT_ID ||
-    clientEnv.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-  storageBucket:
-    clientEnv.VITE_FIREBASE_STORAGE_BUCKET ||
-    clientEnv.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || undefined,
+  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || undefined,
+  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || undefined,
+  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || undefined,
   messagingSenderId:
-    clientEnv.VITE_FIREBASE_MESSAGING_SENDER_ID ||
-    clientEnv.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
-  appId:
-    clientEnv.VITE_FIREBASE_APP_ID ||
-    clientEnv.NEXT_PUBLIC_FIREBASE_APP_ID,
-  measurementId:
-    clientEnv.VITE_FIREBASE_MEASUREMENT_ID ||
-    clientEnv.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID,
+    process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || undefined,
+  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID || undefined,
+  measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID || undefined,
 };
 
 console.log('[Firebase] Loaded client config', {
