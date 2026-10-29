@@ -12,6 +12,8 @@ tags:
     description: Health operations
   - name: images
     description: Image generation operations
+  - name: vault
+    description: Encrypted provider API key vault operations
 paths:
   /healthz:
     get:
@@ -71,6 +73,129 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
+  /vault/keys:
+    get:
+      operationId: listVaultKeys
+      tags: [vault]
+      summary: List masked API key metadata
+      security:
+        - FirebaseBearerAuth: []
+      responses:
+        "200":
+          description: Masked key metadata; secret values are never returned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VaultKeyList"
+        "401":
+          description: Missing or invalid Firebase ID token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+    post:
+      operationId: createVaultKey
+      tags: [vault]
+      summary: Add an encrypted provider API key
+      security:
+        - FirebaseBearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateVaultKeyInput"
+      responses:
+        "201":
+          description: Masked metadata for the newly created key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VaultKey"
+        "400":
+          description: Invalid key metadata.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: Missing or invalid Firebase ID token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /vault/keys/{provider}/{keyId}:
+    parameters:
+      - name: provider
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/ProviderId"
+      - name: keyId
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+    patch:
+      operationId: updateVaultKey
+      tags: [vault]
+      summary: Update a key label or enabled state
+      security:
+        - FirebaseBearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateVaultKeyInput"
+      responses:
+        "200":
+          description: Updated masked key metadata.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VaultKey"
+        "400":
+          description: Invalid key metadata.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: Missing or invalid Firebase ID token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Key not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+    delete:
+      operationId: deleteVaultKey
+      tags: [vault]
+      summary: Delete a provider API key
+      security:
+        - FirebaseBearerAuth: []
+      responses:
+        "204":
+          description: Key deleted.
+        "401":
+          description: Missing or invalid Firebase ID token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Key not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
 components:
   schemas:
     HealthStatus:
@@ -100,12 +225,18 @@ components:
       properties:
         base64:
           type: string
+        url:
+          type: string
+          format: uri
         mimeType:
           type: string
+        sizeBytes:
+          type: integer
+          minimum: 0
         provider:
           type: string
-          enum: [agnes, glm, pollinations]
-      required: [base64, mimeType, provider]
+          enum: [agnes, glm, zsky, pollinations]
+      required: [provider]
     ImageGenerationResult:
       type: object
       properties:
@@ -130,6 +261,64 @@ components:
         skippedCount:
           type: integer
       required: [error, code]
+    ProviderId:
+      type: string
+      enum: [zsky, agnes, glm]
+    VaultKey:
+      type: object
+      properties:
+        id:
+          type: string
+        provider:
+          $ref: "#/components/schemas/ProviderId"
+        label:
+          type: string
+        maskedValue:
+          type: string
+        enabled:
+          type: boolean
+        createdAt:
+          type: integer
+          format: int64
+        status:
+          type: string
+          enum: [ready, failing, cooldown]
+        cooldownUntil:
+          type: ["integer", "null"]
+          format: int64
+      required: [id, provider, label, maskedValue, enabled, createdAt, status]
+    VaultKeyList:
+      type: object
+      properties:
+        keys:
+          type: array
+          items:
+            $ref: "#/components/schemas/VaultKey"
+      required: [keys]
+    CreateVaultKeyInput:
+      type: object
+      properties:
+        provider:
+          $ref: "#/components/schemas/ProviderId"
+        label:
+          type: string
+          minLength: 1
+          maxLength: 80
+        value:
+          type: string
+          minLength: 1
+          maxLength: 4096
+      required: [provider, label, value]
+    UpdateVaultKeyInput:
+      type: object
+      properties:
+        label:
+          type: string
+          minLength: 1
+          maxLength: 80
+        enabled:
+          type: boolean
+      minProperties: 1
   securitySchemes:
     FirebaseBearerAuth:
       type: http

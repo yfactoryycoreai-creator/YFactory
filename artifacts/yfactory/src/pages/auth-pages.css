@@ -278,6 +278,90 @@
 .provider-key-row .provider-key-input::placeholder { color: #66728a; font: 11px 'DM Sans',sans-serif; }
 .provider-key-row .provider-key-input:focus { border-color: rgba(84,121,231,.68); box-shadow: 0 0 0 3px rgba(68,101,211,.1); }
 .provider-key-row .provider-key-input:disabled { opacity: .6; }
+.vault-key-row {
+  min-height: 76px;
+  padding: 12px 4px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-top: 1px solid rgba(124,143,180,.11);
+}
+.vault-key-details { min-width: 0; flex: 1; display: grid; gap: 5px; }
+.vault-key-label-row { display: flex; align-items: center; gap: 4px; }
+.vault-key-label {
+  width: min(100%, 260px);
+  min-width: 0;
+  height: 29px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  outline: none;
+  color: #dce5fa;
+  background: transparent;
+  font: 12px 'DM Sans',sans-serif;
+}
+.vault-key-label:focus { border-color: rgba(84,121,231,.55); background: rgba(7,11,20,.4); }
+.vault-key-mask { width: fit-content; padding-inline-start: 8px; color: #95a4c0; font: 11px 'DM Mono',monospace; direction: ltr; unicode-bidi: isolate; }
+.vault-key-meta { padding-inline-start: 8px; display: flex; flex-wrap: wrap; align-items: center; gap: 9px; color: #71809b; font-size: 10px; }
+.vault-key-status { color: #88c8a3; }
+.vault-key-status-failing { color: #ff9097; }
+.vault-key-status-cooldown { color: #e8c177; }
+.vault-key-actions { display: flex; align-items: center; gap: 6px; }
+.vault-key-toggle {
+  width: 34px;
+  height: 20px;
+  padding: 2px;
+  display: flex;
+  align-items: center;
+  border: 1px solid rgba(127,147,186,.22);
+  border-radius: 99px;
+  background: rgba(255,255,255,.06);
+  cursor: pointer;
+  transition: background .18s,border-color .18s;
+}
+.vault-key-toggle span { width: 14px; height: 14px; border-radius: 50%; background: #8995aa; transition: transform .18s,background .18s; }
+.vault-key-toggle.is-enabled { justify-content: flex-end; border-color: rgba(64,137,248,.65); background: rgba(43,105,219,.42); }
+.vault-key-toggle.is-enabled span { background: #dce8ff; }
+.vault-key-toggle:disabled { opacity: .5; cursor: wait; }
+.vault-add-form { width: 100%; display: grid; gap: 9px; }
+.vault-add-form input {
+  width: 100%;
+  min-width: 0;
+  height: 36px;
+  padding: 0 11px;
+  border: 1px solid rgba(127,147,186,.17);
+  border-radius: 8px;
+  outline: none;
+  color: #e2e8f7;
+  background: rgba(7,11,20,.55);
+  font: 12px 'DM Sans',sans-serif;
+}
+.vault-add-form .vault-add-value { font: 11px 'DM Mono',monospace; direction: ltr; text-align: start; }
+.vault-add-form input::placeholder { color: #66728a; font: 11px 'DM Sans',sans-serif; }
+.vault-add-form input:focus { border-color: rgba(84,121,231,.68); box-shadow: 0 0 0 3px rgba(68,101,211,.1); }
+.vault-add-value-wrap { display: flex; align-items: center; gap: 4px; }
+.vault-add-value-wrap input { flex: 1; }
+.vault-add-actions { display: flex; align-items: center; gap: 9px; }
+.vault-cancel-button { height: 36px; padding: 0 10px; border: 0; color: #99a6bd; background: transparent; cursor: pointer; font-size: 11px; }
+.vault-cancel-button:hover:not(:disabled) { color: #e4eafa; }
+.vault-cancel-button:disabled { opacity: .5; cursor: wait; }
+.settings-toast {
+  position: fixed;
+  z-index: 80;
+  right: 22px;
+  bottom: 22px;
+  max-width: min(360px,calc(100vw - 32px));
+  padding: 11px 15px;
+  border: 1px solid rgba(94,133,245,.35);
+  border-radius: 10px;
+  color: #e7eeff;
+  background: #111b31;
+  box-shadow: 0 12px 36px rgba(0,0,0,.35);
+  font-size: 12px;
+  animation: settings-toast-in .18s ease-out;
+}
+@keyframes settings-toast-in { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
 .icon-action { width: 29px; height: 29px; flex: none; display: grid; place-items: center; border: 1px solid transparent; border-radius: 7px; color: #7886a0; background: transparent; cursor: pointer; }
 .icon-action:hover:not(:disabled) { color: #dce5fc; border-color: rgba(134,155,197,.2); background: rgba(255,255,255,.045); }
 .delete-action:hover:not(:disabled) { color: #ff8890; border-color: rgba(255,110,126,.2); background: rgba(127,35,49,.16); }
@@ -373,6 +457,10 @@
   .provider-card-head { padding: 12px; gap: 10px; }
   .provider-copy p { font-size: 10px; }
   .provider-key-list { padding: 0 12px; }
+  .vault-key-row { align-items: flex-start; padding: 10px 0; }
+  .vault-key-actions { padding-top: 2px; }
+  .vault-key-label { width: min(100%, 190px); }
+  .settings-toast { right: 16px; bottom: 16px; }
   .provider-add-form { padding: 11px 12px; gap: 7px; }
   .add-key-button { min-width: 39px; padding: 0 10px; }
   .add-key-button span { display: none; }

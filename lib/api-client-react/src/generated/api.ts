@@ -21,9 +21,14 @@ import type {
 
 import type {
   ApiError,
+  CreateVaultKeyInput,
   HealthStatus,
   ImageGenerationInput,
-  ImageGenerationResult
+  ImageGenerationResult,
+  ProviderId,
+  UpdateVaultKeyInput,
+  VaultKey,
+  VaultKeyList
 } from './api.schemas';
 
 import { customFetch } from '../custom-fetch';
@@ -219,3 +224,336 @@ export const useGenerateStoryImages = <TError = ErrorType<ApiError>,
       > => {
       return useMutation(getGenerateStoryImagesMutationOptions(options));
     }
+
+export const getListVaultKeysUrl = () => {
+
+
+
+
+  return `/api/vault/keys`
+}
+
+/**
+ * @summary List masked API key metadata
+ */
+export const listVaultKeys = async ( options?: Parameters<typeof customFetch>[1]): Promise<VaultKeyList> => {
+
+  return customFetch<VaultKeyList>(getListVaultKeysUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListVaultKeysQueryKey = () => {
+    return [
+    `/api/vault/keys`
+    ] as const;
+    }
+
+
+export const getListVaultKeysQueryOptions = <TData = Awaited<ReturnType<typeof listVaultKeys>>, TError = ErrorType<ApiError>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listVaultKeys>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListVaultKeysQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listVaultKeys>>> = ({ signal }) => listVaultKeys({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listVaultKeys>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListVaultKeysQueryResult = NonNullable<Awaited<ReturnType<typeof listVaultKeys>>>
+export type ListVaultKeysQueryError = ErrorType<ApiError>
+
+
+/**
+ * @summary List masked API key metadata
+ */
+
+export function useListVaultKeys<TData = Awaited<ReturnType<typeof listVaultKeys>>, TError = ErrorType<ApiError>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listVaultKeys>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListVaultKeysQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateVaultKeyUrl = () => {
+
+
+
+
+  return `/api/vault/keys`
+}
+
+/**
+ * @summary Add an encrypted provider API key
+ */
+export const createVaultKey = async (createVaultKeyInput: CreateVaultKeyInput, options?: Parameters<typeof customFetch>[1]): Promise<VaultKey> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<VaultKey>(getCreateVaultKeyUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(createVaultKeyInput)
+  }
+);}
+
+
+
+
+
+export const getCreateVaultKeyMutationKey = () => ['createVaultKey'] as const;
+
+export const getCreateVaultKeyMutationOptions = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createVaultKey>>, TError,CreateVaultKeyMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createVaultKey>>, TError,CreateVaultKeyMutationVariables, TContext> => {
+
+const mutationKey = getCreateVaultKeyMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createVaultKey>>, CreateVaultKeyMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  createVaultKey(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateVaultKeyMutationResult = NonNullable<Awaited<ReturnType<typeof createVaultKey>>>
+    export type CreateVaultKeyMutationBody = BodyType<CreateVaultKeyInput>
+    export type CreateVaultKeyMutationError = ErrorType<ApiError>
+    export type CreateVaultKeyMutationVariables = {data: BodyType<CreateVaultKeyInput>}
+
+    /**
+ * @summary Add an encrypted provider API key
+ */
+export const useCreateVaultKey = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createVaultKey>>, TError,CreateVaultKeyMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createVaultKey>>,
+        TError,
+        CreateVaultKeyMutationVariables,
+        TContext
+      > => {
+      return useMutation(getCreateVaultKeyMutationOptions(options));
+    }
+
+export const getUpdateVaultKeyUrl = (provider: ProviderId,
+    keyId: string,) => {
+
+
+
+
+  return `/api/vault/keys/${provider}/${keyId}`
+}
+
+/**
+ * @summary Update a key label or enabled state
+ */
+export const updateVaultKey = async (provider: ProviderId,
+    keyId: string,
+    updateVaultKeyInput: UpdateVaultKeyInput, options?: Parameters<typeof customFetch>[1]): Promise<VaultKey> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<VaultKey>(getUpdateVaultKeyUrl(provider,keyId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(updateVaultKeyInput)
+  }
+);}
+
+
+
+
+
+export const getUpdateVaultKeyMutationKey = () => ['updateVaultKey'] as const;
+
+export const getUpdateVaultKeyMutationOptions = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateVaultKey>>, TError,UpdateVaultKeyMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateVaultKey>>, TError,UpdateVaultKeyMutationVariables, TContext> => {
+
+const mutationKey = getUpdateVaultKeyMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateVaultKey>>, UpdateVaultKeyMutationVariables> = (props) => {
+          const {provider,keyId,data} = props ?? {};
+
+          return  updateVaultKey(provider,keyId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateVaultKeyMutationResult = NonNullable<Awaited<ReturnType<typeof updateVaultKey>>>
+    export type UpdateVaultKeyMutationBody = BodyType<UpdateVaultKeyInput>
+    export type UpdateVaultKeyMutationError = ErrorType<ApiError>
+    export type UpdateVaultKeyMutationVariables = {provider: ProviderId;keyId: string;data: BodyType<UpdateVaultKeyInput>}
+
+    /**
+ * @summary Update a key label or enabled state
+ */
+export const useUpdateVaultKey = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateVaultKey>>, TError,UpdateVaultKeyMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateVaultKey>>,
+        TError,
+        UpdateVaultKeyMutationVariables,
+        TContext
+      > => {
+      return useMutation(getUpdateVaultKeyMutationOptions(options));
+    }
+
+export const getDeleteVaultKeyUrl = (provider: ProviderId,
+    keyId: string,) => {
+
+
+
+
+  return `/api/vault/keys/${provider}/${keyId}`
+}
+
+/**
+ * @summary Delete a provider API key
+ */
+export const deleteVaultKey = async (provider: ProviderId,
+    keyId: string, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+  return customFetch<void>(getDeleteVaultKeyUrl(provider,keyId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getDeleteVaultKeyMutationKey = () => ['deleteVaultKey'] as const;
+
+export const getDeleteVaultKeyMutationOptions = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteVaultKey>>, TError,DeleteVaultKeyMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteVaultKey>>, TError,DeleteVaultKeyMutationVariables, TContext> => {
+
+const mutationKey = getDeleteVaultKeyMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteVaultKey>>, DeleteVaultKeyMutationVariables> = (props) => {
+          const {provider,keyId} = props ?? {};
+
+          return  deleteVaultKey(provider,keyId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteVaultKeyMutationResult = NonNullable<Awaited<ReturnType<typeof deleteVaultKey>>>
+
+    export type DeleteVaultKeyMutationError = ErrorType<ApiError>
+    export type DeleteVaultKeyMutationVariables = {provider: ProviderId;keyId: string}
+
+    /**
+ * @summary Delete a provider API key
+ */
+export const useDeleteVaultKey = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteVaultKey>>, TError,DeleteVaultKeyMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteVaultKey>>,
+        TError,
+        DeleteVaultKeyMutationVariables,
+        TContext
+      > => {
+      return useMutation(getDeleteVaultKeyMutationOptions(options));
+    }
+

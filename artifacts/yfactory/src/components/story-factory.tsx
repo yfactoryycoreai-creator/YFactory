@@ -14,7 +14,9 @@ import ConfirmActionDialog from '@/components/confirm-action-dialog';
 import {
   createStory,
   deleteStoryImage,
+  fetchOlderStories,
   MAX_STORY_IMAGES,
+  STORY_PAGE_SIZE,
   saveImageToStory,
   subscribeToStories,
   subscribeToStoryImages,
@@ -76,6 +78,8 @@ export default function StoryFactory({
   const locale = i18n.resolvedLanguage ?? i18n.language;
   const [stories, setStories] = useState<StoryRecord[]>([]);
   const [storiesLoading, setStoriesLoading] = useState(true);
+  const [hasMoreStories, setHasMoreStories] = useState(false);
+  const [storiesLoadingMore, setStoriesLoadingMore] = useState(false);
   const [images, setImages] = useState<StoryImageRecord[]>([]);
   const [imagesLoading, setImagesLoading] = useState(false);
   const [error, setError] = useState('');
@@ -112,9 +116,14 @@ export default function StoryFactory({
     return subscribeToStories(
       uid,
       (nextStories) => {
-        setStories(nextStories);
+        const nextIds = new Set(nextStories.map((story) => story.id));
+        setStories((current) => [
+          ...nextStories,
+          ...current.filter((story) => !nextIds.has(story.id)),
+        ]);
         setStoriesLoading(false);
       },
+      setHasMoreStories,
       (loadError) => {
         console.error('Could not load stories:', loadError);
         setError(t('stories.loadFailed'));
@@ -122,6 +131,29 @@ export default function StoryFactory({
       },
     );
   }, [uid, t, visible]);
+
+  const handleLoadOlderStories = async () => {
+    const cursor = stories[stories.length - 1];
+    if (!cursor || storiesLoadingMore || !hasMoreStories) return;
+    setStoriesLoadingMore(true);
+    setError('');
+    try {
+      const page = await fetchOlderStories(uid, cursor);
+      setStories((current) => {
+        const currentIds = new Set(current.map((story) => story.id));
+        return [
+          ...current,
+          ...page.stories.filter((story) => !currentIds.has(story.id)),
+        ];
+      });
+      setHasMoreStories(page.hasMore);
+    } catch (loadError) {
+      console.error('Could not load older stories:', loadError);
+      setError(t('stories.loadFailed'));
+    } finally {
+      setStoriesLoadingMore(false);
+    }
+  };
 
   useEffect(() => {
     if (!visible || !selectedStoryId) {
@@ -154,7 +186,7 @@ export default function StoryFactory({
 
   useEffect(() => {
     if (selectedStory) setScript(selectedStory.script);
-  }, [selectedStory?.id]);
+  }, [selectedStory?.id, selectedStory?.script]);
 
   const handleCreateStory = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -408,7 +440,6 @@ export default function StoryFactory({
           </div>
           {imagesLoading ? (
             <div className="factory-empty" role="status">
-              <LoaderCircle className="loading-spinner" size={20} />
               {t('stories.loadingImages')}
             </div>
           ) : images.length ? (
@@ -478,10 +509,10 @@ export default function StoryFactory({
 
           {storiesLoading ? (
             <div className="factory-empty" role="status">
-              <LoaderCircle className="loading-spinner" size={20} />
               {t('stories.loading')}
             </div>
           ) : stories.length ? (
+            <>
             <div className="story-list">
               {stories.map((story) => (
                 <article className="story-card" key={story.id}>
@@ -528,6 +559,20 @@ export default function StoryFactory({
                 </article>
               ))}
             </div>
+            {hasMoreStories && stories.length >= STORY_PAGE_SIZE && (
+              <div className="story-load-more">
+                <button
+                  className="factory-quiet-button"
+                  type="button"
+                  onClick={() => void handleLoadOlderStories()}
+                  disabled={storiesLoadingMore}
+                  data-testid="button-load-older-stories"
+                >
+                  {storiesLoadingMore ? t('stories.loadingOlder') : t('stories.loadOlder')}
+                </button>
+              </div>
+            )}
+            </>
           ) : (
             <div className="factory-empty factory-empty-card">
               <BookOpen size={28} />

@@ -35,12 +35,112 @@ export const GenerateStoryImagesBody = zod.object({
   "count": zod.number().int().min(1).max(generateStoryImagesBodyCountMax)
 })
 
+export const generateStoryImagesResponseImagesItemSizeBytesMin = 0;
+
+
+
 export const GenerateStoryImagesResponse = zod.object({
   "images": zod.array(zod.object({
-  "base64": zod.string(),
-  "mimeType": zod.string(),
-  "provider": zod.enum(['agnes', 'glm', 'pollinations'])
+  "base64": zod.string().optional(),
+  "url": zod.string().url().optional(),
+  "mimeType": zod.string().optional(),
+  "sizeBytes": zod.number().int().min(generateStoryImagesResponseImagesItemSizeBytesMin).optional(),
+  "provider": zod.enum(['agnes', 'glm', 'zsky', 'pollinations'])
 })),
   "failedCount": zod.number().int(),
   "skippedCount": zod.number().int()
 })
+
+
+/**
+ * @summary List masked API key metadata
+ */
+export const ListVaultKeysResponse = zod.object({
+  "keys": zod.array(zod.object({
+  "id": zod.string(),
+  "provider": zod.enum(['zsky', 'agnes', 'glm']),
+  "label": zod.string(),
+  "maskedValue": zod.string(),
+  "enabled": zod.boolean(),
+  "createdAt": zod.number().int(),
+  "status": zod.enum(['ready', 'failing', 'cooldown']),
+  "cooldownUntil": zod.number().int().nullish()
+}))
+})
+
+
+/**
+ * @summary Add an encrypted provider API key
+ */
+export const createVaultKeyBodyLabelMax = 80;
+
+export const createVaultKeyBodyValueMax = 4096;
+
+
+
+export const CreateVaultKeyBody = zod.object({
+  "provider": zod.enum(['zsky', 'agnes', 'glm']),
+  "label": zod.string().min(1).max(createVaultKeyBodyLabelMax),
+  "value": zod.string().min(1).max(createVaultKeyBodyValueMax)
+})
+
+export const CreateVaultKeyResponse = zod.object({
+  "id": zod.string(),
+  "provider": zod.enum(['zsky', 'agnes', 'glm']),
+  "label": zod.string(),
+  "maskedValue": zod.string(),
+  "enabled": zod.boolean(),
+  "createdAt": zod.number().int(),
+  "status": zod.enum(['ready', 'failing', 'cooldown']),
+  "cooldownUntil": zod.number().int().nullish()
+})
+
+
+/**
+ * @summary Update a key label or enabled state
+ */
+export const updateVaultKeyPathKeyIdMax = 128;
+
+
+
+export const UpdateVaultKeyParams = zod.object({
+  "provider": zod.enum(['zsky', 'agnes', 'glm']),
+  "keyId": zod.coerce.string().min(1).max(updateVaultKeyPathKeyIdMax)
+})
+
+export const updateVaultKeyBodyLabelMax = 80;
+
+
+
+export const UpdateVaultKeyBody = zod.object({
+  "label": zod.string().min(1).max(updateVaultKeyBodyLabelMax).optional(),
+  "enabled": zod.boolean().optional()
+})
+
+export const UpdateVaultKeyResponse = zod.object({
+  "id": zod.string(),
+  "provider": zod.enum(['zsky', 'agnes', 'glm']),
+  "label": zod.string(),
+  "maskedValue": zod.string(),
+  "enabled": zod.boolean(),
+  "createdAt": zod.number().int(),
+  "status": zod.enum(['ready', 'failing', 'cooldown']),
+  "cooldownUntil": zod.number().int().nullish()
+})
+
+
+/**
+ * @summary Delete a provider API key
+ */
+export const deleteVaultKeyPathKeyIdMax = 128;
+
+
+
+export const DeleteVaultKeyParams = zod.object({
+  "provider": zod.enum(['zsky', 'agnes', 'glm']),
+  "keyId": zod.coerce.string().min(1).max(deleteVaultKeyPathKeyIdMax)
+})
+
+export const DeleteVaultKeyResponse = zod.void()
+
+

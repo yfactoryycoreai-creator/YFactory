@@ -33,12 +33,16 @@ export type GeneratedImageProvider = typeof GeneratedImageProvider[keyof typeof 
 export const GeneratedImageProvider = {
   agnes: 'agnes',
   glm: 'glm',
+  zsky: 'zsky',
   pollinations: 'pollinations',
 } as const;
 
 export interface GeneratedImage {
-  base64: string;
-  mimeType: string;
+  base64?: string;
+  url?: string;
+  mimeType?: string;
+  /** @minimum 0 */
+  sizeBytes?: number;
   provider: GeneratedImageProvider;
 }
 
@@ -54,3 +58,61 @@ export interface ApiError {
   failedCount?: number;
   skippedCount?: number;
 }
+
+export type ProviderId = typeof ProviderId[keyof typeof ProviderId];
+
+
+export const ProviderId = {
+  zsky: 'zsky',
+  agnes: 'agnes',
+  glm: 'glm',
+} as const;
+
+export type VaultKeyStatus = typeof VaultKeyStatus[keyof typeof VaultKeyStatus];
+
+
+export const VaultKeyStatus = {
+  ready: 'ready',
+  failing: 'failing',
+  cooldown: 'cooldown',
+} as const;
+
+export interface VaultKey {
+  id: string;
+  provider: ProviderId;
+  label: string;
+  maskedValue: string;
+  enabled: boolean;
+  createdAt: number;
+  status: VaultKeyStatus;
+  /** @nullable */
+  cooldownUntil?: number | null;
+}
+
+export interface VaultKeyList {
+  keys: VaultKey[];
+}
+
+export interface CreateVaultKeyInput {
+  provider: ProviderId;
+  /**
+     * @minLength 1
+     * @maxLength 80
+     */
+  label: string;
+  /**
+     * @minLength 1
+     * @maxLength 4096
+     */
+  value: string;
+}
+
+export interface UpdateVaultKeyInput {
+  /**
+     * @minLength 1
+     * @maxLength 80
+     */
+  label?: string;
+  enabled?: boolean;
+}
+

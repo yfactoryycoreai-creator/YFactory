@@ -8,7 +8,10 @@
 import type { GeneratedImageProvider } from './generatedImageProvider';
 
 export interface GeneratedImage {
-  base64: string;
-  mimeType: string;
+  base64?: string;
+  url?: string;
+  mimeType?: string;
+  /** @minimum 0 */
+  sizeBytes?: number;
   provider: GeneratedImageProvider;
 }

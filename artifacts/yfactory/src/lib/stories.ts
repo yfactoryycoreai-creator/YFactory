@@ -1,12 +1,16 @@
 import {
   collection,
+  documentId,
   doc,
+  getDocs,
+  limit,
   onSnapshot,
   orderBy,
   query,
   runTransaction,
   serverTimestamp,
   setDoc,
+  startAfter,
   updateDoc,
   type DocumentData,
   type Unsubscribe,
@@ -20,6 +24,7 @@ import {
 import { firebaseStorage, firestore } from '@/lib/firebase';
 
 export const MAX_STORY_IMAGES = 100;
+export const STORY_PAGE_SIZE = 50;
 
 export type StoryRecord = {
   id: string;
@@ -37,7 +42,7 @@ export type StoryImageRecord = {
   createdAt: unknown;
   sizeBytes: number;
   storagePath: string;
-  provider?: 'agnes' | 'glm' | 'pollinations';
+  provider?: 'agnes' | 'glm' | 'zsky' | 'pollinations';
 };
 
 export class StoryLimitReachedError extends Error {
@@ -108,6 +113,7 @@ function normalizeImage(id: string, data: DocumentData): StoryImageRecord {
     provider:
       data.provider === 'agnes' ||
       data.provider === 'glm' ||
+      data.provider === 'zsky' ||
       data.provider === 'pollinations'
         ? data.provider
         : undefined,
@@ -117,16 +123,47 @@ function normalizeImage(id: string, data: DocumentData): StoryImageRecord {
 export function subscribeToStories(
   uid: string,
   onStories: (stories: StoryRecord[]) => void,
+  onHasMore: (hasMore: boolean) => void,
   onError: (error: Error) => void,
 ): Unsubscribe {
-  const storiesQuery = query(userStoriesCollection(uid), orderBy('createdAt', 'desc'));
+  const storiesQuery = query(
+    userStoriesCollection(uid),
+    orderBy('createdAt', 'desc'),
+    orderBy(documentId(), 'desc'),
+    limit(STORY_PAGE_SIZE + 1),
+  );
   return onSnapshot(
     storiesQuery,
     (snapshot) => {
-      onStories(snapshot.docs.map((item) => normalizeStory(item.id, item.data())));
+      onStories(
+        snapshot.docs
+          .slice(0, STORY_PAGE_SIZE)
+          .map((item) => normalizeStory(item.id, item.data())),
+      );
+      onHasMore(snapshot.docs.length > STORY_PAGE_SIZE);
     },
     onError,
   );
+}
+
+export async function fetchOlderStories(
+  uid: string,
+  cursor: StoryRecord,
+): Promise<{ stories: StoryRecord[]; hasMore: boolean }> {
+  const nextPageQuery = query(
+    userStoriesCollection(uid),
+    orderBy('createdAt', 'desc'),
+    orderBy(documentId(), 'desc'),
+    startAfter(cursor.createdAt, cursor.id),
+    limit(STORY_PAGE_SIZE + 1),
+  );
+  const snapshot = await getDocs(nextPageQuery);
+  return {
+    stories: snapshot.docs
+      .slice(0, STORY_PAGE_SIZE)
+      .map((item) => normalizeStory(item.id, item.data())),
+    hasMore: snapshot.docs.length > STORY_PAGE_SIZE,
+  };
 }
 
 export function subscribeToStoryImages(
@@ -138,6 +175,7 @@ export function subscribeToStoryImages(
   const imagesQuery = query(
     storyImagesCollection(uid, storyId),
     orderBy('createdAt', 'desc'),
+    limit(MAX_STORY_IMAGES),
   );
   return onSnapshot(
     imagesQuery,
@@ -173,7 +211,7 @@ export async function saveImageToStory(
   storyId: string,
   imageBlob: Blob,
   prompt: string,
-  provider?: 'agnes' | 'glm' | 'pollinations',
+  provider?: 'agnes' | 'glm' | 'zsky' | 'pollinations',
 ): Promise<StoryImageRecord> {
   const db = requireFirestore();
   const storage = requireStorage();

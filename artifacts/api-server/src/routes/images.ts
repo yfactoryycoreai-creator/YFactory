@@ -1,199 +1,323 @@
-import { Router, type IRouter } from 'express';
-import { GenerateStoryImagesBody } from '@workspace/api-zod';
+import { randomUUID } from "node:crypto";
+import { GenerateStoryImagesBody, GenerateStoryImagesResponse } from "@workspace/api-zod";
+import { FieldValue } from "firebase-admin/firestore";
+import { Router, type IRouter } from "express";
+import {
+  clearProviderKeyCooldown,
+  getGenerationKeys,
+  recordProviderKeyFailure,
+  type ProviderKey,
+  type ProviderGenerationKeys,
+} from "../lib/apiKeyVault";
+import { getFirebaseAdmin, verifyFirebaseIdToken } from "../lib/firebaseAdmin";
 import {
   generateImageWithFallback,
+  type GeneratedImageAsset,
   type ImageProvider,
-  type ProviderKeys,
-} from '../lib/imageGeneration';
+} from "../lib/imageGeneration";
 
 const router: IRouter = Router();
 const MAX_STORY_IMAGES = 100;
 
-type FirestoreDocument = {
-  fields?: Record<string, unknown>;
-};
+class StoryNotFoundError extends Error {}
 
-function asRecord(value: unknown): Record<string, unknown> {
-  return typeof value === 'object' && value !== null
-    ? (value as Record<string, unknown>)
-    : {};
-}
-
-function firestoreStringArray(fields: Record<string, unknown>, key: string): string[] {
-  const field = asRecord(fields[key]);
-  const arrayValue = asRecord(field.arrayValue);
-  const values = Array.isArray(arrayValue.values) ? arrayValue.values : [];
-  return values
-    .map((value) => asRecord(value).stringValue)
-    .filter((value): value is string => typeof value === 'string' && Boolean(value.trim()));
-}
-
-function firestoreNumber(fields: Record<string, unknown>, key: string): number {
-  const field = asRecord(fields[key]);
-  const value = Number(field.integerValue ?? field.doubleValue ?? 0);
-  return Number.isFinite(value) ? value : 0;
-}
-
-async function verifyFirebaseToken(idToken: string): Promise<string | null> {
-  const apiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
-  if (!apiKey) throw new Error('Firebase web API key is not configured on the server.');
-  const response = await fetch(
-    `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${encodeURIComponent(apiKey)}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ idToken }),
-    },
-  );
-  if (!response.ok) return null;
-  const data: unknown = await response.json();
-  const users = asRecord(data).users;
-  const firstUser = Array.isArray(users) ? asRecord(users[0]) : {};
-  return typeof firstUser.localId === 'string' ? firstUser.localId : null;
-}
-
-async function readFirestoreDocument(
-  projectId: string,
-  documentPath: string[],
-  idToken: string,
-): Promise<FirestoreDocument | null> {
-  const encodedPath = documentPath.map(encodeURIComponent).join('/');
-  const url =
-    `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(projectId)}` +
-    `/databases/(default)/documents/${encodedPath}`;
-  const response = await fetch(url, {
-    headers: { Authorization: `Bearer ${idToken}` },
-  });
-  if (response.status === 404) return null;
-  if (!response.ok) {
-    throw new Error(`Firestore read returned HTTP ${response.status}.`);
-  }
-  return (await response.json()) as FirestoreDocument;
-}
-
-function providerKeysFromDocument(document: FirestoreDocument | null): ProviderKeys {
-  const fields = document?.fields ?? {};
+function rotateKeysForImage(
+  keys: ProviderGenerationKeys,
+  imageIndex: number,
+): ProviderGenerationKeys {
+  const rotate = (entry: ProviderGenerationKeys[ProviderKey]) => {
+    if (!entry.keys.length) return entry;
+    const offset = imageIndex % entry.keys.length;
+    return {
+      ...entry,
+      keys: [...entry.keys.slice(offset), ...entry.keys.slice(0, offset)],
+    };
+  };
   return {
-    agnes: firestoreStringArray(fields, 'agnes_keys'),
-    glm: firestoreStringArray(fields, 'glm_keys'),
+    agnes: rotate(keys.agnes),
+    glm: rotate(keys.glm),
+    zsky: rotate(keys.zsky),
   };
 }
 
-function imageCountFromStory(document: FirestoreDocument | null): number {
-  return document ? Math.max(0, Math.floor(firestoreNumber(document.fields ?? {}, 'imageCount'))) : 0;
+type UploadedStoryImage = {
+  asset: GeneratedImageAsset;
+  imageId: string;
+  storagePath: string;
+  url: string;
+  sizeBytes: number;
+};
+
+async function saveGeneratedImagesToStory(
+  uid: string,
+  storyId: string,
+  prompt: string,
+  images: GeneratedImageAsset[],
+): Promise<{
+  images: Array<{ url: string; provider: ImageProvider; sizeBytes: number }>;
+  failedCount: number;
+  skippedCount: number;
+}> {
+  const { db, bucket } = getFirebaseAdmin();
+  const storyRef = db.collection("users").doc(uid).collection("stories").doc(storyId);
+  const uploadedResults = await Promise.allSettled(
+    images.map(async (asset): Promise<UploadedStoryImage> => {
+      const imageRef = storyRef.collection("images").doc();
+      const storagePath = `users/${uid}/stories/${storyId}/images/${imageRef.id}`;
+      const downloadToken = randomUUID();
+      const file = bucket.file(storagePath);
+      const buffer = Buffer.from(asset.base64, "base64");
+      await file.save(buffer, {
+        resumable: false,
+        metadata: {
+          contentType: asset.mimeType,
+          metadata: { firebaseStorageDownloadTokens: downloadToken },
+        },
+      });
+      const url =
+        `https://firebasestorage.googleapis.com/v0/b/${encodeURIComponent(bucket.name)}` +
+        `/o/${encodeURIComponent(storagePath)}?alt=media&token=${downloadToken}`;
+      return { asset, imageId: imageRef.id, storagePath, url, sizeBytes: buffer.length };
+    }),
+  );
+  const uploaded = uploadedResults.flatMap((result) =>
+    result.status === "fulfilled" ? [result.value] : [],
+  );
+  const failedCount = uploadedResults.length - uploaded.length;
+  if (!uploaded.length) {
+    return { images: [], failedCount, skippedCount: 0 };
+  }
+
+  let acceptedCount = 0;
+  try {
+    acceptedCount = await db.runTransaction(async (transaction) => {
+      const storySnapshot = await transaction.get(storyRef);
+      if (!storySnapshot.exists) throw new StoryNotFoundError();
+      const rawCount = Number(storySnapshot.data()?.imageCount) || 0;
+      const currentCount = Math.max(0, Math.floor(rawCount));
+      const available = Math.max(0, MAX_STORY_IMAGES - currentCount);
+      const accepted = uploaded.slice(0, available);
+
+      for (const item of accepted) {
+        const imageRef = storyRef.collection("images").doc(item.imageId);
+        transaction.create(imageRef, {
+          url: item.url,
+          prompt,
+          createdAt: FieldValue.serverTimestamp(),
+          sizeBytes: item.sizeBytes,
+          storagePath: item.storagePath,
+          provider: item.asset.provider,
+        });
+      }
+
+      if (accepted.length) {
+        transaction.update(storyRef, {
+          imageCount: FieldValue.increment(accepted.length),
+          storageBytes: FieldValue.increment(
+            accepted.reduce((sum, image) => sum + image.sizeBytes, 0),
+          ),
+        });
+      }
+      return accepted.length;
+    });
+  } catch (error) {
+    await Promise.all(
+      uploaded.map((item) =>
+        bucket.file(item.storagePath).delete({ ignoreNotFound: true }).catch(() => undefined),
+      ),
+    );
+    throw error;
+  }
+
+  const accepted = uploaded.slice(0, acceptedCount);
+  const overflow = uploaded.slice(acceptedCount);
+  await Promise.all(
+    overflow.map((item) =>
+      bucket.file(item.storagePath).delete({ ignoreNotFound: true }).catch(() => undefined),
+    ),
+  );
+
+  return {
+    images: accepted.map((item) => ({
+      url: item.url,
+      provider: item.asset.provider,
+      sizeBytes: item.sizeBytes,
+    })),
+    failedCount,
+    skippedCount: uploaded.length - acceptedCount,
+  };
 }
 
-router.post('/images/generate', async (req, res): Promise<void> => {
+router.post("/images/generate", async (req, res): Promise<void> => {
   const parsed = GenerateStoryImagesBody.safeParse(req.body);
   if (!parsed.success || !parsed.data.prompt.trim()) {
     res.status(400).json({
-      error: 'Provide a prompt and an image count between 1 and 4.',
-      code: 'invalid_request',
+      error: "Provide a prompt and an image count between 1 and 4.",
+      code: "invalid_request",
     });
     return;
   }
 
-  const authorization = req.get('authorization') ?? '';
-  const tokenMatch = authorization.match(/^Bearer\s+(.+)$/i);
-  if (!tokenMatch?.[1]) {
-    res.status(401).json({ error: 'Sign in before generating images.', code: 'unauthorized' });
-    return;
-  }
-
-  const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
-  if (!projectId) {
-    req.log.error('Firebase project ID is not configured on the server.');
-    res.status(503).json({ error: 'Image generation is not configured.', code: 'server_configuration' });
+  const authorization = req.get("authorization") ?? "";
+  const token = authorization.match(/^Bearer\s+(.+)$/i)?.[1];
+  if (!token) {
+    res.status(401).json({
+      error: "Sign in before generating images.",
+      code: "unauthorized",
+    });
     return;
   }
 
   try {
-    const uid = await verifyFirebaseToken(tokenMatch[1]);
+    const uid = await verifyFirebaseIdToken(token);
     if (!uid) {
-      res.status(401).json({ error: 'Sign in again before generating images.', code: 'unauthorized' });
+      res.status(401).json({
+        error: "Sign in again before generating images.",
+        code: "unauthorized",
+      });
       return;
     }
 
     const { storyId, prompt, count } = parsed.data;
     if (storyId !== null && !/^[A-Za-z0-9_-]{1,200}$/.test(storyId)) {
-      res.status(400).json({ error: 'The story ID is invalid.', code: 'invalid_story_id' });
+      res.status(400).json({
+        error: "The story ID is invalid.",
+        code: "invalid_story_id",
+      });
       return;
     }
 
-    let storyCount = 0;
+    const { db } = getFirebaseAdmin();
+    let initialSkippedCount = 0;
+    let allowedCount = count;
     if (storyId) {
-      const story = await readFirestoreDocument(
-        projectId,
-        ['users', uid, 'stories', storyId],
-        tokenMatch[1],
-      );
-      if (!story) {
-        res.status(404).json({ error: 'This story could not be found.', code: 'story_not_found' });
+      const storyRef = db.collection("users").doc(uid).collection("stories").doc(storyId);
+      const story = await storyRef.get();
+      if (!story.exists) {
+        res.status(404).json({
+          error: "This story could not be found.",
+          code: "story_not_found",
+        });
         return;
       }
-      storyCount = imageCountFromStory(story);
+      const storyCount = Math.max(
+        0,
+        Math.floor(Number(story.data()?.imageCount) || 0),
+      );
       if (storyCount >= MAX_STORY_IMAGES) {
-        res.status(409).json({ error: 'This story has reached its 100-image limit.', code: 'story_limit' });
+        res.status(409).json({
+          error: "This story has reached its 100-image limit.",
+          code: "story_limit",
+        });
         return;
       }
+      allowedCount = Math.min(count, MAX_STORY_IMAGES - storyCount);
+      initialSkippedCount = count - allowedCount;
     }
 
-    let providerKeys: ProviderKeys = { agnes: [], glm: [] };
-    try {
-      const userDocument = await readFirestoreDocument(
-        projectId,
-        ['users', uid],
-        tokenMatch[1],
-      );
-      providerKeys = providerKeysFromDocument(userDocument);
-    } catch (keyReadError) {
-      req.log.warn(
-        { error: keyReadError instanceof Error ? keyReadError.message : 'unknown' },
-        'Could not read saved image provider keys; using server secrets when available.',
-      );
-    }
-
-    const allowedCount = storyId
-      ? Math.min(count, MAX_STORY_IMAGES - storyCount)
-      : count;
-    const skippedCount = count - allowedCount;
+    const providerKeys = await getGenerationKeys(uid);
     const settled = await Promise.allSettled(
-      Array.from({ length: allowedCount }, () =>
-        generateImageWithFallback(prompt.trim(), providerKeys, fetch, (provider: ImageProvider, error) => {
-          req.log.warn(
-            {
-              provider,
-              error: error instanceof Error ? error.message : 'unknown provider error',
-            },
-            'Image provider attempt failed.',
-          );
-        }),
+      Array.from({ length: allowedCount }, (_, imageIndex) =>
+        generateImageWithFallback(
+          prompt.trim(),
+          rotateKeysForImage(providerKeys, imageIndex),
+          fetch,
+          async (provider: ProviderKey, keyId: string, status: number | null) => {
+            try {
+              await recordProviderKeyFailure(uid, provider, keyId, status);
+            } catch {
+              req.log.warn({ provider, status }, "Could not update provider key failure status.");
+            }
+          },
+          async (provider: ProviderKey, keyId: string) => {
+            try {
+              await clearProviderKeyCooldown(uid, provider, keyId);
+            } catch {
+              req.log.warn({ provider }, "Could not clear provider key status.");
+            }
+          },
+          (provider: ImageProvider, status: number | null) => {
+            req.log.warn({ provider, status }, "Image provider attempt failed.");
+          },
+        ),
       ),
     );
-    const images = settled.flatMap((result) =>
-      result.status === 'fulfilled' ? [result.value] : [],
+    const generated = settled.flatMap((result) =>
+      result.status === "fulfilled" ? [result.value] : [],
     );
-    const failedCount = allowedCount - images.length;
+    let responseImages: Array<{
+      base64?: string;
+      url?: string;
+      mimeType?: string;
+      sizeBytes?: number;
+      provider: ImageProvider;
+    }>;
+    let storageFailedCount = 0;
+    let concurrentCapSkippedCount = 0;
 
-    if (!images.length) {
+    if (storyId && generated.length) {
+      const saved = await saveGeneratedImagesToStory(
+        uid,
+        storyId,
+        prompt.trim(),
+        generated,
+      );
+      responseImages = saved.images;
+      storageFailedCount = saved.failedCount;
+      concurrentCapSkippedCount = saved.skippedCount;
+    } else {
+      responseImages = generated.map((image) => ({
+        base64: image.base64,
+        mimeType: image.mimeType,
+        provider: image.provider,
+      }));
+    }
+
+    const failedCount =
+      allowedCount - generated.length + storageFailedCount;
+    const skippedCount = initialSkippedCount + concurrentCapSkippedCount;
+
+    if (storyId && generated.length && !responseImages.length && skippedCount > 0) {
+      res.status(409).json({
+        error: "This story has reached its 100-image limit.",
+        code: "story_limit",
+        failedCount,
+        skippedCount,
+      });
+      return;
+    }
+    if (!responseImages.length) {
       res.status(502).json({
-        error: 'Image generation failed. Please try again shortly.',
-        code: 'all_providers_failed',
+        error: "Image generation failed. Please try again shortly.",
+        code: "all_providers_failed",
         failedCount,
         skippedCount,
       });
       return;
     }
 
-    res.json({ images, failedCount, skippedCount });
+    res.json(
+      GenerateStoryImagesResponse.parse({
+        images: responseImages,
+        failedCount,
+        skippedCount,
+      }),
+    );
   } catch (error) {
+    if (error instanceof StoryNotFoundError) {
+      res.status(404).json({
+        error: "This story could not be found.",
+        code: "story_not_found",
+      });
+      return;
+    }
     req.log.error(
-      { error: error instanceof Error ? error.message : 'unknown' },
-      'Image generation request failed.',
+      { reason: error instanceof Error ? error.message : "unknown" },
+      "Image generation request failed.",
     );
     res.status(500).json({
-      error: 'Image generation failed. Please try again shortly.',
-      code: 'image_generation_failed',
+      error: "Image generation failed. Please try again shortly.",
+      code: "image_generation_failed",
     });
   }
 });

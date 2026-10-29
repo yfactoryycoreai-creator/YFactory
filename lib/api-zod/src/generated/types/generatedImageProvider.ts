@@ -12,5 +12,6 @@ export type GeneratedImageProvider = typeof GeneratedImageProvider[keyof typeof 
 export const GeneratedImageProvider = {
   agnes: 'agnes',
   glm: 'glm',
+  zsky: 'zsky',
   pollinations: 'pollinations',
 } as const;

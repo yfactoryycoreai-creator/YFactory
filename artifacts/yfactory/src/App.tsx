@@ -35,10 +35,7 @@ import NotFound from '@/pages/not-found';
 import StoryFactory from '@/components/story-factory';
 import {
   deleteUserDocument,
-  loadUserApiKeys,
   restoreUserDocument,
-  saveUserApiKeys,
-  type UserApiKeys,
 } from '@/lib/userApiKeys';
 import {
   generateImages,
@@ -55,7 +52,6 @@ import {
 } from '@/lib/generationStorage';
 import {
   MAX_STORY_IMAGES,
-  saveImageToStory,
   StoryLimitReachedError,
   type StoryImageRecord,
   type StoryRecord,
@@ -386,45 +382,20 @@ function Home() {
           createdAt: Date.now(),
           imageData: image.imageData,
           provider: image.provider,
+          ...(image.savedToFactory ? { savedToFactory: true } : {}),
         }));
 
         if (activeStory) {
-          const savedResults = await Promise.allSettled(
-            batch.map(async (generatedImage) => {
-              const response = await fetch(generatedImage.imageData);
-              if (!response.ok) throw new Error('Could not read generated image data.');
-              const savedImage = await saveImageToStory(
-                user.uid,
-                activeStory.id,
-                await response.blob(),
-                promptToGenerate,
-                generatedImage.provider,
-              );
-              return {
-                image: {
-                  ...generatedImage,
-                  imageData: savedImage.url,
-                  savedToFactory: true,
-                },
-                sizeBytes: savedImage.sizeBytes,
-              };
-            }),
-          );
-          const savedImages = savedResults.flatMap((item) =>
-            item.status === 'fulfilled' ? [item.value.image] : [],
-          );
-          const temporaryImages = savedResults.flatMap((item, index) =>
-            item.status === 'rejected' && batch[index] ? [batch[index]] : [],
-          );
+          const savedImages = batch.filter((image) => image.savedToFactory);
           setGeneratedImages((current) =>
-            [...savedImages, ...temporaryImages, ...current].slice(
+            [...savedImages, ...current].slice(
               0,
               MAX_PERSISTED_IMAGES,
             ),
           );
-          const savedBytes = savedResults.reduce(
-            (total, item) =>
-              total + (item.status === 'fulfilled' ? item.value.sizeBytes : 0),
+          const savedBytes = result.images.reduce(
+            (total, image) =>
+              total + (image.savedToFactory ? image.sizeBytes ?? 0 : 0),
             0,
           );
           if (savedImages.length) {
@@ -434,17 +405,20 @@ function Home() {
                     ...current,
                     imageCount: Math.min(
                       MAX_STORY_IMAGES,
-                      current.imageCount + savedImages.length,
+                      Math.max(
+                        current.imageCount,
+                        activeStory.imageCount + savedImages.length,
+                      ),
                     ),
-                    storageBytes: current.storageBytes + savedBytes,
+                    storageBytes: Math.max(
+                      current.storageBytes,
+                      activeStory.storageBytes + savedBytes,
+                    ),
                   }
                 : current,
             );
           }
-          const failedCount =
-            result.failedCount +
-            result.skippedCount +
-            savedResults.filter((item) => item.status === 'rejected').length;
+          const failedCount = result.failedCount + result.skippedCount;
           if (failedCount > 0) {
             setImageError(
               t('status.partialImageFailure', {
@@ -1099,69 +1073,18 @@ function ProtectedHome() {
 function ProtectedSettings() {
   const { user, loading: authLoading } = useAuth();
   const [, setLocation] = useLocation();
-  const [keys, setKeys] = useState<UserApiKeys>({
-    zsky_keys: [],
-    agnes_keys: [],
-    glm_keys: [],
-  });
-  const [loading, setLoading] = useState(true);
-  const [keysLoaded, setKeysLoaded] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!authLoading && !user) setLocation('/login');
   }, [authLoading, setLocation, user]);
 
-  useEffect(() => {
-    if (!user) return;
-    let active = true;
-    setLoading(true);
-    setKeysLoaded(false);
-    setError(null);
-    void loadUserApiKeys(user.uid)
-      .then((savedKeys) => {
-        if (active) {
-          setKeys(savedKeys);
-          setKeysLoaded(true);
-        }
-      })
-      .catch(() => {
-        if (active) {
-          setError('Could not load saved API keys. Check Firestore access and try again.');
-        }
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-    return () => {
-      active = false;
-    };
+  const getIdToken = useCallback(async () => {
+    if (!user) throw new Error('Sign in to manage API keys.');
+    return user.getIdToken();
   }, [user]);
-
-  const saveKeys = async (draftKeys: UserApiKeys) => {
-    if (!user || !keysLoaded) return;
-    setSaving(true);
-    setError(null);
-    try {
-      const nextKeys = await saveUserApiKeys(user.uid, draftKeys);
-      setKeys(nextKeys);
-    } catch (saveError) {
-      setError(
-        saveError instanceof Error
-          ? saveError.message
-          : 'Could not save API keys. Check Firestore access and try again.',
-      );
-      throw saveError;
-    } finally {
-      setSaving(false);
-    }
-  };
 
   const handleLogout = async () => {
     await signOutFromFirebase();
-    setKeys({ zsky_keys: [], agnes_keys: [], glm_keys: [] });
-    setKeysLoaded(false);
     setLocation('/login');
   };
 
@@ -1192,12 +1115,7 @@ function ProtectedSettings() {
         email: user?.email ?? null,
         photoURL: user?.photoURL ?? null,
       }}
-      keys={keys}
-      loading={loading || authLoading}
-      ready={keysLoaded && Boolean(user)}
-      saving={saving}
-      error={error}
-      onSaveKeys={saveKeys}
+      getIdToken={user ? getIdToken : undefined}
       onBack={() => setLocation('/')}
       onLogout={handleLogout}
       onDeleteAccount={handleDeleteAccount}

@@ -3,7 +3,20 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      function ownsUser() {
+        return request.auth != null && request.auth.uid == userId;
+      }
+
+      function hasNoLegacyProviderKeys(data) {
+        return !('zsky_keys' in data)
+               && !('agnes_keys' in data)
+               && !('glm_keys' in data);
+      }
+
+      allow read: if ownsUser() && hasNoLegacyProviderKeys(resource.data);
+      allow create, update: if ownsUser()
+                            && hasNoLegacyProviderKeys(request.resource.data);
+      allow delete: if ownsUser();
 
       match /stories/{storyId} {
         function ownsStory() {
@@ -30,6 +43,11 @@ service cloud.firestore {
         match /images/{imageId} {
           allow read, write: if request.auth != null && request.auth.uid == userId;
         }
+      }
+
+      match /providerKeys/{provider}/keys/{keyId} {
+        // Provider key documents are accessible only through the Admin SDK vault API.
+        allow read, write: if false;
       }
     }
   }

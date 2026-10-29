@@ -1,8 +1,10 @@
-export type ImageProvider = 'agnes' | 'glm' | 'pollinations';
+export type ImageProvider = 'agnes' | 'glm' | 'zsky' | 'pollinations';
 
 export type GeneratedImage = {
   imageData: string;
   provider: ImageProvider;
+  savedToFactory?: boolean;
+  sizeBytes?: number;
 };
 
 export class ImageGenerationError extends Error {
@@ -107,13 +109,19 @@ export async function generateImages(
   for (const item of result.images) {
     if (typeof item !== 'object' || item === null) continue;
     const image = item as Record<string, unknown>;
-    if (
-      typeof image.base64 !== 'string' ||
-      typeof image.mimeType !== 'string' ||
-      !['agnes', 'glm', 'pollinations'].includes(String(image.provider))
-    ) {
+    if (!['agnes', 'glm', 'zsky', 'pollinations'].includes(String(image.provider))) {
       continue;
     }
+    if (typeof image.url === 'string' && image.url.startsWith('https://')) {
+      images.push({
+        imageData: image.url,
+        provider: image.provider as ImageProvider,
+        savedToFactory: true,
+        ...(typeof image.sizeBytes === 'number' ? { sizeBytes: image.sizeBytes } : {}),
+      });
+      continue;
+    }
+    if (typeof image.base64 !== 'string' || typeof image.mimeType !== 'string') continue;
     images.push({
       imageData: `data:${image.mimeType};base64,${image.base64}`,
       provider: image.provider as ImageProvider,
@@ -124,10 +132,14 @@ export async function generateImages(
     throw new ImageGenerationError('Image generation failed.', 'all_providers_failed');
   }
   const preparedResults = await Promise.allSettled(
-    images.map(async (image) => ({
-      ...image,
-      imageData: await imageDataToStorageDataUrl(image.imageData),
-    })),
+    images.map(async (image) =>
+      image.savedToFactory
+        ? image
+        : {
+            ...image,
+            imageData: await imageDataToStorageDataUrl(image.imageData),
+          },
+    ),
   );
   const preparedImages = preparedResults.flatMap((item) =>
     item.status === 'fulfilled' ? [item.value] : [],

@@ -7,8 +7,14 @@
  */
 
 export * from './apiError';
+export * from './createVaultKeyInput';
 export * from './generatedImage';
 export * from './generatedImageProvider';
 export * from './healthStatus';
 export * from './imageGenerationInput';
 export * from './imageGenerationResult';
+export * from './providerId';
+export * from './updateVaultKeyInput';
+export * from './vaultKey';
+export * from './vaultKeyList';
+export * from './vaultKeyStatus';

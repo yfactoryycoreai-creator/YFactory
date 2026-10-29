@@ -1,5 +1,6 @@
 import app from "./app";
 import { logger } from "./lib/logger";
+import { getFirebaseAdmin } from "./lib/firebaseAdmin";
 
 const rawPort = process.env["PORT"];
 
@@ -14,6 +15,24 @@ const port = Number(rawPort);
 if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
+
+void (async () => {
+  try {
+    const { db, bucket } = getFirebaseAdmin();
+    await Promise.all([
+      db.doc("_yfactory/preflight").get(),
+      bucket.getMetadata(),
+    ]);
+    logger.info("Firebase Admin Firestore and Storage preflight passed.");
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : "Unknown Firebase Admin error.";
+    const code =
+      typeof error === "object" && error !== null && "code" in error
+        ? String(error.code)
+        : undefined;
+    logger.error({ code, reason }, "Firebase Admin preflight failed.");
+  }
+})();
 
 app.listen(port, (err) => {
   if (err) {

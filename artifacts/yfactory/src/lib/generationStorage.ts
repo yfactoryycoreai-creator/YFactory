@@ -14,7 +14,7 @@ export type GeneratedImageHistoryItem = {
   createdAt: number;
   imageData: string;
   savedToFactory?: boolean;
-  provider?: 'agnes' | 'glm' | 'pollinations';
+  provider?: 'agnes' | 'glm' | 'zsky' | 'pollinations';
 };
 
 export const DEFAULT_GENERATOR_SETTINGS: GeneratorSettings = {
@@ -94,6 +94,7 @@ function isGeneratedImageHistoryItem(
     (item.provider === undefined ||
       item.provider === 'agnes' ||
       item.provider === 'glm' ||
+      item.provider === 'zsky' ||
       item.provider === 'pollinations') &&
     (item.imageData.startsWith('data:image/') ||
       (item.savedToFactory === true &&

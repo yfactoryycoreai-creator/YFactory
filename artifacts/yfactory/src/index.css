@@ -578,6 +578,7 @@ button:not(:disabled):hover { filter:brightness(1.12); }
   font-size: 10px;
 }
 .story-list { display:grid; gap:10px; }
+.story-load-more { display:flex; justify-content:center; padding:14px 0 4px; }
 .story-card {
   display: flex;
   min-width: 0;
