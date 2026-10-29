@@ -16,6 +16,7 @@ export default function LoginPage({
   const { t, i18n } = useTranslation();
   const isRtl = (i18n.resolvedLanguage ?? i18n.language) === 'ar';
   const isConfigError = error === 'firebase-config' || error === 'auth/firebase-config';
+  const isUnauthorizedDomain = error === 'auth/unauthorized-domain';
 
   return (
     <main className="auth-screen login-screen" dir={isRtl ? 'rtl' : 'ltr'}>
@@ -53,6 +54,10 @@ export default function LoginPage({
           <div className="auth-error" role="alert" data-testid="status-login-error">
             {isConfigError
               ? t('auth.firebaseConfigError')
+              : isUnauthorizedDomain
+                ? t('auth.unauthorizedDomainError', {
+                    domain: typeof window === 'undefined' ? '' : window.location.hostname,
+                  })
               : t('auth.signInError', { code: error })}
           </div>
         )}

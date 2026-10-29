@@ -259,6 +259,15 @@
 .provider-key-row { min-height: 44px; display: flex; align-items: center; gap: 10px; border-top: 1px solid rgba(124,143,180,.11); }
 .key-row-icon { color: #6f7d99; display: flex; }
 .provider-key-row code { flex: 1; min-width: 0; overflow: hidden; color: #b4c0d9; font: 11px 'DM Mono',monospace; text-overflow: ellipsis; white-space: nowrap; direction: ltr; text-align: start; unicode-bidi: isolate; }
+.provider-key-row .provider-key-input {
+  width: 0; min-width: 0; height: 35px; flex: 1; padding: 0 10px;
+  border: 1px solid rgba(127,147,186,.17); border-radius: 7px; outline: none;
+  color: #e2e8f7; background: rgba(7,11,20,.4); font: 11px 'DM Mono',monospace;
+  direction: ltr; text-align: start;
+}
+.provider-key-row .provider-key-input::placeholder { color: #66728a; font: 11px 'DM Sans',sans-serif; }
+.provider-key-row .provider-key-input:focus { border-color: rgba(84,121,231,.68); box-shadow: 0 0 0 3px rgba(68,101,211,.1); }
+.provider-key-row .provider-key-input:disabled { opacity: .6; }
 .icon-action { width: 29px; height: 29px; flex: none; display: grid; place-items: center; border: 1px solid transparent; border-radius: 7px; color: #7886a0; background: transparent; cursor: pointer; }
 .icon-action:hover:not(:disabled) { color: #dce5fc; border-color: rgba(134,155,197,.2); background: rgba(255,255,255,.045); }
 .delete-action:hover:not(:disabled) { color: #ff8890; border-color: rgba(255,110,126,.2); background: rgba(127,35,49,.16); }
@@ -283,6 +292,15 @@
 .add-key-button:hover:not(:disabled) { filter: brightness(1.2); }
 .add-key-button:active:not(:disabled) { transform: translateY(1px); }
 .add-key-button:disabled { opacity: .48; cursor: not-allowed; }
+.settings-save-row { display: flex; justify-content: flex-end; margin-top: 15px; }
+.settings-save-button {
+  min-height: 39px; padding: 0 17px; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  border: 1px solid rgba(94,133,245,.55); border-radius: 8px; color: #f4f6ff;
+  background: linear-gradient(105deg,#245bd1,#5339bc); box-shadow: 0 6px 20px rgba(45,74,191,.2);
+  cursor: pointer; font-size: 12px; font-weight: 600; transition: filter .18s, opacity .18s;
+}
+.settings-save-button:hover:not(:disabled) { filter: brightness(1.15); }
+.settings-save-button:disabled { opacity: .52; cursor: wait; }
 .security-note { display: flex; align-items: flex-start; gap: 9px; margin-top: 17px; color: #77849b; font-size: 11px; line-height: 1.55; }
 .security-note svg { flex: none; margin-top: 1px; color: #6f86c8; }
 .settings-loading { display: grid; gap: 11px; }

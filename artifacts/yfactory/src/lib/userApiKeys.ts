@@ -1,7 +1,6 @@
 import {
   doc,
   getDoc,
-  runTransaction,
   setDoc,
   type DocumentData,
 } from 'firebase/firestore';
@@ -53,63 +52,23 @@ export async function loadUserApiKeys(uid: string): Promise<UserApiKeys> {
   const snapshot = await getDoc(userRef);
 
   if (!snapshot.exists()) {
-    const initialKeys = emptyKeys();
-    await setDoc(userRef, initialKeys, { merge: true });
-    return initialKeys;
+    return emptyKeys();
   }
 
   return toUserApiKeys(snapshot.data());
 }
 
-export async function addUserApiKey(
+export async function saveUserApiKeys(
   uid: string,
-  provider: ProviderKey,
-  apiKey: string,
-): Promise<UserApiKeys> {
-  const cleanKey = apiKey.trim();
-  if (!cleanKey) {
-    throw new Error('An API key cannot be empty.');
-  }
-
-  const userRef = getUserDocument(uid);
-  const field = providerKeyFields[provider];
-  return runTransaction(firestore!, async (transaction) => {
-    const snapshot = await transaction.get(userRef);
-    const current = snapshot.exists()
-      ? toUserApiKeys(snapshot.data())
-      : emptyKeys();
-    const existing = current[field];
-
-    if (existing.includes(cleanKey)) {
-      throw new Error('This API key is already saved.');
-    }
-
-    const updated = { ...current, [field]: [...existing, cleanKey] };
-    transaction.set(userRef, updated, { merge: true });
-    return updated;
-  });
-}
-
-export async function deleteUserApiKey(
-  uid: string,
-  provider: ProviderKey,
-  apiKey: string,
+  keys: UserApiKeys,
 ): Promise<UserApiKeys> {
   const userRef = getUserDocument(uid);
-  const field = providerKeyFields[provider];
-  return runTransaction(firestore!, async (transaction) => {
-    const snapshot = await transaction.get(userRef);
-    const current = snapshot.exists()
-      ? toUserApiKeys(snapshot.data())
-      : emptyKeys();
-    const index = current[field].indexOf(apiKey);
+  const savedKeys: UserApiKeys = {
+    zsky_keys: keys.zsky_keys.map((key) => key.trim()).filter(Boolean),
+    agnes_keys: keys.agnes_keys.map((key) => key.trim()).filter(Boolean),
+    glm_keys: keys.glm_keys.map((key) => key.trim()).filter(Boolean),
+  };
 
-    if (index === -1) return current;
-
-    const nextValues = [...current[field]];
-    nextValues.splice(index, 1);
-    const updated = { ...current, [field]: nextValues };
-    transaction.set(userRef, updated, { merge: true });
-    return updated;
-  });
+  await setDoc(userRef, savedKeys, { merge: true });
+  return savedKeys;
 }

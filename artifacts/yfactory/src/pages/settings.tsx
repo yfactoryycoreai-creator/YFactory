@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   ArrowLeft,
@@ -31,10 +31,10 @@ export type SettingsPageProps = {
   user: SettingsUser;
   keys: UserApiKeys;
   loading: boolean;
+  ready: boolean;
   saving: boolean;
   error: string | null;
-  onAddKey: (provider: ProviderKey, key: string) => Promise<void>;
-  onDeleteKey: (provider: ProviderKey, key: string) => Promise<void>;
+  onSaveKeys: (keys: UserApiKeys) => Promise<void>;
   onBack: () => void;
   onLogout: () => void;
 };
@@ -50,23 +50,18 @@ export default function SettingsPage({
   user,
   keys,
   loading,
+  ready,
   saving,
   error,
-  onAddKey,
-  onDeleteKey,
+  onSaveKeys,
   onBack,
   onLogout,
 }: SettingsPageProps) {
   const { t, i18n } = useTranslation();
   const isRtl = (i18n.resolvedLanguage ?? i18n.language) === 'ar';
-  const [drafts, setDrafts] = useState<Record<ProviderKey, string>>({
-    zsky: '',
-    agnes: '',
-    glm: '',
-  });
+  const [draftKeys, setDraftKeys] = useState<UserApiKeys>(keys);
   const [revealed, setRevealed] = useState<Record<string, boolean>>({});
-  const [activeProvider, setActiveProvider] = useState<ProviderKey | null>(null);
-  const [savedProvider, setSavedProvider] = useState<ProviderKey | null>(null);
+  const [saved, setSaved] = useState(false);
   const displayName = user.displayName || user.email || 'YFactory creator';
   const initials = (user.displayName || user.email || 'Y')
     .split(/[\s@]+/)
@@ -75,20 +70,46 @@ export default function SettingsPage({
     .map((part) => part[0]?.toUpperCase())
     .join('');
 
-  const submitKey = async (event: FormEvent<HTMLFormElement>, provider: ProviderKey) => {
-    event.preventDefault();
-    const value = drafts[provider].trim();
-    if (!value || saving || activeProvider) return;
-    setActiveProvider(provider);
-    setSavedProvider(null);
+  useEffect(() => {
+    if (!loading) setDraftKeys(keys);
+  }, [keys, loading]);
+
+  const updateKey = (provider: ProviderKey, index: number, value: string) => {
+    setSaved(false);
+    setDraftKeys((current) => ({
+      ...current,
+      [keyField[provider]]: current[keyField[provider]].map((key, keyIndex) =>
+        keyIndex === index ? value : key,
+      ),
+    }));
+  };
+
+  const addKeyField = (provider: ProviderKey) => {
+    setSaved(false);
+    setDraftKeys((current) => ({
+      ...current,
+      [keyField[provider]]: [...current[keyField[provider]], ''],
+    }));
+  };
+
+  const deleteKeyField = (provider: ProviderKey, index: number) => {
+    setSaved(false);
+    setDraftKeys((current) => ({
+      ...current,
+      [keyField[provider]]: current[keyField[provider]].filter(
+        (_, keyIndex) => keyIndex !== index,
+      ),
+    }));
+  };
+
+  const saveDrafts = async () => {
+    if (saving || loading || !ready) return;
+    setSaved(false);
     try {
-      await onAddKey(provider, value);
-      setDrafts((current) => ({ ...current, [provider]: '' }));
-      setSavedProvider(provider);
+      await onSaveKeys(draftKeys);
+      setSaved(true);
     } catch {
       // The parent supplies the visible Firestore error.
-    } finally {
-      setActiveProvider(null);
     }
   };
 
@@ -154,7 +175,7 @@ export default function SettingsPage({
                 <h2 id="keys-title">{t('settings.apiKeysTitle')}</h2>
                 <p>{t('settings.subtitle')}</p>
               </div>
-              <span className="keys-count">{providers.reduce((count, provider) => count + (keys[keyField[provider]]?.length ?? 0), 0)} <span>KEYS</span></span>
+              <span className="keys-count">{providers.reduce((count, provider) => count + (draftKeys[keyField[provider]]?.filter((key) => key.trim()).length ?? 0), 0)} <span>KEYS</span></span>
             </div>
 
             {loading ? (
@@ -166,7 +187,8 @@ export default function SettingsPage({
             ) : (
               <div className="provider-list">
                 {providers.map((provider) => {
-                  const providerKeys = keys[keyField[provider]] ?? [];
+                  const providerKeys = draftKeys[keyField[provider]] ?? [];
+                  const savedKeyCount = providerKeys.filter((key) => key.trim()).length;
                   return (
                     <article className="provider-card" key={provider} data-testid={`card-provider-${provider}`}>
                       <div className="provider-card-head">
@@ -177,19 +199,29 @@ export default function SettingsPage({
                           <h3>{t(`settings.providers.${provider}`)}</h3>
                           <p>{t(`settings.providerDescriptions.${provider}`)}</p>
                         </div>
-                        <span className="provider-count">{providerKeys.length}</span>
+                         <span className="provider-count">{savedKeyCount}</span>
                       </div>
 
                       {providerKeys.length ? (
                         <ul className="provider-key-list" aria-label={`${t(`settings.providers.${provider}`)} API keys`}>
                           {providerKeys.map((key, index) => {
-                            const revealId = `${provider}-${key}`;
+                             const revealId = `${provider}-${index}`;
                             return (
-                              <li className="provider-key-row" key={`${provider}-${index}-${key.slice(-5)}`} data-testid={`row-key-${provider}-${index}`}>
-                                <span className="key-row-icon"><KeyRound size={14} /></span>
-                                <code data-testid={`text-key-${provider}-${index}`}>
-                                  {revealed[revealId] ? key : `••••••••••••${key.slice(-4)}`}
-                                </code>
+                               <li className="provider-key-row" key={`${provider}-${index}`} data-testid={`row-key-${provider}-${index}`}>
+                                 <label className="visually-hidden" htmlFor={`input-api-key-${provider}${index ? `-${index}` : ''}`}>
+                                   {t('settings.keyPlaceholder')} — {t(`settings.providers.${provider}`)} {index + 1}
+                                 </label>
+                                 <input
+                                   id={`input-api-key-${provider}${index ? `-${index}` : ''}`}
+                                   className="provider-key-input"
+                                   type={revealed[revealId] ? 'text' : 'password'}
+                                   autoComplete="off"
+                                   value={key}
+                                   onChange={(event) => updateKey(provider, index, event.currentTarget.value)}
+                                   placeholder={t('settings.keyPlaceholder')}
+                                   disabled={saving || !ready}
+                                   data-testid={`input-api-key-${provider}${index ? `-${index}` : ''}`}
+                                 />
                                 <button
                                   className="icon-action reveal-action"
                                   type="button"
@@ -203,11 +235,9 @@ export default function SettingsPage({
                                 <button
                                   className="icon-action delete-action"
                                   type="button"
-                                  aria-label={`${t('settings.deleteKey')} ${t(`settings.providers.${provider}`)} ${index + 1}`}
-                                  disabled={saving}
-                                  onClick={() =>
-                                    void onDeleteKey(provider, key).catch(() => undefined)
-                                  }
+                                   aria-label={`${t('settings.deleteKey')} ${t(`settings.providers.${provider}`)} ${index + 1}`}
+                                  disabled={saving || !ready}
+                                   onClick={() => deleteKeyField(provider, index)}
                                   data-testid={`button-delete-key-${provider}-${index}`}
                                 >
                                   <Trash2 size={15} />
@@ -216,48 +246,42 @@ export default function SettingsPage({
                             );
                           })}
                         </ul>
-                      ) : (
+                       ) : providerKeys.length === 0 ? (
                         <div className="provider-empty" data-testid={`text-empty-keys-${provider}`}>
                           <span className="empty-indicator" />
                           {t('settings.emptyKeys')}
                         </div>
-                      )}
+                       ) : null}
 
-                      <form className="provider-add-form" onSubmit={(event) => void submitKey(event, provider)}>
-                        <label className="visually-hidden" htmlFor={`input-key-${provider}`}>
-                          {t('settings.keyPlaceholder')} — {t(`settings.providers.${provider}`)}
-                        </label>
-                        <input
-                          id={`input-key-${provider}`}
-                          type="password"
-                          autoComplete="off"
-                          value={drafts[provider]}
-                          onChange={(event) => setDrafts((current) => ({ ...current, [provider]: event.currentTarget.value }))}
-                          placeholder={t('settings.keyPlaceholder')}
-                          disabled={saving || Boolean(activeProvider)}
-                          data-testid={`input-api-key-${provider}`}
-                        />
+                       <div className="provider-add-form">
                         <button
-                          className="add-key-button"
-                          type="submit"
-                          disabled={!drafts[provider].trim() || saving || Boolean(activeProvider)}
+                           className="add-key-button"
+                           type="button"
+                           onClick={() => addKeyField(provider)}
+                           disabled={saving || !ready}
                           data-testid={`button-add-key-${provider}`}
                         >
-                          {activeProvider === provider ? (
-                            <LoaderCircle className="auth-spinner" size={16} />
-                          ) : savedProvider === provider ? (
-                            <Check size={16} />
-                          ) : (
-                            <Plus size={16} />
-                          )}
-                          <span>{activeProvider === provider ? t('settings.saving') : savedProvider === provider ? t('settings.keySaved') : t('settings.addKey')}</span>
+                           <Plus size={16} />
+                           <span>{t('settings.addKey')}</span>
                         </button>
-                      </form>
+                       </div>
                     </article>
                   );
                 })}
               </div>
             )}
+            <div className="settings-save-row">
+              <button
+                className="settings-save-button"
+                type="button"
+                onClick={() => void saveDrafts()}
+                disabled={loading || saving || !ready}
+                data-testid="button-save-api-keys"
+              >
+                {saving ? <LoaderCircle className="auth-spinner" size={16} /> : saved ? <Check size={16} /> : null}
+                <span>{saving ? t('settings.saving') : saved ? t('settings.keySaved') : t('settings.saveKeys')}</span>
+              </button>
+            </div>
             <div className="security-note">
               <ShieldCheck size={16} aria-hidden="true" />
               <span>{t('settings.securityNote')}</span>

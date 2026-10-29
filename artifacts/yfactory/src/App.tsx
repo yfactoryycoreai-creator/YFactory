@@ -28,10 +28,8 @@ import LoginPage from '@/pages/login';
 import SettingsPage from '@/pages/settings';
 import NotFound from '@/pages/not-found';
 import {
-  addUserApiKey,
-  deleteUserApiKey,
   loadUserApiKeys,
-  type ProviderKey,
+  saveUserApiKeys,
   type UserApiKeys,
 } from '@/lib/userApiKeys';
 import {
@@ -618,6 +616,7 @@ function ProtectedSettings() {
     glm_keys: [],
   });
   const [loading, setLoading] = useState(true);
+  const [keysLoaded, setKeysLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -629,10 +628,14 @@ function ProtectedSettings() {
     if (!user) return;
     let active = true;
     setLoading(true);
+    setKeysLoaded(false);
     setError(null);
     void loadUserApiKeys(user.uid)
       .then((savedKeys) => {
-        if (active) setKeys(savedKeys);
+        if (active) {
+          setKeys(savedKeys);
+          setKeysLoaded(true);
+        }
       })
       .catch(() => {
         if (active) {
@@ -647,39 +650,20 @@ function ProtectedSettings() {
     };
   }, [user]);
 
-  const saveKey = async (provider: ProviderKey, key: string) => {
-    if (!user) return;
+  const saveKeys = async (draftKeys: UserApiKeys) => {
+    if (!user || !keysLoaded) return;
     setSaving(true);
     setError(null);
     try {
-      const nextKeys = await addUserApiKey(user.uid, provider, key);
+      const nextKeys = await saveUserApiKeys(user.uid, draftKeys);
       setKeys(nextKeys);
     } catch (saveError) {
       setError(
         saveError instanceof Error
           ? saveError.message
-          : 'Could not save this API key. Check Firestore access and try again.',
+          : 'Could not save API keys. Check Firestore access and try again.',
       );
       throw saveError;
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const removeKey = async (provider: ProviderKey, key: string) => {
-    if (!user) return;
-    setSaving(true);
-    setError(null);
-    try {
-      const nextKeys = await deleteUserApiKey(user.uid, provider, key);
-      setKeys(nextKeys);
-    } catch (deleteError) {
-      setError(
-        deleteError instanceof Error
-          ? deleteError.message
-          : 'Could not delete this API key. Check Firestore access and try again.',
-      );
-      throw deleteError;
     } finally {
       setSaving(false);
     }
@@ -704,10 +688,10 @@ function ProtectedSettings() {
       }}
       keys={keys}
       loading={loading}
+      ready={keysLoaded}
       saving={saving}
       error={error}
-      onAddKey={saveKey}
-      onDeleteKey={removeKey}
+      onSaveKeys={saveKeys}
       onBack={() => setLocation('/')}
       onLogout={() => void handleLogout()}
     />
