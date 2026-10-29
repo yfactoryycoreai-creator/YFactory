@@ -5,12 +5,14 @@ import './auth-pages.css';
 export type LoginPageProps = {
   loading: boolean;
   error: string | null;
+  errorMessage: string | null;
   onGoogleSignIn: () => void;
 };
 
 export default function LoginPage({
   loading,
   error,
+  errorMessage,
   onGoogleSignIn,
 }: LoginPageProps) {
   const { t, i18n } = useTranslation();
@@ -59,6 +61,11 @@ export default function LoginPage({
                     domain: typeof window === 'undefined' ? '' : window.location.hostname,
                   })
               : t('auth.signInError', { code: error })}
+            {errorMessage && (
+              <code className="auth-error-detail">
+                {error}: {errorMessage}
+              </code>
+            )}
           </div>
         )}
 

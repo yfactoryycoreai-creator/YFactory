@@ -144,6 +144,16 @@
   font-size: 12px;
   line-height: 1.5;
 }
+.auth-error-detail {
+  display: block;
+  margin-top: 8px;
+  color: #ffc8ce;
+  direction: ltr;
+  font: 10px/1.5 'DM Mono', monospace;
+  overflow-wrap: anywhere;
+  text-align: left;
+  white-space: pre-wrap;
+}
 .login-footnote { min-height: 12px; margin: 12px 0 0; color: #77839c; font-size: 11px; }
 .auth-corner-note {
   position: absolute;

@@ -34,6 +34,8 @@ import {
 } from '@/lib/userApiKeys';
 import {
   firebaseIsConfigured,
+  firebaseConfigurationIssues,
+  missingFirebaseFields,
   signInWithGoogle,
   signOutFromFirebase,
 } from '@/lib/firebase';
@@ -550,6 +552,7 @@ function LoginRoute() {
   const [, setLocation] = useLocation();
   const [signInLoading, setSignInLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
     if (!loading && user) setLocation('/');
@@ -557,8 +560,14 @@ function LoginRoute() {
 
   const handleGoogleSignIn = async () => {
     setError(null);
+    setErrorMessage(null);
     if (!firebaseIsConfigured) {
       setError('firebase-config');
+      const configProblems = [
+        ...missingFirebaseFields.map((field) => `Missing Firebase environment variable: ${field}.`),
+        ...firebaseConfigurationIssues,
+      ];
+      setErrorMessage(configProblems.join(' '));
       return;
     }
     setSignInLoading(true);
@@ -568,8 +577,7 @@ function LoginRoute() {
     } catch (signInError) {
       const errorDetails =
         typeof signInError === 'object' &&
-        signInError !== null &&
-        'code' in signInError
+        signInError !== null
           ? (signInError as { code?: unknown; message?: unknown })
           : {};
       const code =
@@ -577,9 +585,12 @@ function LoginRoute() {
       const message =
         typeof errorDetails.message === 'string'
           ? errorDetails.message
-          : String(signInError);
+          : signInError instanceof Error
+            ? signInError.message
+            : String(signInError);
       console.error('Login Error:', code, message);
       setError(code);
+      setErrorMessage(message);
     } finally {
       setSignInLoading(false);
     }
@@ -590,6 +601,7 @@ function LoginRoute() {
     <LoginPage
       loading={signInLoading}
       error={error}
+      errorMessage={errorMessage}
       onGoogleSignIn={() => void handleGoogleSignIn()}
     />
   );
