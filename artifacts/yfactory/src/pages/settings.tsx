@@ -13,6 +13,7 @@ import {
   Trash2,
   UserRound,
 } from 'lucide-react';
+import ConfirmActionDialog from '@/components/confirm-action-dialog';
 import './auth-pages.css';
 
 export type ProviderKey = 'zsky' | 'agnes' | 'glm';
@@ -36,7 +37,8 @@ export type SettingsPageProps = {
   error: string | null;
   onSaveKeys: (keys: UserApiKeys) => Promise<void>;
   onBack: () => void;
-  onLogout: () => void;
+  onLogout: () => Promise<void>;
+  onDeleteAccount: () => Promise<void>;
 };
 
 const providers: ProviderKey[] = ['zsky', 'agnes', 'glm'];
@@ -56,12 +58,15 @@ export default function SettingsPage({
   onSaveKeys,
   onBack,
   onLogout,
+  onDeleteAccount,
 }: SettingsPageProps) {
   const { t, i18n } = useTranslation();
   const isRtl = (i18n.resolvedLanguage ?? i18n.language) === 'ar';
   const [draftKeys, setDraftKeys] = useState<UserApiKeys>(keys);
   const [revealed, setRevealed] = useState<Record<string, boolean>>({});
   const [saved, setSaved] = useState(false);
+  const [logoutConfirmationOpen, setLogoutConfirmationOpen] = useState(false);
+  const [deleteConfirmationOpen, setDeleteConfirmationOpen] = useState(false);
   const displayName = user.displayName || user.email || 'YFactory creator';
   const initials = (user.displayName || user.email || 'Y')
     .split(/[\s@]+/)
@@ -125,7 +130,12 @@ export default function SettingsPage({
             <span className="settings-brand-mark">Y</span>
             <span>YFactory</span>
           </div>
-          <button className="settings-logout" type="button" onClick={onLogout} data-testid="button-settings-logout">
+          <button
+            className="settings-logout"
+            type="button"
+            onClick={() => setLogoutConfirmationOpen(true)}
+            data-testid="button-settings-logout"
+          >
             <LogOut size={16} aria-hidden="true" />
             <span>{t('settings.logout')}</span>
           </button>
@@ -287,6 +297,21 @@ export default function SettingsPage({
               <span>{t('settings.securityNote')}</span>
             </div>
           </section>
+          <section className="danger-zone" aria-labelledby="danger-zone-title">
+            <div>
+              <h2 id="danger-zone-title">{t('settings.dangerZone')}</h2>
+              <p>{t('settings.deleteAccountDescription')}</p>
+            </div>
+            <button
+              className="settings-delete-account"
+              type="button"
+              onClick={() => setDeleteConfirmationOpen(true)}
+              data-testid="button-delete-account"
+            >
+              <Trash2 size={16} aria-hidden="true" />
+              <span>{t('settings.deleteAccount')}</span>
+            </button>
+          </section>
         </div>
         <footer className="settings-footer">
           <span>YFactory</span>
@@ -294,6 +319,32 @@ export default function SettingsPage({
           <span>Creator workspace</span>
         </footer>
       </div>
+      <ConfirmActionDialog
+        open={logoutConfirmationOpen}
+        onOpenChange={setLogoutConfirmationOpen}
+        title={t('confirmation.logoutTitle')}
+        description={t('confirmation.logoutDescription')}
+        confirmLabel={t('confirmation.confirm')}
+        busyLabel={t('confirmation.loggingOut')}
+        cancelLabel={t('confirmation.cancel')}
+        failureMessage={t('confirmation.logoutFailed')}
+        onConfirm={onLogout}
+        dir={isRtl ? 'rtl' : 'ltr'}
+      />
+      <ConfirmActionDialog
+        open={deleteConfirmationOpen}
+        onOpenChange={setDeleteConfirmationOpen}
+        title={t('confirmation.deleteTitle')}
+        description={t('confirmation.deleteDescription')}
+        confirmLabel={t('confirmation.deleteConfirm')}
+        busyLabel={t('confirmation.deleting')}
+        cancelLabel={t('confirmation.cancel')}
+        failureMessage={t('confirmation.deleteFailed')}
+        recentLoginMessage={t('confirmation.recentLogin')}
+        onConfirm={onDeleteAccount}
+        dir={isRtl ? 'rtl' : 'ltr'}
+        danger
+      />
     </main>
   );
 }

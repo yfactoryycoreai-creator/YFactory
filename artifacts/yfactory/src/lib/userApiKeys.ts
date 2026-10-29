@@ -1,4 +1,5 @@
 import {
+  deleteDoc,
   doc,
   getDoc,
   setDoc,
@@ -71,4 +72,19 @@ export async function saveUserApiKeys(
 
   await setDoc(userRef, savedKeys, { merge: true });
   return savedKeys;
+}
+
+export async function deleteUserDocument(uid: string): Promise<DocumentData | null> {
+  const userRef = getUserDocument(uid);
+  const snapshot = await getDoc(userRef);
+  const previousData = snapshot.exists() ? snapshot.data() : null;
+  await deleteDoc(userRef);
+  return previousData;
+}
+
+export async function restoreUserDocument(
+  uid: string,
+  previousData: DocumentData,
+): Promise<void> {
+  await setDoc(getUserDocument(uid), previousData);
 }

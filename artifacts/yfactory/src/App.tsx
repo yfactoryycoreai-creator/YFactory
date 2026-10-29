@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { deleteUser } from 'firebase/auth';
 import {
   AudioLines,
   Clock3,
@@ -28,8 +29,11 @@ import { AuthProvider, useAuth } from '@/auth/AuthProvider';
 import LoginPage from '@/pages/login';
 import SettingsPage from '@/pages/settings';
 import NotFound from '@/pages/not-found';
+import ConfirmActionDialog from '@/components/confirm-action-dialog';
 import {
+  deleteUserDocument,
   loadUserApiKeys,
+  restoreUserDocument,
   saveUserApiKeys,
   type UserApiKeys,
 } from '@/lib/userApiKeys';
@@ -99,6 +103,7 @@ function Home() {
     useState<GeneratorSettings>(readGeneratorSettings);
   const [noticeKey, setNoticeKey] = useState('');
   const [profileOpen, setProfileOpen] = useState(false);
+  const [logoutConfirmationOpen, setLogoutConfirmationOpen] = useState(false);
   const [videoImages, setVideoImages] = useState<File[]>([]);
   const [imagePreviewUrls, setImagePreviewUrls] = useState<string[]>([]);
   const [isDraggingImage, setIsDraggingImage] = useState(false);
@@ -418,13 +423,8 @@ function Home() {
   };
 
   const handleLogout = async () => {
-    setProfileOpen(false);
-    try {
-      await signOutFromFirebase();
-      setLocation('/login');
-    } catch {
-      setNoticeKey('status.signOutError');
-    }
+    await signOutFromFirebase();
+    setLocation('/login');
   };
 
   const profileName = user?.displayName || user?.email || 'YFactory creator';
@@ -446,6 +446,8 @@ function Home() {
             dir={isRtl ? 'rtl' : 'ltr'}
             value={locale}
             onValueChange={(language) => {
+              document.documentElement.lang = language;
+              document.documentElement.dir = language === 'ar' ? 'rtl' : 'ltr';
               void i18n.changeLanguage(language);
               setNoticeKey('');
             }}
@@ -503,7 +505,10 @@ function Home() {
                 <button
                   type="button"
                   role="menuitem"
-                  onClick={() => void handleLogout()}
+                  onClick={() => {
+                    setProfileOpen(false);
+                    setLogoutConfirmationOpen(true);
+                  }}
                   data-testid="button-profile-logout"
                 >
                   <LogOut size={16} />
@@ -844,7 +849,18 @@ function Home() {
           )}
         </section>
       </main>
-
+      <ConfirmActionDialog
+        open={logoutConfirmationOpen}
+        onOpenChange={setLogoutConfirmationOpen}
+        title={t('confirmation.logoutTitle')}
+        description={t('confirmation.logoutDescription')}
+        confirmLabel={t('confirmation.confirm')}
+        busyLabel={t('confirmation.loggingOut')}
+        cancelLabel={t('confirmation.cancel')}
+        failureMessage={t('confirmation.logoutFailed')}
+        onConfirm={handleLogout}
+        dir={isRtl ? 'rtl' : 'ltr'}
+      />
     </div>
   );
 }
@@ -984,12 +1000,28 @@ function ProtectedSettings() {
   };
 
   const handleLogout = async () => {
+    await signOutFromFirebase();
+    setLocation('/login');
+  };
+
+  const handleDeleteAccount = async () => {
+    if (!user) return;
+    const previousDocument = await deleteUserDocument(user.uid);
     try {
-      await signOutFromFirebase();
-      setLocation('/login');
-    } catch {
-      setError('Could not sign out. Please try again.');
+      await deleteUser(user);
+    } catch (deleteAuthError) {
+      if (previousDocument) {
+        try {
+          await restoreUserDocument(user.uid, previousDocument);
+        } catch {
+          throw new Error(
+            'Account deletion could not finish and the account data could not be restored.',
+          );
+        }
+      }
+      throw deleteAuthError;
     }
+    setLocation('/login');
   };
 
   if (authLoading || !user) return null;
@@ -1007,7 +1039,8 @@ function ProtectedSettings() {
       error={error}
       onSaveKeys={saveKeys}
       onBack={() => setLocation('/')}
-      onLogout={() => void handleLogout()}
+      onLogout={handleLogout}
+      onDeleteAccount={handleDeleteAccount}
     />
   );
 }
@@ -1037,6 +1070,7 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}>
+          <LocaleDirectionSync />
           <AuthProvider>
             <Router />
           </AuthProvider>
@@ -1045,6 +1079,19 @@ function App() {
       </TooltipProvider>
     </QueryClientProvider>
   );
+}
+
+function LocaleDirectionSync() {
+  const { i18n } = useTranslation();
+  const locale = i18n.resolvedLanguage ?? i18n.language;
+  const isRtl = locale === 'ar';
+
+  useEffect(() => {
+    document.documentElement.lang = locale;
+    document.documentElement.dir = isRtl ? 'rtl' : 'ltr';
+  }, [locale, isRtl]);
+
+  return null;
 }
 
 export default App;

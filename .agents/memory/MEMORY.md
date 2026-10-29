@@ -1,1 +1,2 @@
 - [Stable deployment domain](stable-deployment-domain.md) — use the user's published Replit domain for production-domain guidance.
+- [Firebase account deletion](firebase-account-deletion.md) — restore the Firestore user document if Auth deletion fails after the document is removed.

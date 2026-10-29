@@ -313,6 +313,36 @@
 .settings-save-button:disabled { opacity: .52; cursor: wait; }
 .security-note { display: flex; align-items: flex-start; gap: 9px; margin-top: 17px; color: #77849b; font-size: 11px; line-height: 1.55; }
 .security-note svg { flex: none; margin-top: 1px; color: #6f86c8; }
+.danger-zone {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin-top: 34px;
+  padding: 18px 20px;
+  border: 1px solid rgba(255, 101, 116, .24);
+  border-radius: 12px;
+  background: linear-gradient(125deg, rgba(45, 17, 28, .42), rgba(19, 13, 24, .72));
+}
+.danger-zone h2 { margin: 0; color: #ffd7db; font-size: 13px; font-weight: 600; }
+.danger-zone p { margin: 6px 0 0; color: #b98c94; font-size: 11px; line-height: 1.55; }
+.settings-delete-account {
+  min-height: 38px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 12px;
+  border: 1px solid rgba(255, 96, 112, .43);
+  border-radius: 8px;
+  color: #ffd8dc;
+  background: rgba(123, 34, 51, .3);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+}
+.settings-delete-account:hover { border-color: rgba(255, 111, 126, .7); background: rgba(143, 37, 56, .45); }
 .settings-loading { display: grid; gap: 11px; }
 .skeleton-line { height: 116px; border: 1px solid rgba(126,146,187,.12); border-radius: 11px; background: linear-gradient(100deg,#0e1524,#151e31,#0e1524); background-size: 200% 100%; animation: auth-shimmer 1.5s ease-in-out infinite; }
 .skeleton-line.short { height: 82px; }
@@ -352,6 +382,8 @@
   .add-key-button span { display: none; }
   .provider-count { min-width: 22px; }
   .provider-chevron { display: none; }
+  .danger-zone { align-items: stretch; flex-direction: column; gap: 13px; margin-top: 25px; padding: 15px; }
+  .settings-delete-account { align-self: flex-start; }
 }
 @media (prefers-reduced-motion: reduce) {
   .auth-screen *, .auth-screen *::before, .auth-screen *::after { animation-duration: .01ms!important; animation-iteration-count: 1!important; scroll-behavior: auto!important; transition-duration: .01ms!important; }
