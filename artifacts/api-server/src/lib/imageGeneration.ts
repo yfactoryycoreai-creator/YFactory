@@ -248,6 +248,7 @@ async function requestAgnes(
       body: JSON.stringify({
         model: "agnes-image-2.1-flash",
         prompt,
+        n: 1,
         size: "1K",
         ratio: "1:1",
         extra_body: { response_format: "url" },
@@ -275,6 +276,7 @@ async function requestGlm(
       body: JSON.stringify({
         model: "glm-image",
         prompt,
+        n: 1,
         size: "1280x1280",
       }),
       signal,
@@ -333,15 +335,19 @@ async function requestProvider(
 async function requestPollinationsImage(
   prompt: string,
   fetchImage: ImageFetch,
+  jobSignal?: AbortSignal,
 ): Promise<GeneratedImageAsset> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), PROVIDER_TIMEOUT_MS);
+  const signal = jobSignal
+    ? AbortSignal.any([controller.signal, jobSignal])
+    : controller.signal;
   try {
     const seed = Math.floor(Math.random() * 2_147_483_647);
     const url =
       `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}` +
       `?width=1024&height=1024&seed=${seed}`;
-    const response = await fetchImage(url, { signal: controller.signal });
+    const response = await fetchImage(url, { signal });
     if (!response.ok) {
       throw new ProviderAttemptError(
         `Provider returned HTTP ${response.status}.`,
@@ -369,7 +375,7 @@ async function requestPollinationsImage(
   } catch (error) {
     if (error instanceof ProviderAttemptError) throw error;
     throw new ProviderAttemptError(
-      error instanceof Error && error.name === "AbortError"
+      jobSignal?.aborted || (error instanceof Error && error.name === "AbortError")
         ? "Pollinations timed out."
         : "Pollinations request failed.",
     );
@@ -386,11 +392,13 @@ export async function generateImageWithFallback(
   onKeyFailure: KeyFailureHandler = () => undefined,
   onKeySuccess: KeyFailureHandler = () => undefined,
   onProviderFailure: (provider: ImageProvider, status: number | null) => void = () => undefined,
+  jobSignal?: AbortSignal,
 ): Promise<GeneratedImageAsset> {
   const providerOrder = providers
     .filter((provider) => provider.category === "image" && provider.enabled && provider.adapter !== "pollinations")
     .sort((left, right) => left.rotationOrder - right.rotationOrder);
   for (const provider of providerOrder) {
+    if (jobSignal?.aborted) throw new ProviderAttemptError("Image generation timed out.");
     if (provider.adapter === "zsky") continue;
     const providerKeys = keys[provider.id] ?? { hasVaultKeys: false, keys: [] };
     const candidates = [...providerKeys.keys];
@@ -410,19 +418,26 @@ export async function generateImageWithFallback(
     }
 
     for (const candidate of candidates) {
+      if (jobSignal?.aborted) throw new ProviderAttemptError("Image generation timed out.");
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), PROVIDER_TIMEOUT_MS);
+      const signal = jobSignal
+        ? AbortSignal.any([controller.signal, jobSignal])
+        : controller.signal;
       try {
         const image = await requestProvider(
           provider,
           candidate.value,
           prompt,
           fetchImage,
-          controller.signal,
+          signal,
         );
         await onKeySuccess(provider.id, candidate.id, null);
         return image;
       } catch (error) {
+        if (jobSignal?.aborted) {
+          throw new ProviderAttemptError("Image generation timed out.");
+        }
         const status =
           error instanceof ProviderAttemptError ? error.status : null;
         if (controller.signal.aborted) {
@@ -439,8 +454,9 @@ export async function generateImageWithFallback(
   }
 
   try {
+    if (jobSignal?.aborted) throw new ProviderAttemptError("Image generation timed out.");
     if (providers.some((provider) => provider.id === "pollinations" && provider.enabled)) {
-      return await requestPollinationsImage(prompt, fetchImage);
+      return await requestPollinationsImage(prompt, fetchImage, jobSignal);
     }
     throw new ProviderAttemptError("No enabled image providers are configured.");
   } catch (error) {

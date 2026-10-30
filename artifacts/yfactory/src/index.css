@@ -686,8 +686,18 @@ button:not(:disabled):hover { filter:brightness(1.12); }
 .story-image-card { min-width:0; overflow:hidden; border:1px solid #293650; border-radius:10px; background:#0c1424; }
 .story-image-card > img { display:block; width:100%; aspect-ratio:1; object-fit:cover; background:#080d1a; }
 .story-image-caption { display:flex; align-items:center; gap:8px; padding:8px; }
-.story-image-caption p { overflow:hidden; flex:1; margin:0; color:#aab7d0; font-size:10px; line-height:1.4; text-overflow:ellipsis; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
+.story-image-copy { min-width:0; flex:1; display:flex; flex-direction:column; gap:5px; }
+.story-image-caption p { overflow:hidden; margin:0; color:#aab7d0; font-size:10px; line-height:1.4; text-overflow:ellipsis; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
 .story-image-actions { display:flex; flex:none; align-items:center; gap:4px; }
+.story-image-state { display:flex; aspect-ratio:1; flex-direction:column; align-items:center; justify-content:center; gap:10px; padding:16px; color:#a9b8d5; background:#101a2b; font-size:11px; text-align:center; }
+.story-image-state-generating,.story-image-state-pending { background:linear-gradient(135deg,#101a2b,#17243a,#101a2b); }
+.story-image-state-failed { color:#f2a3ad; background:#241722; }
+.story-scene-skeleton { width:44%; aspect-ratio:1; border:1px solid #354560; border-radius:9px; background:linear-gradient(110deg,#17243a 20%,#263752 38%,#17243a 60%); background-size:200% 100%; animation:story-scene-shimmer 1.6s linear infinite; }
+.story-scene-status,.story-legacy-grid { width:max-content; max-width:100%; padding:3px 6px; border:1px solid #394761; border-radius:999px; color:#b7c6e0; font-size:9px; line-height:1.2; }
+.story-scene-status-failed,.story-legacy-grid { color:#f2a3ad; border-color:#71404b; background:#241722; }
+.story-generation-progress { display:block; margin-top:4px; color:#8293b1; font-size:10px; }
+@keyframes story-scene-shimmer { to { background-position-x:-200%; } }
+@media (prefers-reduced-motion:reduce) { .story-scene-skeleton { animation:none; } }
 .story-icon-button { display:grid; flex:none; place-items:center; border:1px solid #293651; color:#aebbd4; background:#111a2d; }
 .story-icon-button:disabled { opacity:.5; cursor:wait; }
 .story-icon-button.delete-action:hover { color:#ff9aa6; border-color:rgba(255,115,132,.32); }

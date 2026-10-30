@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { cert, getApps, initializeApp, type App } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { FieldValue, getFirestore } from "firebase-admin/firestore";
+import { getStorage } from "firebase-admin/storage";
 
 let adminApp: App | null = null;
 
@@ -65,6 +66,7 @@ export function getFirebaseAdmin() {
             privateKey,
           }),
           projectId,
+          storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET?.trim(),
         },
         "yfactory-admin",
       );
@@ -75,6 +77,7 @@ export function getFirebaseAdmin() {
     app,
     auth: getAuth(app),
     db: getFirestore(app),
+    storage: getStorage(app),
     FieldValue,
   };
 }

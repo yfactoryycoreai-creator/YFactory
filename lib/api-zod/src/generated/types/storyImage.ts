@@ -5,9 +5,14 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { StoryImageStatus } from './storyImageStatus';
 
 export interface StoryImage {
   id: string;
+  /** @minimum 1 */
+  index?: number;
+  scenePrompt?: string;
+  imageUrl?: string;
   url: string;
   thumbnailUrl?: string;
   publicId?: string;
@@ -18,4 +23,6 @@ export interface StoryImage {
   sizeBytes: number;
   storagePath: string;
   provider: string;
+  status?: StoryImageStatus;
+  error?: string;
 }

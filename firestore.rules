@@ -39,6 +39,11 @@ service cloud.firestore {
           // Image documents and counters are written only by the authenticated API server.
           allow create, update, delete: if false;
         }
+
+        match /downloadTokens/{tokenId} {
+          // ZIP tokens contain short-lived download authority and are API-server managed.
+          allow read, create, update, delete: if false;
+        }
       }
 
       match /providerKeys/{provider}/keys/{keyId} {

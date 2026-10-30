@@ -7,11 +7,8 @@
  */
 
 export interface ImageGenerationInput {
-  /**
-     * @maxLength 200
-     * @nullable
-     */
-  storyId: string | null;
+  /** @nullable */
+  storyId: null;
   /**
      * @minLength 1
      * @maxLength 20000

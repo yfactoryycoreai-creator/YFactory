@@ -67,6 +67,7 @@ export async function generateImages(
   storyId: string | null,
   prompt: string,
   count: number,
+  signal?: AbortSignal,
 ): Promise<GenerationResponse> {
   let response: Response;
   try {
@@ -77,6 +78,7 @@ export async function generateImages(
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ storyId, prompt, count }),
+      signal,
     });
   } catch {
     throw new ImageGenerationError('Image generation failed.', 'network_error');

@@ -9,17 +9,18 @@ import {
   type ProviderConfig,
   type ProviderKey,
 } from "../lib/apiKeyVault";
-import { cloudinaryThumbnailUrl, cloudinaryWebpUrl, deleteCloudinaryImage, getCloudinaryUsage, uploadStoryImage } from "../lib/cloudinary";
+import { deleteCloudinaryImage, getCloudinaryUsage } from "../lib/cloudinary";
 import { getFirebaseAdmin, verifyFirebaseIdToken } from "../lib/firebaseAdmin";
+import { deleteFirebaseStorageObject, uploadStoryImageToFirebase } from "../lib/firebaseStorage";
 import {
   generateImageWithFallback,
   ProviderAttemptError,
   type GeneratedImageAsset,
 } from "../lib/imageGeneration";
-import { createZipArchive } from "../lib/zipArchive";
-import sharp from "sharp";
+import storyScenesRouter from "./storyScenes";
 
 const router: IRouter = Router();
+router.use(storyScenesRouter);
 const MAX_STORY_IMAGES = 100;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
@@ -29,191 +30,105 @@ class StoryLimitReachedError extends Error {}
 type StoredImage = {
   id: string;
   url: string;
-  thumbnailUrl?: string;
-  publicId?: string;
-  folder?: string;
+  imageUrl?: string;
   prompt: string;
+  scenePrompt?: string;
   createdAt: unknown;
   sizeBytes: number;
   storagePath: string;
   provider: string;
+  index?: number;
+  status?: "done";
+  error?: string;
   sequence?: number;
 };
-
-function storyFolder(storyName: string, storyId: string): string {
-  const slug = storyName
-    .normalize("NFKD")
-    .toLowerCase()
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 60) || "story";
-  return `yfactory/${slug}-${storyId}`;
-}
-
-function sequenceId(value: number): string {
-  return String(value).padStart(3, "0");
-}
-
-async function reserveSequence(
-  storyRef: FirebaseFirestore.DocumentReference,
-): Promise<{ number: number; storyName: string }> {
-  return getFirebaseAdmin().db.runTransaction(async (transaction) => {
-    const story = await transaction.get(storyRef);
-    if (!story.exists) throw new StoryNotFoundError();
-    const count = Math.max(0, Math.floor(Number(story.data()?.imageCount) || 0));
-    if (count >= MAX_STORY_IMAGES) throw new StoryLimitReachedError();
-    const current = Math.max(count, Math.floor(Number(story.data()?.imageSequence) || 0));
-    const number = current + 1;
-    transaction.update(storyRef, { imageSequence: number });
-    return {
-      number,
-      storyName: typeof story.data()?.storyName === "string" ? story.data()!.storyName as string : "story",
-    };
-  });
-}
 
 async function saveOneImage(
   uid: string,
   storyId: string,
   prompt: string,
   asset: GeneratedImageAsset,
-  persist = true,
 ): Promise<StoredImage> {
   const db = getFirebaseAdmin().db;
   const storyRef = db.collection("users").doc(uid).collection("stories").doc(storyId);
   const imageRef = storyRef.collection("images").doc(randomUUID());
-  const reserved = await reserveSequence(storyRef);
-  const folder = storyFolder(reserved.storyName, storyId);
-  const proposedPublicId = sequenceId(reserved.number);
   const buffer = Buffer.from(asset.base64, "base64");
   if (!buffer.length || buffer.length > MAX_IMAGE_BYTES) {
     throw new Error("Generated image was empty or larger than 10 MB.");
   }
-
-  let url = asset.sourceUrl ?? "";
-  let thumbnailUrl = url;
-  let publicId: string | undefined;
-  let sizeBytes = buffer.length;
-  try {
-    const upload = await uploadStoryImage(uid, folder, proposedPublicId, buffer, asset.mimeType);
-    if (upload) {
-      url = upload.secureUrl;
-      thumbnailUrl = cloudinaryThumbnailUrl(upload.secureUrl);
-      publicId = upload.publicId;
-      sizeBytes = upload.bytes;
-    }
-  } catch (error) {
-    // Keep generation usable when Cloudinary is unavailable; a provider URL is the fallback.
-    if (!asset.sourceUrl) throw error;
-  }
-  if (!url) {
-    throw new Error("Cloudinary is unavailable and this provider returned no fallback image URL.");
-  }
-
-  const stored: StoredImage = {
-    id: imageRef.id,
-    url,
-    thumbnailUrl,
-    ...(publicId ? { publicId } : {}),
-    folder,
-    prompt,
-    createdAt: new Date(),
-    sizeBytes,
-    storagePath: folder,
-    provider: asset.provider,
-    sequence: reserved.number,
-  };
-  if (!persist) return stored;
-
+  const uploaded = await uploadStoryImageToFirebase(
+    uid,
+    storyId,
+    imageRef.id,
+    buffer,
+    asset.mimeType,
+  );
+  let sequence = 0;
   try {
     await db.runTransaction(async (transaction) => {
-      const story = await transaction.get(storyRef);
+      const [story, images] = await Promise.all([
+        transaction.get(storyRef),
+        transaction.get(storyRef.collection("images")),
+      ]);
       if (!story.exists) throw new StoryNotFoundError();
-      const count = Math.max(0, Math.floor(Number(story.data()?.imageCount) || 0));
+      const storyData = story.data() ?? {};
+      const count = Math.max(0, Math.floor(Number(storyData.imageCount) || 0));
       if (count >= MAX_STORY_IMAGES) throw new StoryLimitReachedError();
+      const usedIndexes = new Set<number>();
+      for (const image of images.docs) {
+        const data = image.data();
+        const index = Number(data.index ?? data.sequence);
+        if (Number.isInteger(index) && index >= 1 && index <= MAX_STORY_IMAGES) {
+          usedIndexes.add(index);
+        }
+      }
+      sequence = Array.from(
+        { length: MAX_STORY_IMAGES },
+        (_, index) => index + 1,
+      ).find((index) => !usedIndexes.has(index)) ?? 0;
+      if (!sequence) throw new StoryLimitReachedError();
       transaction.create(imageRef, {
-        url: stored.url,
-        thumbnailUrl: stored.thumbnailUrl,
-        ...(stored.publicId ? { publicId: stored.publicId } : {}),
-        folder: stored.folder,
-        sequence: stored.sequence,
-        prompt: stored.prompt,
+        index: sequence,
+        scenePrompt: prompt,
+        prompt,
+        imageUrl: uploaded.imageUrl,
+        url: uploaded.imageUrl,
+        status: "done",
+        error: "",
+        batchId: `single-${imageRef.id}`,
+        batchTotal: 1,
         createdAt: FieldValue.serverTimestamp(),
-        sizeBytes: stored.sizeBytes,
-        storagePath: stored.storagePath,
-        provider: stored.provider,
+        sizeBytes: uploaded.sizeBytes,
+        storagePath: uploaded.storagePath,
+        provider: asset.provider,
       });
       transaction.update(storyRef, {
+        imageSequence: Math.max(
+          Math.floor(Number(storyData.imageSequence) || 0),
+          sequence,
+        ),
         imageCount: FieldValue.increment(1),
-        storageBytes: FieldValue.increment(stored.sizeBytes),
+        storageBytes: FieldValue.increment(uploaded.sizeBytes),
       });
     });
   } catch (error) {
-    if (publicId) await deleteCloudinaryImage(uid, publicId).catch(() => undefined);
+    await deleteFirebaseStorageObject(uploaded.storagePath).catch(() => undefined);
     throw error;
   }
-  return stored;
-}
-
-async function saveGeneratedImagesToStory(
-  uid: string,
-  storyId: string,
-  prompt: string,
-  images: GeneratedImageAsset[],
-): Promise<{ images: StoredImage[]; failedCount: number; skippedCount: number }> {
-  const settled = await Promise.allSettled(
-    images.map((image) => saveOneImage(uid, storyId, prompt, image, false)),
-  );
-  const prepared = settled.flatMap((item) => item.status === "fulfilled" ? [item.value] : []);
-  const preparationFailures = settled.length - prepared.length;
-  if (!prepared.length) {
-    return { images: [], failedCount: preparationFailures, skippedCount: 0 };
-  }
-  const db = getFirebaseAdmin().db;
-  const storyRef = db.collection("users").doc(uid).collection("stories").doc(storyId);
-  let saved: StoredImage[] = [];
-  try {
-    await db.runTransaction(async (transaction) => {
-      const story = await transaction.get(storyRef);
-      if (!story.exists) throw new StoryNotFoundError();
-      const count = Math.max(0, Math.floor(Number(story.data()?.imageCount) || 0));
-      const accepted = prepared.slice(0, Math.max(0, MAX_STORY_IMAGES - count));
-      if (!accepted.length) throw new StoryLimitReachedError();
-      for (const image of accepted) {
-        transaction.create(storyRef.collection("images").doc(image.id), {
-          url: image.url,
-          thumbnailUrl: image.thumbnailUrl,
-          ...(image.publicId ? { publicId: image.publicId } : {}),
-          folder: image.folder,
-          sequence: image.sequence,
-          prompt: image.prompt,
-          createdAt: FieldValue.serverTimestamp(),
-          sizeBytes: image.sizeBytes,
-          storagePath: image.storagePath,
-          provider: image.provider,
-        });
-      }
-      transaction.update(storyRef, {
-        imageCount: FieldValue.increment(accepted.length),
-        storageBytes: FieldValue.increment(accepted.reduce((sum, image) => sum + image.sizeBytes, 0)),
-      });
-      saved = accepted;
-    });
-  } catch {
-    await Promise.all(prepared.map((image) =>
-      image.publicId ? deleteCloudinaryImage(uid, image.publicId).catch(() => undefined) : Promise.resolve(),
-    ));
-    return { images: [], failedCount: images.length, skippedCount: 0 };
-  }
-  const savedIds = new Set(saved.map((image) => image.id));
-  await Promise.all(prepared.filter((image) => !savedIds.has(image.id)).map((image) =>
-    image.publicId ? deleteCloudinaryImage(uid, image.publicId).catch(() => undefined) : Promise.resolve(),
-  ));
   return {
-    images: saved,
-    failedCount: preparationFailures + prepared.length - saved.length,
-    skippedCount: 0,
+    id: imageRef.id,
+    url: uploaded.imageUrl,
+    imageUrl: uploaded.imageUrl,
+    prompt,
+    scenePrompt: prompt,
+    createdAt: new Date(),
+    sizeBytes: uploaded.sizeBytes,
+    storagePath: uploaded.storagePath,
+    provider: asset.provider,
+    index: sequence,
+    status: "done",
+    error: "",
+    sequence,
   };
 }
 
@@ -323,8 +238,8 @@ router.post("/images/stories/:storyId/images", async (req, res): Promise<void> =
       res.status(409).json({ error: "This story has reached its 100-image limit.", code: "story_limit" });
       return;
     }
-    req.log.error({ reason: error instanceof Error ? error.message : "unknown" }, "Could not save story image.");
-    res.status(502).json({ error: error instanceof Error ? error.message : "The image could not be saved.", code: "image_save_failed" });
+    req.log.error({ storyId }, "Could not save story image.");
+    res.status(502).json({ error: "The image could not be saved. Please try again.", code: "image_save_failed" });
   }
 });
 
@@ -342,20 +257,29 @@ router.delete("/images/stories/:storyId/images/:imageId", async (req, res): Prom
     const storyRef = db.collection("users").doc(uid).collection("stories").doc(storyId);
     const imageRef = storyRef.collection("images").doc(imageId);
     let publicId: string | undefined;
+    let storagePath: string | undefined;
     await db.runTransaction(async (transaction) => {
       const [story, image] = await Promise.all([transaction.get(storyRef), transaction.get(imageRef)]);
       if (!story.exists || !image.exists) return;
       const data = image.data() ?? {};
       publicId = typeof data.publicId === "string" ? data.publicId : undefined;
+      storagePath = typeof data.storagePath === "string" ? data.storagePath : undefined;
+      const counted = data.status !== "pending" && data.status !== "generating" && data.status !== "failed";
+      const currentCount = Math.max(0, Math.floor(Number(story.data()?.imageCount) || 0));
+      const currentBytes = Math.max(0, Number(story.data()?.storageBytes) || 0);
       transaction.delete(imageRef);
       transaction.update(storyRef, {
-        imageCount: FieldValue.increment(-1),
-        storageBytes: FieldValue.increment(-Math.max(0, Number(data.sizeBytes) || 0)),
+        imageCount: Math.max(0, currentCount - (counted ? 1 : 0)),
+        storageBytes: Math.max(0, currentBytes - (counted ? Math.max(0, Number(data.sizeBytes) || 0) : 0)),
       });
     });
-    if (publicId) {
+    if (storagePath?.startsWith(`users/${uid}/stories/${storyId}/`)) {
+      await deleteFirebaseStorageObject(storagePath).catch(() => {
+        req.log.warn({ storyId, imageId }, "Firebase Storage cleanup failed.");
+      });
+    } else if (publicId) {
       await deleteCloudinaryImage(uid, publicId).catch((error) => {
-        req.log.warn({ reason: error instanceof Error ? error.message : "unknown" }, "Cloudinary cleanup failed.");
+        req.log.warn({ storyId, imageId }, "Cloudinary cleanup failed.");
       });
     }
     res.sendStatus(204);
@@ -365,94 +289,22 @@ router.delete("/images/stories/:storyId/images/:imageId", async (req, res): Prom
   }
 });
 
-router.get("/images/stories/:storyId/download.zip", async (req, res): Promise<void> => {
-  const uid = await authenticatedUid(req, res);
-  if (!uid) return;
-  const storyId = String(req.params.storyId ?? "");
-  if (!/^[A-Za-z0-9_-]{1,200}$/.test(storyId)) {
-    res.status(400).json({ error: "The story ID is invalid.", code: "invalid_story_id" });
-    return;
-  }
-  try {
-    const db = getFirebaseAdmin().db;
-    const storyRef = db.collection("users").doc(uid).collection("stories").doc(storyId);
-    const story = await storyRef.get();
-    if (!story.exists) {
-      res.status(404).json({ error: "This story could not be found.", code: "story_not_found" });
-      return;
-    }
-    const snapshot = await storyRef.collection("images").orderBy("createdAt", "asc").limit(MAX_STORY_IMAGES).get();
-    const files: Array<{ name: string; data: Buffer }> = [];
-    for (const [index, document] of snapshot.docs.entries()) {
-      const image = document.data();
-      const url = typeof image.url === "string" ? image.url : "";
-      if (!safeImageUrl(url)) continue;
-      const transformed = typeof image.publicId === "string" ? cloudinaryWebpUrl(url) : url;
-      const response = await fetch(transformed, { signal: AbortSignal.timeout(40_000) });
-      if (!response.ok) continue;
-      const sourceBytes = Buffer.from(await response.arrayBuffer());
-      if (!sourceBytes.length || sourceBytes.length > MAX_IMAGE_BYTES) continue;
-      const bytes = await sharp(sourceBytes, { limitInputPixels: 40_000_000 }).webp().toBuffer();
-      const imageNumber = sequenceId(index + 1);
-      files.push({ name: `${String(story.data()?.storyName ?? "story").slice(0, 70)}_${imageNumber}.webp`, data: bytes });
-    }
-    if (!files.length) {
-      res.status(404).json({ error: "This story has no downloadable images.", code: "no_images" });
-      return;
-    }
-    const archive = createZipArchive(files);
-    const name = String(story.data()?.storyName ?? "story").replace(/[^a-z0-9_-]+/gi, "_").slice(0, 70) || "story";
-    res.setHeader("Content-Type", "application/zip");
-    res.setHeader("Content-Disposition", `attachment; filename="${name}.zip"`);
-    res.setHeader("Content-Length", archive.length);
-    res.send(archive);
-  } catch (error) {
-    req.log.error({ reason: error instanceof Error ? error.message : "unknown" }, "Could not create story ZIP.");
-    res.status(502).json({ error: "The story ZIP could not be created.", code: "zip_failed" });
-  }
-});
-
 router.post("/images/generate", async (req, res): Promise<void> => {
   const prompt = typeof req.body?.prompt === "string" ? req.body.prompt : "";
   const count = Number(req.body?.count);
   const storyId = req.body?.storyId;
   if (!prompt.trim() || prompt.length > 20_000 || !Number.isInteger(count) || count < 1 || count > 5 ||
-      !(storyId === null || typeof storyId === "string")) {
+      storyId !== null) {
     res.status(400).json({ error: "Provide a prompt of up to 20,000 characters and an image count between 1 and 5.", code: "invalid_request" });
     return;
   }
   const uid = await authenticatedUid(req, res);
   if (!uid) return;
   try {
-    const id = storyId as string | null;
-    const db = getFirebaseAdmin().db;
-    let allowedCount = count;
-    let initialSkippedCount = 0;
-    let storyName: string | undefined;
-    if (id) {
-      if (!/^[A-Za-z0-9_-]{1,200}$/.test(id)) {
-        res.status(400).json({ error: "The story ID is invalid.", code: "invalid_story_id" });
-        return;
-      }
-      const story = await db.collection("users").doc(uid).collection("stories").doc(id).get();
-      if (!story.exists) {
-        res.status(404).json({ error: "This story could not be found.", code: "story_not_found" });
-        return;
-      }
-      storyName = typeof story.data()?.storyName === "string" ? story.data()!.storyName as string : "story";
-      const currentCount = Math.max(0, Math.floor(Number(story.data()?.imageCount) || 0));
-      allowedCount = Math.min(count, MAX_STORY_IMAGES - currentCount);
-      initialSkippedCount = count - allowedCount;
-      if (!allowedCount) {
-        res.status(409).json({ error: "This story has reached its 100-image limit.", code: "story_limit", failedCount: 0, skippedCount: count });
-        return;
-      }
-    }
-
     const providers = await listProviderConfigs(uid);
     const keys = await getGenerationKeys(uid, providers);
     const settled = await Promise.allSettled(
-      Array.from({ length: allowedCount }, (_, imageIndex) => {
+      Array.from({ length: count }, (_, imageIndex) => {
         const rotatedKeys = Object.fromEntries(Object.entries(keys).map(([provider, entry]) => {
           if (!entry.keys.length) return [provider, entry];
           const offset = imageIndex % entry.keys.length;
@@ -472,49 +324,28 @@ router.post("/images/generate", async (req, res): Promise<void> => {
       }),
     );
     const generated = settled.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
-    let saved: StoredImage[] = [];
-    let storageFailed = 0;
-    if (id && generated.length) {
-      const persisted = await saveGeneratedImagesToStory(uid, id, prompt.trim(), generated);
-      saved = persisted.images;
-      storageFailed = persisted.failedCount;
-    }
-    const failedCount = allowedCount - generated.length + storageFailed;
-    const skippedCount = initialSkippedCount;
-    const responseImages = id
-      ? saved.map((image) => ({
-          url: image.url,
-          thumbnailUrl: image.thumbnailUrl,
-          publicId: image.publicId,
-          folder: image.folder,
-          sequence: image.sequence,
-          provider: image.provider,
-          sizeBytes: image.sizeBytes,
-          savedToFactory: true,
-        }))
-      : generated.map((image) => ({
-          ...(image.sourceUrl ? { url: image.sourceUrl } : { base64: image.base64 }),
-          mimeType: image.mimeType,
-          provider: image.provider,
-        }));
+    const failedCount = count - generated.length;
+    const responseImages = generated.map((image) => ({
+      ...(image.sourceUrl ? { url: image.sourceUrl } : { base64: image.base64 }),
+      mimeType: image.mimeType,
+      provider: image.provider,
+    }));
     if (!responseImages.length) {
       res.status(502).json({
-        error: id
-          ? `No images could be saved to ${storyName ?? "this story"}. Cloudinary may be unavailable, or the provider returned no URL fallback.`
-          : "Image generation failed. Check that at least one provider has an enabled key.",
-        code: generated.length ? "image_save_failed" : "all_providers_failed",
+        error: "Image generation failed. Check that at least one provider has an enabled key.",
+        code: "all_providers_failed",
         failedCount,
-        skippedCount,
+        skippedCount: 0,
       });
       return;
     }
-    res.json({ images: responseImages, failedCount, skippedCount });
+    res.json({ images: responseImages, failedCount, skippedCount: 0 });
   } catch (error) {
     if (error instanceof StoryNotFoundError) {
       res.status(404).json({ error: "This story could not be found.", code: "story_not_found" });
       return;
     }
-    req.log.error({ reason: error instanceof Error ? error.message : "unknown" }, "Image generation request failed.");
+    req.log.error({ storyId }, "Image generation request failed.");
     res.status(500).json({ error: "Image generation failed. Please try again shortly.", code: "image_generation_failed" });
   }
 });

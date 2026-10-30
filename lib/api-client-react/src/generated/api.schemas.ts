@@ -10,11 +10,8 @@ export interface HealthStatus {
 }
 
 export interface ImageGenerationInput {
-  /**
-     * @maxLength 200
-     * @nullable
-     */
-  storyId: string | null;
+  /** @nullable */
+  storyId: null;
   /**
      * @minLength 1
      * @maxLength 20000
@@ -25,6 +22,55 @@ export interface ImageGenerationInput {
      * @maximum 5
      */
   count: number;
+}
+
+export interface SceneGenerationInput {
+  /**
+     * @minLength 1
+     * @maxLength 20000
+     */
+  prompt: string;
+  /**
+     * @minimum 1
+     * @maximum 100
+     */
+  count: number;
+}
+
+export interface SceneGenerationAccepted {
+  batchId: string;
+  sceneCount: number;
+  skippedCount: number;
+}
+
+export interface SceneResumeResult {
+  resumedCount: number;
+}
+
+export interface SceneRetryResult {
+  queued: boolean;
+}
+
+export interface StoryZipDownloadToken {
+  downloadUrl: string;
+  token: string;
+  imageCount: number;
+}
+
+export type StoryZipProgressStatus = typeof StoryZipProgressStatus[keyof typeof StoryZipProgressStatus];
+
+
+export const StoryZipProgressStatus = {
+  ready: 'ready',
+  zipping: 'zipping',
+  done: 'done',
+  failed: 'failed',
+} as const;
+
+export interface StoryZipProgress {
+  status: StoryZipProgressStatus;
+  completedCount: number;
+  imageCount: number;
 }
 
 export interface GeneratedImage {
@@ -151,8 +197,22 @@ export interface SaveStoryImageInput {
   provider?: string;
 }
 
+export type StoryImageStatus = typeof StoryImageStatus[keyof typeof StoryImageStatus];
+
+
+export const StoryImageStatus = {
+  pending: 'pending',
+  generating: 'generating',
+  done: 'done',
+  failed: 'failed',
+} as const;
+
 export interface StoryImage {
   id: string;
+  /** @minimum 1 */
+  index?: number;
+  scenePrompt?: string;
+  imageUrl?: string;
   url: string;
   thumbnailUrl?: string;
   publicId?: string;
@@ -163,6 +223,8 @@ export interface StoryImage {
   sizeBytes: number;
   storagePath: string;
   provider: string;
+  status?: StoryImageStatus;
+  error?: string;
 }
 
 export type VaultKeyStatus = typeof VaultKeyStatus[keyof typeof VaultKeyStatus];
@@ -212,4 +274,12 @@ export interface UpdateVaultKeyInput {
   label?: string;
   enabled?: boolean;
 }
+
+export type DownloadStoryZipParams = {
+token: string;
+};
+
+export type GetStoryZipDownloadProgressParams = {
+token: string;
+};
 

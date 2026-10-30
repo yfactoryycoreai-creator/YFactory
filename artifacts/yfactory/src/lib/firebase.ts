@@ -20,11 +20,6 @@ const firebaseConfig = {
   measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID || undefined,
 };
 
-console.log('[Firebase] Loaded client config', {
-  projectId: firebaseConfig.projectId || '(missing)',
-  authDomain: firebaseConfig.authDomain || '(missing)',
-});
-
 const requiredFirebaseFields = [
   'apiKey',
   'authDomain',

@@ -21,8 +21,6 @@ export const HealthCheckResponse = zod.object({
  * Generates images on the server using the configured provider fallback chain.
  * @summary Generate images for a story
  */
-export const generateStoryImagesBodyStoryIdMax = 200;
-
 export const generateStoryImagesBodyPromptMax = 20000;
 
 export const generateStoryImagesBodyCountMax = 5;
@@ -30,7 +28,7 @@ export const generateStoryImagesBodyCountMax = 5;
 
 
 export const GenerateStoryImagesBody = zod.object({
-  "storyId": zod.string().max(generateStoryImagesBodyStoryIdMax).nullable(),
+  "storyId": zod.null(),
   "prompt": zod.string().min(1).max(generateStoryImagesBodyPromptMax),
   "count": zod.number().int().min(1).max(generateStoryImagesBodyCountMax)
 })
@@ -92,8 +90,12 @@ export const SaveStoryImageBody = zod.object({
 
 
 
+
 export const SaveStoryImageResponse = zod.object({
   "id": zod.string(),
+  "index": zod.number().int().min(1).optional(),
+  "scenePrompt": zod.string().optional(),
+  "imageUrl": zod.string().url().optional(),
   "url": zod.string().url(),
   "thumbnailUrl": zod.string().url().optional(),
   "publicId": zod.string().optional(),
@@ -102,7 +104,67 @@ export const SaveStoryImageResponse = zod.object({
   "prompt": zod.string(),
   "sizeBytes": zod.number().int(),
   "storagePath": zod.string(),
-  "provider": zod.string()
+  "provider": zod.string(),
+  "status": zod.enum(['pending', 'generating', 'done', 'failed']).optional(),
+  "error": zod.string().optional()
+})
+
+
+/**
+ * @summary Queue independent scene image jobs
+ */
+export const startStorySceneGenerationPathStoryIdMax = 200;
+
+
+
+export const StartStorySceneGenerationParams = zod.object({
+  "storyId": zod.coerce.string().max(startStorySceneGenerationPathStoryIdMax)
+})
+
+export const startStorySceneGenerationBodyPromptMax = 20000;
+
+export const startStorySceneGenerationBodyCountMax = 100;
+
+
+
+export const StartStorySceneGenerationBody = zod.object({
+  "prompt": zod.string().min(1).max(startStorySceneGenerationBodyPromptMax),
+  "count": zod.number().int().min(1).max(startStorySceneGenerationBodyCountMax)
+})
+
+export const StartStorySceneGenerationResponse = zod.object({
+  "batchId": zod.string(),
+  "sceneCount": zod.number().int(),
+  "skippedCount": zod.number().int()
+})
+
+
+/**
+ * @summary Resume pending scene jobs
+ */
+export const resumeStorySceneGenerationPathStoryIdMax = 200;
+
+
+
+export const ResumeStorySceneGenerationParams = zod.object({
+  "storyId": zod.coerce.string().max(resumeStorySceneGenerationPathStoryIdMax)
+})
+
+export const ResumeStorySceneGenerationResponse = zod.object({
+  "resumedCount": zod.number().int()
+})
+
+
+/**
+ * @summary Retry a failed scene image job
+ */
+export const RetryStorySceneParams = zod.object({
+  "storyId": zod.coerce.string(),
+  "imageId": zod.coerce.string()
+})
+
+export const RetryStorySceneResponse = zod.object({
+  "queued": zod.boolean()
 })
 
 
@@ -118,13 +180,49 @@ export const DeleteStoryImageResponse = zod.void()
 
 
 /**
- * @summary Download a story's images as a ZIP archive
+ * @summary Stream a short-lived story ZIP download
  */
 export const DownloadStoryZipParams = zod.object({
   "storyId": zod.coerce.string()
 })
 
+export const DownloadStoryZipQueryParams = zod.object({
+  "token": zod.coerce.string()
+})
+
 export const DownloadStoryZipResponse = zod.unknown()
+
+
+/**
+ * @summary Create a short-lived ZIP download link
+ */
+export const CreateStoryZipDownloadTokenParams = zod.object({
+  "storyId": zod.coerce.string()
+})
+
+export const CreateStoryZipDownloadTokenResponse = zod.object({
+  "downloadUrl": zod.string(),
+  "token": zod.string(),
+  "imageCount": zod.number().int()
+})
+
+
+/**
+ * @summary Read ZIP download progress
+ */
+export const GetStoryZipDownloadProgressParams = zod.object({
+  "storyId": zod.coerce.string()
+})
+
+export const GetStoryZipDownloadProgressQueryParams = zod.object({
+  "token": zod.coerce.string()
+})
+
+export const GetStoryZipDownloadProgressResponse = zod.object({
+  "status": zod.enum(['ready', 'zipping', 'done', 'failed']),
+  "completedCount": zod.number().int(),
+  "imageCount": zod.number().int()
+})
 
 
 /**

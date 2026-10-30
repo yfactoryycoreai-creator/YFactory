@@ -53,6 +53,7 @@ import {
 import {
   MAX_STORY_IMAGES,
   StoryLimitReachedError,
+  startStorySceneGeneration,
   type StoryImageRecord,
   type StoryRecord,
 } from '@/lib/stories';
@@ -126,6 +127,7 @@ function Home() {
   const [audioGenerated, setAudioGenerated] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const audioTimeoutRef = useRef<number | null>(null);
+  const imageGenerationAbortRef = useRef<AbortController | null>(null);
   const profileMenuRef = useRef<HTMLDivElement>(null);
   const isRtl = locale === 'ar';
   const prompt = prompts[mode];
@@ -194,6 +196,7 @@ function Home() {
 
   useEffect(
     () => () => {
+      imageGenerationAbortRef.current?.abort();
       if (audioTimeoutRef.current !== null) {
         window.clearTimeout(audioTimeoutRef.current);
       }
@@ -360,12 +363,37 @@ function Home() {
           )
         : requestedImages;
       setIsImageGenerating(true);
+      imageGenerationAbortRef.current?.abort();
+      const controller = new AbortController();
+      imageGenerationAbortRef.current = controller;
       try {
+        const idToken = await user.getIdToken();
+        if (activeStory) {
+          const started = await startStorySceneGeneration(
+            activeStory.id,
+            promptToGenerate,
+            totalImages,
+            idToken,
+            controller.signal,
+          );
+          if (started.skippedCount > 0) {
+            setImageError(
+              t('status.partialImageFailure', {
+                failed: started.skippedCount,
+                total: requestedImages,
+              }),
+            );
+          } else {
+            setNoticeKey('status.imageBatchReady');
+          }
+          return;
+        }
         const result = await generateImages(
-          await user.getIdToken(),
-          activeStory?.id ?? null,
+          idToken,
+          null,
           promptToGenerate,
           totalImages,
+          controller.signal,
         );
         const batch: GeneratedImageHistoryItem[] = result.images.map((image) => ({
           id: crypto.randomUUID(),
@@ -376,74 +404,33 @@ function Home() {
           ...(image.savedToFactory ? { savedToFactory: true } : {}),
         }));
 
-        if (activeStory) {
-          const savedImages = batch.filter((image) => image.savedToFactory);
-          setGeneratedImages((current) =>
-            [...savedImages, ...current].slice(
-              0,
-              MAX_PERSISTED_IMAGES,
-            ),
+        setGeneratedImages((current) =>
+          [...batch, ...current].slice(0, MAX_PERSISTED_IMAGES),
+        );
+        if (result.failedCount > 0 || result.skippedCount > 0) {
+          setImageError(
+            t('status.partialImageFailure', {
+              failed: result.failedCount + result.skippedCount,
+              total: requestedImages,
+            }),
           );
-          const savedBytes = result.images.reduce(
-            (total, image) =>
-              total + (image.savedToFactory ? image.sizeBytes ?? 0 : 0),
-            0,
-          );
-          if (savedImages.length) {
-            setActiveStory((current) =>
-              current?.id === activeStory.id
-                ? {
-                    ...current,
-                    imageCount: Math.min(
-                      MAX_STORY_IMAGES,
-                      Math.max(
-                        current.imageCount,
-                        activeStory.imageCount + savedImages.length,
-                      ),
-                    ),
-                    storageBytes: Math.max(
-                      current.storageBytes,
-                      activeStory.storageBytes + savedBytes,
-                    ),
-                  }
-                : current,
-            );
-          }
-          const failedCount = result.failedCount + result.skippedCount;
-          if (failedCount > 0) {
-            setImageError(
-              t('status.partialImageFailure', {
-                failed: failedCount,
-                total: requestedImages,
-              }),
-            );
-          } else {
-            setNoticeKey('status.imageBatchReady');
-          }
         } else {
-          setGeneratedImages((current) =>
-            [...batch, ...current].slice(0, MAX_PERSISTED_IMAGES),
-          );
-          if (result.failedCount > 0 || result.skippedCount > 0) {
-            setImageError(
-              t('status.partialImageFailure', {
-                failed: result.failedCount + result.skippedCount,
-                total: requestedImages,
-              }),
-            );
-          } else {
-            setNoticeKey('status.imageBatchReady');
-          }
+          setNoticeKey('status.imageBatchReady');
         }
       } catch (generationError) {
-        setImageError(
-          generationError instanceof StoryLimitReachedError ||
-            (generationError instanceof ImageGenerationError &&
-              generationError.code === 'story_limit')
-            ? t('stories.limitReached')
-            : t('status.imageGenerateFailed'),
-        );
+        if (!controller.signal.aborted) {
+          setImageError(
+            generationError instanceof StoryLimitReachedError ||
+              (generationError instanceof ImageGenerationError &&
+                generationError.code === 'story_limit')
+              ? t('stories.limitReached')
+              : t('status.imageGenerateFailed'),
+          );
+        }
       } finally {
+        if (imageGenerationAbortRef.current === controller) {
+          imageGenerationAbortRef.current = null;
+        }
         setIsImageGenerating(false);
       }
       return;

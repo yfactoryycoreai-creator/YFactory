@@ -8,7 +8,9 @@
 
 export * from './apiError';
 export * from './createVaultKeyInput';
+export * from './downloadStoryZipParams';
 export * from './generatedImage';
+export * from './getStoryZipDownloadProgressParams';
 export * from './healthStatus';
 export * from './imageGenerationInput';
 export * from './imageGenerationResult';
@@ -22,8 +24,16 @@ export * from './providerId';
 export * from './providerList';
 export * from './providerUpdateInput';
 export * from './saveStoryImageInput';
+export * from './sceneGenerationAccepted';
+export * from './sceneGenerationInput';
+export * from './sceneResumeResult';
+export * from './sceneRetryResult';
 export * from './storageUsage';
 export * from './storyImage';
+export * from './storyImageStatus';
+export * from './storyZipDownloadToken';
+export * from './storyZipProgress';
+export * from './storyZipProgressStatus';
 export * from './updateVaultKeyInput';
 export * from './vaultKey';
 export * from './vaultKeyList';

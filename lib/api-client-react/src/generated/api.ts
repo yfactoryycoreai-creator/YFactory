@@ -22,6 +22,8 @@ import type {
 import type {
   ApiError,
   CreateVaultKeyInput,
+  DownloadStoryZipParams,
+  GetStoryZipDownloadProgressParams,
   HealthStatus,
   ImageGenerationInput,
   ImageGenerationResult,
@@ -30,8 +32,14 @@ import type {
   ProviderList,
   ProviderUpdateInput,
   SaveStoryImageInput,
+  SceneGenerationAccepted,
+  SceneGenerationInput,
+  SceneResumeResult,
+  SceneRetryResult,
   StorageUsage,
   StoryImage,
+  StoryZipDownloadToken,
+  StoryZipProgress,
   UpdateVaultKeyInput,
   VaultKey,
   VaultKeyList
@@ -397,6 +405,245 @@ export const useSaveStoryImage = <TError = ErrorType<unknown>,
       return useMutation(getSaveStoryImageMutationOptions(options));
     }
 
+export const getStartStorySceneGenerationUrl = (storyId: string,) => {
+
+
+
+
+  return `/api/images/stories/${storyId}/scenes`
+}
+
+/**
+ * @summary Queue independent scene image jobs
+ */
+export const startStorySceneGeneration = async (storyId: string,
+    sceneGenerationInput: SceneGenerationInput, options?: Parameters<typeof customFetch>[1]): Promise<SceneGenerationAccepted> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<SceneGenerationAccepted>(getStartStorySceneGenerationUrl(storyId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(sceneGenerationInput)
+  }
+);}
+
+
+
+
+
+export const getStartStorySceneGenerationMutationKey = () => ['startStorySceneGeneration'] as const;
+
+export const getStartStorySceneGenerationMutationOptions = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof startStorySceneGeneration>>, TError,StartStorySceneGenerationMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof startStorySceneGeneration>>, TError,StartStorySceneGenerationMutationVariables, TContext> => {
+
+const mutationKey = getStartStorySceneGenerationMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof startStorySceneGeneration>>, StartStorySceneGenerationMutationVariables> = (props) => {
+          const {storyId,data} = props ?? {};
+
+          return  startStorySceneGeneration(storyId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type StartStorySceneGenerationMutationResult = NonNullable<Awaited<ReturnType<typeof startStorySceneGeneration>>>
+    export type StartStorySceneGenerationMutationBody = BodyType<SceneGenerationInput>
+    export type StartStorySceneGenerationMutationError = ErrorType<ApiError>
+    export type StartStorySceneGenerationMutationVariables = {storyId: string;data: BodyType<SceneGenerationInput>}
+
+    /**
+ * @summary Queue independent scene image jobs
+ */
+export const useStartStorySceneGeneration = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof startStorySceneGeneration>>, TError,StartStorySceneGenerationMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof startStorySceneGeneration>>,
+        TError,
+        StartStorySceneGenerationMutationVariables,
+        TContext
+      > => {
+      return useMutation(getStartStorySceneGenerationMutationOptions(options));
+    }
+
+export const getResumeStorySceneGenerationUrl = (storyId: string,) => {
+
+
+
+
+  return `/api/images/stories/${storyId}/scenes/resume`
+}
+
+/**
+ * @summary Resume pending scene jobs
+ */
+export const resumeStorySceneGeneration = async (storyId: string, options?: Parameters<typeof customFetch>[1]): Promise<SceneResumeResult> => {
+
+  return customFetch<SceneResumeResult>(getResumeStorySceneGenerationUrl(storyId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getResumeStorySceneGenerationMutationKey = () => ['resumeStorySceneGeneration'] as const;
+
+export const getResumeStorySceneGenerationMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof resumeStorySceneGeneration>>, TError,ResumeStorySceneGenerationMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof resumeStorySceneGeneration>>, TError,ResumeStorySceneGenerationMutationVariables, TContext> => {
+
+const mutationKey = getResumeStorySceneGenerationMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof resumeStorySceneGeneration>>, ResumeStorySceneGenerationMutationVariables> = (props) => {
+          const {storyId} = props ?? {};
+
+          return  resumeStorySceneGeneration(storyId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ResumeStorySceneGenerationMutationResult = NonNullable<Awaited<ReturnType<typeof resumeStorySceneGeneration>>>
+
+    export type ResumeStorySceneGenerationMutationError = ErrorType<unknown>
+    export type ResumeStorySceneGenerationMutationVariables = {storyId: string}
+
+    /**
+ * @summary Resume pending scene jobs
+ */
+export const useResumeStorySceneGeneration = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof resumeStorySceneGeneration>>, TError,ResumeStorySceneGenerationMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof resumeStorySceneGeneration>>,
+        TError,
+        ResumeStorySceneGenerationMutationVariables,
+        TContext
+      > => {
+      return useMutation(getResumeStorySceneGenerationMutationOptions(options));
+    }
+
+export const getRetryStorySceneUrl = (storyId: string,
+    imageId: string,) => {
+
+
+
+
+  return `/api/images/stories/${storyId}/images/${imageId}/retry`
+}
+
+/**
+ * @summary Retry a failed scene image job
+ */
+export const retryStoryScene = async (storyId: string,
+    imageId: string, options?: Parameters<typeof customFetch>[1]): Promise<SceneRetryResult> => {
+
+  return customFetch<SceneRetryResult>(getRetryStorySceneUrl(storyId,imageId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getRetryStorySceneMutationKey = () => ['retryStoryScene'] as const;
+
+export const getRetryStorySceneMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof retryStoryScene>>, TError,RetryStorySceneMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof retryStoryScene>>, TError,RetryStorySceneMutationVariables, TContext> => {
+
+const mutationKey = getRetryStorySceneMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof retryStoryScene>>, RetryStorySceneMutationVariables> = (props) => {
+          const {storyId,imageId} = props ?? {};
+
+          return  retryStoryScene(storyId,imageId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RetryStorySceneMutationResult = NonNullable<Awaited<ReturnType<typeof retryStoryScene>>>
+
+    export type RetryStorySceneMutationError = ErrorType<unknown>
+    export type RetryStorySceneMutationVariables = {storyId: string;imageId: string}
+
+    /**
+ * @summary Retry a failed scene image job
+ */
+export const useRetryStoryScene = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof retryStoryScene>>, TError,RetryStorySceneMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof retryStoryScene>>,
+        TError,
+        RetryStorySceneMutationVariables,
+        TContext
+      > => {
+      return useMutation(getRetryStorySceneMutationOptions(options));
+    }
+
 export const getDeleteStoryImageUrl = (storyId: string,
     imageId: string,) => {
 
@@ -473,20 +720,29 @@ export const useDeleteStoryImage = <TError = ErrorType<unknown>,
       return useMutation(getDeleteStoryImageMutationOptions(options));
     }
 
-export const getDownloadStoryZipUrl = (storyId: string,) => {
+export const getDownloadStoryZipUrl = (storyId: string,
+    params: DownloadStoryZipParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
 
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
 
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/api/images/stories/${storyId}/download.zip`
+  return stringifiedParams.length > 0 ? `/api/images/stories/${storyId}/download.zip?${stringifiedParams}` : `/api/images/stories/${storyId}/download.zip`
 }
 
 /**
- * @summary Download a story's images as a ZIP archive
+ * @summary Stream a short-lived story ZIP download
  */
-export const downloadStoryZip = async (storyId: string, options?: Parameters<typeof customFetch>[1]): Promise<Blob> => {
+export const downloadStoryZip = async (storyId: string,
+    params: DownloadStoryZipParams, options?: Parameters<typeof customFetch>[1]): Promise<Blob> => {
 
-  return customFetch<Blob>(getDownloadStoryZipUrl(storyId),
+  return customFetch<Blob>(getDownloadStoryZipUrl(storyId,params),
   {
     ...options,
     method: 'GET'
@@ -499,23 +755,25 @@ export const downloadStoryZip = async (storyId: string, options?: Parameters<typ
 
 
 
-export const getDownloadStoryZipQueryKey = (storyId: string,) => {
+export const getDownloadStoryZipQueryKey = (storyId: string,
+    params?: DownloadStoryZipParams,) => {
     return [
-    `/api/images/stories/${storyId}/download.zip`
+    `/api/images/stories/${storyId}/download.zip`, ...(params ? [params] : [])
     ] as const;
     }
 
 
-export const getDownloadStoryZipQueryOptions = <TData = Awaited<ReturnType<typeof downloadStoryZip>>, TError = ErrorType<unknown>>(storyId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof downloadStoryZip>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export const getDownloadStoryZipQueryOptions = <TData = Awaited<ReturnType<typeof downloadStoryZip>>, TError = ErrorType<unknown>>(storyId: string,
+    params: DownloadStoryZipParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof downloadStoryZip>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getDownloadStoryZipQueryKey(storyId);
+  const queryKey =  queryOptions?.queryKey ?? getDownloadStoryZipQueryKey(storyId,params);
 
 
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof downloadStoryZip>>> = ({ signal }) => downloadStoryZip(storyId, { signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof downloadStoryZip>>> = ({ signal }) => downloadStoryZip(storyId,params, { signal, ...requestOptions });
 
 
 
@@ -529,15 +787,179 @@ export type DownloadStoryZipQueryError = ErrorType<unknown>
 
 
 /**
- * @summary Download a story's images as a ZIP archive
+ * @summary Stream a short-lived story ZIP download
  */
 
 export function useDownloadStoryZip<TData = Awaited<ReturnType<typeof downloadStoryZip>>, TError = ErrorType<unknown>>(
- storyId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof downloadStoryZip>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+ storyId: string,
+    params: DownloadStoryZipParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof downloadStoryZip>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
-  const queryOptions = getDownloadStoryZipQueryOptions(storyId,options)
+  const queryOptions = getDownloadStoryZipQueryOptions(storyId,params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateStoryZipDownloadTokenUrl = (storyId: string,) => {
+
+
+
+
+  return `/api/images/stories/${storyId}/download-token`
+}
+
+/**
+ * @summary Create a short-lived ZIP download link
+ */
+export const createStoryZipDownloadToken = async (storyId: string, options?: Parameters<typeof customFetch>[1]): Promise<StoryZipDownloadToken> => {
+
+  return customFetch<StoryZipDownloadToken>(getCreateStoryZipDownloadTokenUrl(storyId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getCreateStoryZipDownloadTokenMutationKey = () => ['createStoryZipDownloadToken'] as const;
+
+export const getCreateStoryZipDownloadTokenMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createStoryZipDownloadToken>>, TError,CreateStoryZipDownloadTokenMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createStoryZipDownloadToken>>, TError,CreateStoryZipDownloadTokenMutationVariables, TContext> => {
+
+const mutationKey = getCreateStoryZipDownloadTokenMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createStoryZipDownloadToken>>, CreateStoryZipDownloadTokenMutationVariables> = (props) => {
+          const {storyId} = props ?? {};
+
+          return  createStoryZipDownloadToken(storyId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateStoryZipDownloadTokenMutationResult = NonNullable<Awaited<ReturnType<typeof createStoryZipDownloadToken>>>
+
+    export type CreateStoryZipDownloadTokenMutationError = ErrorType<unknown>
+    export type CreateStoryZipDownloadTokenMutationVariables = {storyId: string}
+
+    /**
+ * @summary Create a short-lived ZIP download link
+ */
+export const useCreateStoryZipDownloadToken = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createStoryZipDownloadToken>>, TError,CreateStoryZipDownloadTokenMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createStoryZipDownloadToken>>,
+        TError,
+        CreateStoryZipDownloadTokenMutationVariables,
+        TContext
+      > => {
+      return useMutation(getCreateStoryZipDownloadTokenMutationOptions(options));
+    }
+
+export const getGetStoryZipDownloadProgressUrl = (storyId: string,
+    params: GetStoryZipDownloadProgressParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/images/stories/${storyId}/download-status?${stringifiedParams}` : `/api/images/stories/${storyId}/download-status`
+}
+
+/**
+ * @summary Read ZIP download progress
+ */
+export const getStoryZipDownloadProgress = async (storyId: string,
+    params: GetStoryZipDownloadProgressParams, options?: Parameters<typeof customFetch>[1]): Promise<StoryZipProgress> => {
+
+  return customFetch<StoryZipProgress>(getGetStoryZipDownloadProgressUrl(storyId,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetStoryZipDownloadProgressQueryKey = (storyId: string,
+    params?: GetStoryZipDownloadProgressParams,) => {
+    return [
+    `/api/images/stories/${storyId}/download-status`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetStoryZipDownloadProgressQueryOptions = <TData = Awaited<ReturnType<typeof getStoryZipDownloadProgress>>, TError = ErrorType<unknown>>(storyId: string,
+    params: GetStoryZipDownloadProgressParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getStoryZipDownloadProgress>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetStoryZipDownloadProgressQueryKey(storyId,params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getStoryZipDownloadProgress>>> = ({ signal }) => getStoryZipDownloadProgress(storyId,params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: storyId !== null && storyId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getStoryZipDownloadProgress>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetStoryZipDownloadProgressQueryResult = NonNullable<Awaited<ReturnType<typeof getStoryZipDownloadProgress>>>
+export type GetStoryZipDownloadProgressQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Read ZIP download progress
+ */
+
+export function useGetStoryZipDownloadProgress<TData = Awaited<ReturnType<typeof getStoryZipDownloadProgress>>, TError = ErrorType<unknown>>(
+ storyId: string,
+    params: GetStoryZipDownloadProgressParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getStoryZipDownloadProgress>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetStoryZipDownloadProgressQueryOptions(storyId,params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

@@ -109,11 +109,90 @@ paths:
               $ref: "#/components/schemas/SaveStoryImageInput"
       responses:
         "201":
-          description: Image saved with its Cloudinary metadata.
+          description: Image bytes are saved to the user's Firebase Storage story path.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/StoryImage"
+  /images/stories/{storyId}/scenes:
+    post:
+      operationId: startStorySceneGeneration
+      tags: [images]
+      summary: Queue independent scene image jobs
+      security:
+        - FirebaseBearerAuth: []
+      parameters:
+        - name: storyId
+          in: path
+          required: true
+          schema:
+            type: string
+            maxLength: 200
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SceneGenerationInput"
+      responses:
+        "202":
+          description: Scene records were created and queued independently.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SceneGenerationAccepted"
+        "409":
+          description: Story image limit reached.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /images/stories/{storyId}/scenes/resume:
+    post:
+      operationId: resumeStorySceneGeneration
+      tags: [images]
+      summary: Resume pending scene jobs
+      security:
+        - FirebaseBearerAuth: []
+      parameters:
+        - name: storyId
+          in: path
+          required: true
+          schema:
+            type: string
+            maxLength: 200
+      responses:
+        "200":
+          description: Pending jobs were added to the bounded queue.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SceneResumeResult"
+  /images/stories/{storyId}/images/{imageId}/retry:
+    post:
+      operationId: retryStoryScene
+      tags: [images]
+      summary: Retry a failed scene image job
+      security:
+        - FirebaseBearerAuth: []
+      parameters:
+        - name: storyId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: imageId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "202":
+          description: The failed scene was queued for retry.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SceneRetryResult"
   /images/stories/{storyId}/images/{imageId}:
     parameters:
       - name: storyId
@@ -139,7 +218,31 @@ paths:
     get:
       operationId: downloadStoryZip
       tags: [images]
-      summary: Download a story's images as a ZIP archive
+      summary: Stream a short-lived story ZIP download
+      parameters:
+        - name: storyId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: token
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Streamed ZIP containing separate scene images.
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
+  /images/stories/{storyId}/download-token:
+    post:
+      operationId: createStoryZipDownloadToken
+      tags: [images]
+      summary: Create a short-lived ZIP download link
       security:
         - FirebaseBearerAuth: []
       parameters:
@@ -150,12 +253,36 @@ paths:
             type: string
       responses:
         "200":
-          description: ZIP file containing the story's images.
+          description: A signed short-lived navigation URL and progress token.
           content:
-            application/zip:
+            application/json:
               schema:
-                type: string
-                format: binary
+                $ref: "#/components/schemas/StoryZipDownloadToken"
+  /images/stories/{storyId}/download-status:
+    get:
+      operationId: getStoryZipDownloadProgress
+      tags: [images]
+      summary: Read ZIP download progress
+      security:
+        - FirebaseBearerAuth: []
+      parameters:
+        - name: storyId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: token
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Current ZIP progress for the authenticated story owner.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StoryZipProgress"
   /vault/keys:
     get:
       operationId: listVaultKeys
@@ -352,8 +479,7 @@ components:
       type: object
       properties:
         storyId:
-          type: ["string", "null"]
-          maxLength: 200
+          type: "null"
         prompt:
           type: string
           minLength: 1
@@ -363,6 +489,61 @@ components:
           minimum: 1
           maximum: 5
       required: [storyId, prompt, count]
+    SceneGenerationInput:
+      type: object
+      properties:
+        prompt:
+          type: string
+          minLength: 1
+          maxLength: 20000
+        count:
+          type: integer
+          minimum: 1
+          maximum: 100
+      required: [prompt, count]
+    SceneGenerationAccepted:
+      type: object
+      properties:
+        batchId:
+          type: string
+        sceneCount:
+          type: integer
+        skippedCount:
+          type: integer
+      required: [batchId, sceneCount, skippedCount]
+    SceneResumeResult:
+      type: object
+      properties:
+        resumedCount:
+          type: integer
+      required: [resumedCount]
+    SceneRetryResult:
+      type: object
+      properties:
+        queued:
+          type: boolean
+      required: [queued]
+    StoryZipDownloadToken:
+      type: object
+      properties:
+        downloadUrl:
+          type: string
+        token:
+          type: string
+        imageCount:
+          type: integer
+      required: [downloadUrl, token, imageCount]
+    StoryZipProgress:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [ready, zipping, done, failed]
+        completedCount:
+          type: integer
+        imageCount:
+          type: integer
+      required: [status, completedCount, imageCount]
     GeneratedImage:
       type: object
       properties:
@@ -508,6 +689,14 @@ components:
       properties:
         id:
           type: string
+        index:
+          type: integer
+          minimum: 1
+        scenePrompt:
+          type: string
+        imageUrl:
+          type: string
+          format: uri
         url:
           type: string
           format: uri
@@ -528,6 +717,11 @@ components:
         storagePath:
           type: string
         provider:
+          type: string
+        status:
+          type: string
+          enum: [pending, generating, done, failed]
+        error:
           type: string
       required: [id, url, prompt, sizeBytes, storagePath, provider]
     VaultKey:
