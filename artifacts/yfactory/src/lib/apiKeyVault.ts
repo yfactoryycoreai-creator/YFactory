@@ -1,5 +1,32 @@
-export type ProviderKey = 'zsky' | 'agnes' | 'glm';
+export type ProviderKey = string;
 export type ProviderKeyStatus = 'ready' | 'failing' | 'cooldown';
+
+export type ProviderAdapter =
+  | 'agnes'
+  | 'glm'
+  | 'zsky'
+  | 'pollinations'
+  | 'cloudinary'
+  | 'openai-compatible';
+
+export type ProviderConfig = {
+  id: string;
+  name: string;
+  category: 'image' | 'storage';
+  adapter: ProviderAdapter;
+  enabled: boolean;
+  rotationOrder: number;
+  baseUrl?: string;
+  model?: string;
+  builtIn: boolean;
+  secretFallback?: string;
+};
+
+export type StorageUsage = {
+  configured: boolean;
+  usedBytes: number | null;
+  limitBytes: number | null;
+};
 
 export type VaultKey = {
   id: string;
@@ -51,6 +78,49 @@ export async function loadVaultKeys(idToken: string): Promise<VaultKey[]> {
     '/api/vault/keys',
   );
   return result.keys;
+}
+
+export async function loadProviders(idToken: string): Promise<ProviderConfig[]> {
+  const result = await vaultRequest<{ providers: ProviderConfig[] }>(
+    idToken,
+    '/api/providers',
+  );
+  return result.providers;
+}
+
+export function createProvider(
+  idToken: string,
+  input: {
+    name: string;
+    category: 'image' | 'storage';
+    adapter: ProviderAdapter;
+    baseUrl?: string;
+    model?: string;
+  },
+): Promise<{ providers: ProviderConfig[] }> {
+  return vaultRequest(idToken, '/api/providers', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateProviderConfig(
+  idToken: string,
+  providerId: string,
+  updates: { enabled?: boolean; rotationOrder?: number },
+): Promise<{ providers: ProviderConfig[] }> {
+  return vaultRequest(
+    idToken,
+    `/api/providers/${encodeURIComponent(providerId)}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(updates),
+    },
+  );
+}
+
+export async function loadStorageUsage(idToken: string): Promise<StorageUsage> {
+  return vaultRequest(idToken, '/api/images/storage-usage');
 }
 
 export function createVaultKey(

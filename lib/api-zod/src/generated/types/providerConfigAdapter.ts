@@ -6,12 +6,14 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type GeneratedImageProvider = typeof GeneratedImageProvider[keyof typeof GeneratedImageProvider];
+export type ProviderConfigAdapter = typeof ProviderConfigAdapter[keyof typeof ProviderConfigAdapter];
 
 
-export const GeneratedImageProvider = {
+export const ProviderConfigAdapter = {
   agnes: 'agnes',
   glm: 'glm',
   zsky: 'zsky',
   pollinations: 'pollinations',
+  cloudinary: 'cloudinary',
+  'openai-compatible': 'openai-compatible',
 } as const;

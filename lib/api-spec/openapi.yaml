@@ -73,6 +73,89 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
+  /images/storage-usage:
+    get:
+      operationId: getStorageUsage
+      tags: [images]
+      summary: Get Cloudinary storage usage
+      security:
+        - FirebaseBearerAuth: []
+      responses:
+        "200":
+          description: Storage usage and configured state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StorageUsage"
+  /images/stories/{storyId}/images:
+    parameters:
+      - name: storyId
+        in: path
+        required: true
+        schema:
+          type: string
+          maxLength: 200
+    post:
+      operationId: saveStoryImage
+      tags: [images]
+      summary: Save an image to a story
+      security:
+        - FirebaseBearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SaveStoryImageInput"
+      responses:
+        "201":
+          description: Image saved with its Cloudinary metadata.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StoryImage"
+  /images/stories/{storyId}/images/{imageId}:
+    parameters:
+      - name: storyId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: imageId
+        in: path
+        required: true
+        schema:
+          type: string
+    delete:
+      operationId: deleteStoryImage
+      tags: [images]
+      summary: Delete a story image
+      security:
+        - FirebaseBearerAuth: []
+      responses:
+        "204":
+          description: Image deleted.
+  /images/stories/{storyId}/download.zip:
+    get:
+      operationId: downloadStoryZip
+      tags: [images]
+      summary: Download a story's images as a ZIP archive
+      security:
+        - FirebaseBearerAuth: []
+      parameters:
+        - name: storyId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ZIP file containing the story's images.
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
   /vault/keys:
     get:
       operationId: listVaultKeys
@@ -124,6 +207,66 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
+  /providers:
+    get:
+      operationId: listProviders
+      tags: [vault]
+      summary: List image and storage providers
+      security:
+        - FirebaseBearerAuth: []
+      responses:
+        "200":
+          description: Provider settings and masked environment fallbacks.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProviderList"
+    post:
+      operationId: createProvider
+      tags: [vault]
+      summary: Add a provider configuration
+      security:
+        - FirebaseBearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProviderConfigInput"
+      responses:
+        "201":
+          description: Updated provider list.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProviderList"
+  /providers/{providerId}:
+    patch:
+      operationId: updateProviderSettings
+      tags: [vault]
+      summary: Update provider enabled state or rotation order
+      security:
+        - FirebaseBearerAuth: []
+      parameters:
+        - name: providerId
+          in: path
+          required: true
+          schema:
+            type: string
+            maxLength: 64
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProviderUpdateInput"
+      responses:
+        "200":
+          description: Updated provider list.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProviderList"
   /vault/keys/{provider}/{keyId}:
     parameters:
       - name: provider
@@ -214,11 +357,11 @@ components:
         prompt:
           type: string
           minLength: 1
-          maxLength: 4000
+          maxLength: 20000
         count:
           type: integer
           minimum: 1
-          maximum: 4
+          maximum: 5
       required: [storyId, prompt, count]
     GeneratedImage:
       type: object
@@ -233,9 +376,20 @@ components:
         sizeBytes:
           type: integer
           minimum: 0
+        thumbnailUrl:
+          type: string
+          format: uri
+        publicId:
+          type: string
+        folder:
+          type: string
+        sequence:
+          type: integer
+          minimum: 1
+        savedToFactory:
+          type: boolean
         provider:
           type: string
-          enum: [agnes, glm, zsky, pollinations]
       required: [provider]
     ImageGenerationResult:
       type: object
@@ -263,7 +417,119 @@ components:
       required: [error, code]
     ProviderId:
       type: string
-      enum: [zsky, agnes, glm]
+      pattern: "^[a-z0-9][a-z0-9-]{0,63}$"
+    StorageUsage:
+      type: object
+      properties:
+        configured:
+          type: boolean
+        usedBytes:
+          type: ["integer", "null"]
+        limitBytes:
+          type: ["integer", "null"]
+      required: [configured, usedBytes, limitBytes]
+    ProviderConfig:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        category:
+          type: string
+          enum: [image, storage]
+        adapter:
+          type: string
+          enum: [agnes, glm, zsky, pollinations, cloudinary, openai-compatible]
+        enabled:
+          type: boolean
+        rotationOrder:
+          type: integer
+        baseUrl:
+          type: string
+        model:
+          type: string
+        builtIn:
+          type: boolean
+        secretFallback:
+          type: string
+      required: [id, name, category, adapter, enabled, rotationOrder, builtIn]
+    ProviderList:
+      type: object
+      properties:
+        providers:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProviderConfig"
+      required: [providers]
+    ProviderConfigInput:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        category:
+          type: string
+          enum: [image, storage]
+        adapter:
+          type: string
+          enum: [agnes, glm, zsky, pollinations, cloudinary, openai-compatible]
+        enabled:
+          type: boolean
+        rotationOrder:
+          type: integer
+        baseUrl:
+          type: string
+        model:
+          type: string
+      required: [name, category, adapter]
+    ProviderUpdateInput:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        rotationOrder:
+          type: integer
+      minProperties: 1
+    SaveStoryImageInput:
+      type: object
+      properties:
+        imageData:
+          type: string
+        prompt:
+          type: string
+          maxLength: 20000
+        provider:
+          type: string
+      required: [imageData]
+    StoryImage:
+      type: object
+      properties:
+        id:
+          type: string
+        url:
+          type: string
+          format: uri
+        thumbnailUrl:
+          type: string
+          format: uri
+        publicId:
+          type: string
+        folder:
+          type: string
+        sequence:
+          type: integer
+          minimum: 1
+        prompt:
+          type: string
+        sizeBytes:
+          type: integer
+        storagePath:
+          type: string
+        provider:
+          type: string
+      required: [id, url, prompt, sizeBytes, storagePath, provider]
     VaultKey:
       type: object
       properties:

@@ -14,7 +14,7 @@ export type GeneratedImageHistoryItem = {
   createdAt: number;
   imageData: string;
   savedToFactory?: boolean;
-  provider?: 'agnes' | 'glm' | 'zsky' | 'pollinations';
+  provider?: string;
 };
 
 export const DEFAULT_GENERATOR_SETTINGS: GeneratorSettings = {

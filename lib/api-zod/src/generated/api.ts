@@ -23,9 +23,9 @@ export const HealthCheckResponse = zod.object({
  */
 export const generateStoryImagesBodyStoryIdMax = 200;
 
-export const generateStoryImagesBodyPromptMax = 4000;
+export const generateStoryImagesBodyPromptMax = 20000;
 
-export const generateStoryImagesBodyCountMax = 4;
+export const generateStoryImagesBodyCountMax = 5;
 
 
 
@@ -39,13 +39,19 @@ export const generateStoryImagesResponseImagesItemSizeBytesMin = 0;
 
 
 
+
 export const GenerateStoryImagesResponse = zod.object({
   "images": zod.array(zod.object({
   "base64": zod.string().optional(),
   "url": zod.string().url().optional(),
   "mimeType": zod.string().optional(),
   "sizeBytes": zod.number().int().min(generateStoryImagesResponseImagesItemSizeBytesMin).optional(),
-  "provider": zod.enum(['agnes', 'glm', 'zsky', 'pollinations'])
+  "thumbnailUrl": zod.string().url().optional(),
+  "publicId": zod.string().optional(),
+  "folder": zod.string().optional(),
+  "sequence": zod.number().int().min(1).optional(),
+  "savedToFactory": zod.boolean().optional(),
+  "provider": zod.string()
 })),
   "failedCount": zod.number().int(),
   "skippedCount": zod.number().int()
@@ -53,12 +59,84 @@ export const GenerateStoryImagesResponse = zod.object({
 
 
 /**
+ * @summary Get Cloudinary storage usage
+ */
+export const GetStorageUsageResponse = zod.object({
+  "configured": zod.boolean(),
+  "usedBytes": zod.number().int().nullable(),
+  "limitBytes": zod.number().int().nullable()
+})
+
+
+/**
+ * @summary Save an image to a story
+ */
+export const saveStoryImagePathStoryIdMax = 200;
+
+
+
+export const SaveStoryImageParams = zod.object({
+  "storyId": zod.coerce.string().max(saveStoryImagePathStoryIdMax)
+})
+
+export const saveStoryImageBodyPromptMax = 20000;
+
+
+
+export const SaveStoryImageBody = zod.object({
+  "imageData": zod.string(),
+  "prompt": zod.string().max(saveStoryImageBodyPromptMax).optional(),
+  "provider": zod.string().optional()
+})
+
+
+
+
+export const SaveStoryImageResponse = zod.object({
+  "id": zod.string(),
+  "url": zod.string().url(),
+  "thumbnailUrl": zod.string().url().optional(),
+  "publicId": zod.string().optional(),
+  "folder": zod.string().optional(),
+  "sequence": zod.number().int().min(1).optional(),
+  "prompt": zod.string(),
+  "sizeBytes": zod.number().int(),
+  "storagePath": zod.string(),
+  "provider": zod.string()
+})
+
+
+/**
+ * @summary Delete a story image
+ */
+export const DeleteStoryImageParams = zod.object({
+  "storyId": zod.coerce.string(),
+  "imageId": zod.coerce.string()
+})
+
+export const DeleteStoryImageResponse = zod.void()
+
+
+/**
+ * @summary Download a story's images as a ZIP archive
+ */
+export const DownloadStoryZipParams = zod.object({
+  "storyId": zod.coerce.string()
+})
+
+export const DownloadStoryZipResponse = zod.unknown()
+
+
+/**
  * @summary List masked API key metadata
  */
+export const listVaultKeysResponseKeysItemProviderRegExp = new RegExp('^[a-z0-9][a-z0-9-]{0,63}$');
+
+
 export const ListVaultKeysResponse = zod.object({
   "keys": zod.array(zod.object({
   "id": zod.string(),
-  "provider": zod.enum(['zsky', 'agnes', 'glm']),
+  "provider": zod.string().regex(listVaultKeysResponseKeysItemProviderRegExp),
   "label": zod.string(),
   "maskedValue": zod.string(),
   "enabled": zod.boolean(),
@@ -72,6 +150,7 @@ export const ListVaultKeysResponse = zod.object({
 /**
  * @summary Add an encrypted provider API key
  */
+export const createVaultKeyBodyProviderRegExp = new RegExp('^[a-z0-9][a-z0-9-]{0,63}$');
 export const createVaultKeyBodyLabelMax = 80;
 
 export const createVaultKeyBodyValueMax = 4096;
@@ -79,14 +158,17 @@ export const createVaultKeyBodyValueMax = 4096;
 
 
 export const CreateVaultKeyBody = zod.object({
-  "provider": zod.enum(['zsky', 'agnes', 'glm']),
+  "provider": zod.string().regex(createVaultKeyBodyProviderRegExp),
   "label": zod.string().min(1).max(createVaultKeyBodyLabelMax),
   "value": zod.string().min(1).max(createVaultKeyBodyValueMax)
 })
 
+export const createVaultKeyResponseProviderRegExp = new RegExp('^[a-z0-9][a-z0-9-]{0,63}$');
+
+
 export const CreateVaultKeyResponse = zod.object({
   "id": zod.string(),
-  "provider": zod.enum(['zsky', 'agnes', 'glm']),
+  "provider": zod.string().regex(createVaultKeyResponseProviderRegExp),
   "label": zod.string(),
   "maskedValue": zod.string(),
   "enabled": zod.boolean(),
@@ -97,14 +179,99 @@ export const CreateVaultKeyResponse = zod.object({
 
 
 /**
+ * @summary List image and storage providers
+ */
+export const ListProvidersResponse = zod.object({
+  "providers": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "category": zod.enum(['image', 'storage']),
+  "adapter": zod.enum(['agnes', 'glm', 'zsky', 'pollinations', 'cloudinary', 'openai-compatible']),
+  "enabled": zod.boolean(),
+  "rotationOrder": zod.number().int(),
+  "baseUrl": zod.string().optional(),
+  "model": zod.string().optional(),
+  "builtIn": zod.boolean(),
+  "secretFallback": zod.string().optional()
+}))
+})
+
+
+/**
+ * @summary Add a provider configuration
+ */
+export const createProviderBodyNameMax = 80;
+
+
+
+export const CreateProviderBody = zod.object({
+  "name": zod.string().min(1).max(createProviderBodyNameMax),
+  "category": zod.enum(['image', 'storage']),
+  "adapter": zod.enum(['agnes', 'glm', 'zsky', 'pollinations', 'cloudinary', 'openai-compatible']),
+  "enabled": zod.boolean().optional(),
+  "rotationOrder": zod.number().int().optional(),
+  "baseUrl": zod.string().optional(),
+  "model": zod.string().optional()
+})
+
+export const CreateProviderResponse = zod.object({
+  "providers": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "category": zod.enum(['image', 'storage']),
+  "adapter": zod.enum(['agnes', 'glm', 'zsky', 'pollinations', 'cloudinary', 'openai-compatible']),
+  "enabled": zod.boolean(),
+  "rotationOrder": zod.number().int(),
+  "baseUrl": zod.string().optional(),
+  "model": zod.string().optional(),
+  "builtIn": zod.boolean(),
+  "secretFallback": zod.string().optional()
+}))
+})
+
+
+/**
+ * @summary Update provider enabled state or rotation order
+ */
+export const updateProviderSettingsPathProviderIdMax = 64;
+
+
+
+export const UpdateProviderSettingsParams = zod.object({
+  "providerId": zod.coerce.string().max(updateProviderSettingsPathProviderIdMax)
+})
+
+export const UpdateProviderSettingsBody = zod.object({
+  "enabled": zod.boolean().optional(),
+  "rotationOrder": zod.number().int().optional()
+})
+
+export const UpdateProviderSettingsResponse = zod.object({
+  "providers": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "category": zod.enum(['image', 'storage']),
+  "adapter": zod.enum(['agnes', 'glm', 'zsky', 'pollinations', 'cloudinary', 'openai-compatible']),
+  "enabled": zod.boolean(),
+  "rotationOrder": zod.number().int(),
+  "baseUrl": zod.string().optional(),
+  "model": zod.string().optional(),
+  "builtIn": zod.boolean(),
+  "secretFallback": zod.string().optional()
+}))
+})
+
+
+/**
  * @summary Update a key label or enabled state
  */
+export const updateVaultKeyPathProviderRegExp = new RegExp('^[a-z0-9][a-z0-9-]{0,63}$');
 export const updateVaultKeyPathKeyIdMax = 128;
 
 
 
 export const UpdateVaultKeyParams = zod.object({
-  "provider": zod.enum(['zsky', 'agnes', 'glm']),
+  "provider": zod.coerce.string().regex(updateVaultKeyPathProviderRegExp),
   "keyId": zod.coerce.string().min(1).max(updateVaultKeyPathKeyIdMax)
 })
 
@@ -117,9 +284,12 @@ export const UpdateVaultKeyBody = zod.object({
   "enabled": zod.boolean().optional()
 })
 
+export const updateVaultKeyResponseProviderRegExp = new RegExp('^[a-z0-9][a-z0-9-]{0,63}$');
+
+
 export const UpdateVaultKeyResponse = zod.object({
   "id": zod.string(),
-  "provider": zod.enum(['zsky', 'agnes', 'glm']),
+  "provider": zod.string().regex(updateVaultKeyResponseProviderRegExp),
   "label": zod.string(),
   "maskedValue": zod.string(),
   "enabled": zod.boolean(),
@@ -132,12 +302,13 @@ export const UpdateVaultKeyResponse = zod.object({
 /**
  * @summary Delete a provider API key
  */
+export const deleteVaultKeyPathProviderRegExp = new RegExp('^[a-z0-9][a-z0-9-]{0,63}$');
 export const deleteVaultKeyPathKeyIdMax = 128;
 
 
 
 export const DeleteVaultKeyParams = zod.object({
-  "provider": zod.enum(['zsky', 'agnes', 'glm']),
+  "provider": zod.coerce.string().regex(deleteVaultKeyPathProviderRegExp),
   "keyId": zod.coerce.string().min(1).max(deleteVaultKeyPathKeyIdMax)
 })
 

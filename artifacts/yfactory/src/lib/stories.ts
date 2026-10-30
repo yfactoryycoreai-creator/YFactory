@@ -7,7 +7,6 @@ import {
   onSnapshot,
   orderBy,
   query,
-  runTransaction,
   serverTimestamp,
   setDoc,
   startAfter,
@@ -15,13 +14,7 @@ import {
   type DocumentData,
   type Unsubscribe,
 } from 'firebase/firestore';
-import {
-  deleteObject,
-  getDownloadURL,
-  ref,
-  uploadBytes,
-} from 'firebase/storage';
-import { firebaseStorage, firestore } from '@/lib/firebase';
+import { firestore } from '@/lib/firebase';
 
 export const MAX_STORY_IMAGES = 100;
 export const STORY_PAGE_SIZE = 50;
@@ -42,7 +35,11 @@ export type StoryImageRecord = {
   createdAt: unknown;
   sizeBytes: number;
   storagePath: string;
-  provider?: 'agnes' | 'glm' | 'zsky' | 'pollinations';
+  provider?: string;
+  thumbnailUrl?: string;
+  publicId?: string;
+  folder?: string;
+  sequence?: number;
 };
 
 export class StoryLimitReachedError extends Error {
@@ -55,15 +52,6 @@ export class StoryLimitReachedError extends Error {
 function requireFirestore() {
   if (!firestore) throw new Error('Firebase Firestore is not configured.');
   return firestore;
-}
-
-function requireStorage() {
-  if (!firebaseStorage) {
-    throw new Error(
-      'Firebase Storage is not configured. Set the Firebase storage bucket and enable Storage for this project.',
-    );
-  }
-  return firebaseStorage;
 }
 
 function userStoriesCollection(uid: string) {
@@ -110,13 +98,11 @@ function normalizeImage(id: string, data: DocumentData): StoryImageRecord {
     createdAt: data.createdAt ?? null,
     sizeBytes: typeof data.sizeBytes === 'number' ? data.sizeBytes : 0,
     storagePath: typeof data.storagePath === 'string' ? data.storagePath : '',
-    provider:
-      data.provider === 'agnes' ||
-      data.provider === 'glm' ||
-      data.provider === 'zsky' ||
-      data.provider === 'pollinations'
-        ? data.provider
-        : undefined,
+    provider: typeof data.provider === 'string' ? data.provider : undefined,
+    thumbnailUrl: typeof data.thumbnailUrl === 'string' ? data.thumbnailUrl : undefined,
+    publicId: typeof data.publicId === 'string' ? data.publicId : undefined,
+    folder: typeof data.folder === 'string' ? data.folder : undefined,
+    sequence: typeof data.sequence === 'number' ? data.sequence : undefined,
   };
 }
 
@@ -209,119 +195,52 @@ export async function updateStoryScript(
 export async function saveImageToStory(
   uid: string,
   storyId: string,
-  imageBlob: Blob,
+  imageData: string,
   prompt: string,
-  provider?: 'agnes' | 'glm' | 'zsky' | 'pollinations',
+  idToken: string,
+  provider?: string,
 ): Promise<StoryImageRecord> {
-  const db = requireFirestore();
-  const storage = requireStorage();
-  const imageRef = doc(storyImagesCollection(uid, storyId));
-  const storagePath = `users/${uid}/stories/${storyId}/images/${imageRef.id}`;
-  const storageRef = ref(storage, storagePath);
-  const uploaded = await uploadBytes(storageRef, imageBlob, {
-    contentType: imageBlob.type || 'image/webp',
+  const response = await fetch(`/api/images/stories/${encodeURIComponent(storyId)}/images`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${idToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ imageData, prompt, provider }),
   });
-  let uploadedUrl: string;
-
-  try {
-    uploadedUrl = await getDownloadURL(uploaded.ref);
-    const sizeBytes = uploaded.metadata.size || imageBlob.size;
-    const storyRef = storyDocument(uid, storyId);
-    await runTransaction(db, async (transaction) => {
-      const storySnapshot = await transaction.get(storyRef);
-      if (!storySnapshot.exists()) {
-        throw new Error('This story no longer exists.');
-      }
-      const imageCount = Number(storySnapshot.data().imageCount) || 0;
-      if (imageCount >= MAX_STORY_IMAGES) throw new StoryLimitReachedError();
-      const storageBytes = Number(storySnapshot.data().storageBytes) || 0;
-      transaction.set(imageRef, {
-        url: uploadedUrl,
-        prompt,
-        createdAt: serverTimestamp(),
-        sizeBytes,
-        storagePath,
-        ...(provider ? { provider } : {}),
-      });
-      transaction.update(storyRef, {
-        imageCount: imageCount + 1,
-        storageBytes: storageBytes + sizeBytes,
-      });
-    });
-
-    return {
-      id: imageRef.id,
-      url: uploadedUrl,
-      prompt,
-      createdAt: new Date(),
-      sizeBytes,
-      storagePath,
-      ...(provider ? { provider } : {}),
-    };
-  } catch (error) {
-    await deleteObject(storageRef).catch((cleanupError) => {
-      console.error('Could not remove an incomplete story image upload:', cleanupError);
-    });
-    throw error;
+  const payload: unknown = await response.json().catch(() => null);
+  if (!response.ok || !payload || typeof payload !== 'object') {
+    const message = payload && typeof payload === 'object' &&
+      typeof (payload as Record<string, unknown>).error === 'string'
+      ? String((payload as Record<string, unknown>).error)
+      : 'The image could not be saved.';
+    throw new Error(message);
   }
+  const record = payload as Record<string, unknown>;
+  return {
+    id: String(record.id ?? ''),
+    url: String(record.url ?? ''),
+    prompt: String(record.prompt ?? prompt),
+    createdAt: record.createdAt ?? new Date(),
+    sizeBytes: Number(record.sizeBytes) || 0,
+    storagePath: String(record.storagePath ?? ''),
+    ...(typeof record.provider === 'string' ? { provider: record.provider } : {}),
+    ...(typeof record.thumbnailUrl === 'string' ? { thumbnailUrl: record.thumbnailUrl } : {}),
+    ...(typeof record.publicId === 'string' ? { publicId: record.publicId } : {}),
+    ...(typeof record.folder === 'string' ? { folder: record.folder } : {}),
+    ...(typeof record.sequence === 'number' ? { sequence: record.sequence } : {}),
+  };
 }
 
 export async function deleteStoryImage(
   uid: string,
   storyId: string,
   image: StoryImageRecord,
+  idToken: string,
 ): Promise<void> {
-  const db = requireFirestore();
-  const storyRef = storyDocument(uid, storyId);
-  const imageRef = doc(storyImagesCollection(uid, storyId), image.id);
-  const imageData = {
-    url: image.url,
-    prompt: image.prompt,
-    createdAt: image.createdAt,
-    sizeBytes: image.sizeBytes,
-    storagePath: image.storagePath,
-    ...(image.provider ? { provider: image.provider } : {}),
-  };
-
-  await runTransaction(db, async (transaction) => {
-    const [storySnapshot, imageSnapshot] = await Promise.all([
-      transaction.get(storyRef),
-      transaction.get(imageRef),
-    ]);
-    if (!storySnapshot.exists() || !imageSnapshot.exists()) return;
-    const story = storySnapshot.data();
-    transaction.delete(imageRef);
-    transaction.update(storyRef, {
-      imageCount: Math.max(0, (Number(story.imageCount) || 0) - 1),
-      storageBytes: Math.max(
-        0,
-        (Number(story.storageBytes) || 0) - image.sizeBytes,
-      ),
-    });
-  });
-
-  if (!image.storagePath) return;
-  try {
-    const storageRef = ref(requireStorage(), image.storagePath);
-    await deleteObject(storageRef);
-  } catch (error) {
-    // Restore metadata and counters if the file could not be removed.
-    await runTransaction(db, async (transaction) => {
-      const [storySnapshot, imageSnapshot] = await Promise.all([
-        transaction.get(storyRef),
-        transaction.get(imageRef),
-      ]);
-      if (!storySnapshot.exists() || imageSnapshot.exists()) return;
-      const story = storySnapshot.data();
-      transaction.set(imageRef, imageData);
-      transaction.update(storyRef, {
-        imageCount: Math.min(
-          MAX_STORY_IMAGES,
-          (Number(story.imageCount) || 0) + 1,
-        ),
-        storageBytes: (Number(story.storageBytes) || 0) + image.sizeBytes,
-      });
-    });
-    throw error;
-  }
+  const response = await fetch(
+    `/api/images/stories/${encodeURIComponent(storyId)}/images/${encodeURIComponent(image.id)}`,
+    { method: 'DELETE', headers: { Authorization: `Bearer ${idToken}` } },
+  );
+  if (!response.ok) throw new Error('The image could not be deleted.');
 }

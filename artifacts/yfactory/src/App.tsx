@@ -129,7 +129,7 @@ function Home() {
   const profileMenuRef = useRef<HTMLDivElement>(null);
   const isRtl = locale === 'ar';
   const prompt = prompts[mode];
-  const characterLimit = mode === 'audio' ? 5000 : 1000;
+  const characterLimit = mode === 'image' ? 20000 : mode === 'audio' ? 5000 : 1000;
   const isCurrentAudioGenerating = mode === 'audio' && isAudioGenerating;
   const isCurrentImageGenerating = mode === 'image' && isImageGenerating;
   const isCurrentGenerateLoading =
@@ -211,15 +211,6 @@ function Home() {
   const handleStorySelected = useCallback((story: StoryRecord | null) => {
     setActiveStory(story);
   }, []);
-
-  const handleOpenStoryGenerator = (story: StoryRecord) => {
-    setActiveStory(story);
-    setPrompts((current) => ({ ...current, image: story.script }));
-    setMode('image');
-    setStoriesOpen(false);
-    setNoticeKey('');
-    setImageError('');
-  };
 
   const handleTemporaryImageSaved = (
     image: GeneratedImageHistoryItem,
@@ -653,11 +644,12 @@ function Home() {
         {user && (
           <StoryFactory
             uid={user.uid}
+            getIdToken={() => user.getIdToken()}
+            requestedImageCount={Number(generatorSettings.imageCount)}
             visible={storiesOpen}
             selectedStoryId={activeStory?.id ?? null}
             pendingImage={pendingStorySave}
             onStorySelected={handleStorySelected}
-            onOpenGenerator={handleOpenStoryGenerator}
             onTemporaryImageSaved={handleTemporaryImageSaved}
             onCancelPendingSave={() => setPendingStorySave(null)}
           />

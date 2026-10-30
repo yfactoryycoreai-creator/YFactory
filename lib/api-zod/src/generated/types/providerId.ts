@@ -6,11 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type ProviderId = typeof ProviderId[keyof typeof ProviderId];
-
-
-export const ProviderId = {
-  zsky: 'zsky',
-  agnes: 'agnes',
-  glm: 'glm',
-} as const;
+/**
+ * @pattern ^[a-z0-9][a-z0-9-]{0,63}$
+ */
+export type ProviderId = string;

@@ -687,9 +687,11 @@ button:not(:disabled):hover { filter:brightness(1.12); }
 .story-image-card > img { display:block; width:100%; aspect-ratio:1; object-fit:cover; background:#080d1a; }
 .story-image-caption { display:flex; align-items:center; gap:8px; padding:8px; }
 .story-image-caption p { overflow:hidden; flex:1; margin:0; color:#aab7d0; font-size:10px; line-height:1.4; text-overflow:ellipsis; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
+.story-image-actions { display:flex; flex:none; align-items:center; gap:4px; }
 .story-icon-button { display:grid; flex:none; place-items:center; border:1px solid #293651; color:#aebbd4; background:#111a2d; }
 .story-icon-button:disabled { opacity:.5; cursor:wait; }
 .story-icon-button.delete-action:hover { color:#ff9aa6; border-color:rgba(255,115,132,.32); }
+.factory-quiet-button:disabled { cursor:not-allowed; opacity:.5; }
 .temporary-image-actions { display:flex; width:100%; flex-wrap:wrap; justify-content:center; gap:6px; }
 .temporary-image-actions .factory-save-button,.temporary-image-actions .factory-quiet-button { min-height:30px; padding-inline:8px; font-size:9px; }
 .factory-saved-badge { display:inline-flex; align-items:center; gap:6px; color:#8bdbbe; font-size:10px; }

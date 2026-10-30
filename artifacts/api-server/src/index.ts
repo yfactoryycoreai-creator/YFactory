@@ -18,12 +18,9 @@ if (Number.isNaN(port) || port <= 0) {
 
 void (async () => {
   try {
-    const { db, bucket } = getFirebaseAdmin();
-    await Promise.all([
-      db.doc("_yfactory/preflight").get(),
-      bucket.getMetadata(),
-    ]);
-    logger.info("Firebase Admin Firestore and Storage preflight passed.");
+    const { db } = getFirebaseAdmin();
+    await db.doc("_yfactory/preflight").get();
+    logger.info("Firebase Admin Firestore preflight passed.");
   } catch (error) {
     const reason = error instanceof Error ? error.message : "Unknown Firebase Admin error.";
     const code =

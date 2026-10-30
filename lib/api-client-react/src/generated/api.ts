@@ -25,7 +25,13 @@ import type {
   HealthStatus,
   ImageGenerationInput,
   ImageGenerationResult,
+  ProviderConfigInput,
   ProviderId,
+  ProviderList,
+  ProviderUpdateInput,
+  SaveStoryImageInput,
+  StorageUsage,
+  StoryImage,
   UpdateVaultKeyInput,
   VaultKey,
   VaultKeyList
@@ -225,6 +231,325 @@ export const useGenerateStoryImages = <TError = ErrorType<ApiError>,
       return useMutation(getGenerateStoryImagesMutationOptions(options));
     }
 
+export const getGetStorageUsageUrl = () => {
+
+
+
+
+  return `/api/images/storage-usage`
+}
+
+/**
+ * @summary Get Cloudinary storage usage
+ */
+export const getStorageUsage = async ( options?: Parameters<typeof customFetch>[1]): Promise<StorageUsage> => {
+
+  return customFetch<StorageUsage>(getGetStorageUsageUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetStorageUsageQueryKey = () => {
+    return [
+    `/api/images/storage-usage`
+    ] as const;
+    }
+
+
+export const getGetStorageUsageQueryOptions = <TData = Awaited<ReturnType<typeof getStorageUsage>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getStorageUsage>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetStorageUsageQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getStorageUsage>>> = ({ signal }) => getStorageUsage({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getStorageUsage>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetStorageUsageQueryResult = NonNullable<Awaited<ReturnType<typeof getStorageUsage>>>
+export type GetStorageUsageQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get Cloudinary storage usage
+ */
+
+export function useGetStorageUsage<TData = Awaited<ReturnType<typeof getStorageUsage>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getStorageUsage>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetStorageUsageQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getSaveStoryImageUrl = (storyId: string,) => {
+
+
+
+
+  return `/api/images/stories/${storyId}/images`
+}
+
+/**
+ * @summary Save an image to a story
+ */
+export const saveStoryImage = async (storyId: string,
+    saveStoryImageInput: SaveStoryImageInput, options?: Parameters<typeof customFetch>[1]): Promise<StoryImage> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<StoryImage>(getSaveStoryImageUrl(storyId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(saveStoryImageInput)
+  }
+);}
+
+
+
+
+
+export const getSaveStoryImageMutationKey = () => ['saveStoryImage'] as const;
+
+export const getSaveStoryImageMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof saveStoryImage>>, TError,SaveStoryImageMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof saveStoryImage>>, TError,SaveStoryImageMutationVariables, TContext> => {
+
+const mutationKey = getSaveStoryImageMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof saveStoryImage>>, SaveStoryImageMutationVariables> = (props) => {
+          const {storyId,data} = props ?? {};
+
+          return  saveStoryImage(storyId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SaveStoryImageMutationResult = NonNullable<Awaited<ReturnType<typeof saveStoryImage>>>
+    export type SaveStoryImageMutationBody = BodyType<SaveStoryImageInput>
+    export type SaveStoryImageMutationError = ErrorType<unknown>
+    export type SaveStoryImageMutationVariables = {storyId: string;data: BodyType<SaveStoryImageInput>}
+
+    /**
+ * @summary Save an image to a story
+ */
+export const useSaveStoryImage = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof saveStoryImage>>, TError,SaveStoryImageMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof saveStoryImage>>,
+        TError,
+        SaveStoryImageMutationVariables,
+        TContext
+      > => {
+      return useMutation(getSaveStoryImageMutationOptions(options));
+    }
+
+export const getDeleteStoryImageUrl = (storyId: string,
+    imageId: string,) => {
+
+
+
+
+  return `/api/images/stories/${storyId}/images/${imageId}`
+}
+
+/**
+ * @summary Delete a story image
+ */
+export const deleteStoryImage = async (storyId: string,
+    imageId: string, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+  return customFetch<void>(getDeleteStoryImageUrl(storyId,imageId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getDeleteStoryImageMutationKey = () => ['deleteStoryImage'] as const;
+
+export const getDeleteStoryImageMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteStoryImage>>, TError,DeleteStoryImageMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteStoryImage>>, TError,DeleteStoryImageMutationVariables, TContext> => {
+
+const mutationKey = getDeleteStoryImageMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteStoryImage>>, DeleteStoryImageMutationVariables> = (props) => {
+          const {storyId,imageId} = props ?? {};
+
+          return  deleteStoryImage(storyId,imageId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteStoryImageMutationResult = NonNullable<Awaited<ReturnType<typeof deleteStoryImage>>>
+
+    export type DeleteStoryImageMutationError = ErrorType<unknown>
+    export type DeleteStoryImageMutationVariables = {storyId: string;imageId: string}
+
+    /**
+ * @summary Delete a story image
+ */
+export const useDeleteStoryImage = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteStoryImage>>, TError,DeleteStoryImageMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteStoryImage>>,
+        TError,
+        DeleteStoryImageMutationVariables,
+        TContext
+      > => {
+      return useMutation(getDeleteStoryImageMutationOptions(options));
+    }
+
+export const getDownloadStoryZipUrl = (storyId: string,) => {
+
+
+
+
+  return `/api/images/stories/${storyId}/download.zip`
+}
+
+/**
+ * @summary Download a story's images as a ZIP archive
+ */
+export const downloadStoryZip = async (storyId: string, options?: Parameters<typeof customFetch>[1]): Promise<Blob> => {
+
+  return customFetch<Blob>(getDownloadStoryZipUrl(storyId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getDownloadStoryZipQueryKey = (storyId: string,) => {
+    return [
+    `/api/images/stories/${storyId}/download.zip`
+    ] as const;
+    }
+
+
+export const getDownloadStoryZipQueryOptions = <TData = Awaited<ReturnType<typeof downloadStoryZip>>, TError = ErrorType<unknown>>(storyId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof downloadStoryZip>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getDownloadStoryZipQueryKey(storyId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof downloadStoryZip>>> = ({ signal }) => downloadStoryZip(storyId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: storyId !== null && storyId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof downloadStoryZip>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type DownloadStoryZipQueryResult = NonNullable<Awaited<ReturnType<typeof downloadStoryZip>>>
+export type DownloadStoryZipQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Download a story's images as a ZIP archive
+ */
+
+export function useDownloadStoryZip<TData = Awaited<ReturnType<typeof downloadStoryZip>>, TError = ErrorType<unknown>>(
+ storyId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof downloadStoryZip>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getDownloadStoryZipQueryOptions(storyId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
 export const getListVaultKeysUrl = () => {
 
 
@@ -388,6 +713,260 @@ export const useCreateVaultKey = <TError = ErrorType<ApiError>,
         TContext
       > => {
       return useMutation(getCreateVaultKeyMutationOptions(options));
+    }
+
+export const getListProvidersUrl = () => {
+
+
+
+
+  return `/api/providers`
+}
+
+/**
+ * @summary List image and storage providers
+ */
+export const listProviders = async ( options?: Parameters<typeof customFetch>[1]): Promise<ProviderList> => {
+
+  return customFetch<ProviderList>(getListProvidersUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListProvidersQueryKey = () => {
+    return [
+    `/api/providers`
+    ] as const;
+    }
+
+
+export const getListProvidersQueryOptions = <TData = Awaited<ReturnType<typeof listProviders>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listProviders>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListProvidersQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listProviders>>> = ({ signal }) => listProviders({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listProviders>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListProvidersQueryResult = NonNullable<Awaited<ReturnType<typeof listProviders>>>
+export type ListProvidersQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List image and storage providers
+ */
+
+export function useListProviders<TData = Awaited<ReturnType<typeof listProviders>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listProviders>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListProvidersQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateProviderUrl = () => {
+
+
+
+
+  return `/api/providers`
+}
+
+/**
+ * @summary Add a provider configuration
+ */
+export const createProvider = async (providerConfigInput: ProviderConfigInput, options?: Parameters<typeof customFetch>[1]): Promise<ProviderList> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<ProviderList>(getCreateProviderUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(providerConfigInput)
+  }
+);}
+
+
+
+
+
+export const getCreateProviderMutationKey = () => ['createProvider'] as const;
+
+export const getCreateProviderMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createProvider>>, TError,CreateProviderMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createProvider>>, TError,CreateProviderMutationVariables, TContext> => {
+
+const mutationKey = getCreateProviderMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createProvider>>, CreateProviderMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  createProvider(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateProviderMutationResult = NonNullable<Awaited<ReturnType<typeof createProvider>>>
+    export type CreateProviderMutationBody = BodyType<ProviderConfigInput>
+    export type CreateProviderMutationError = ErrorType<unknown>
+    export type CreateProviderMutationVariables = {data: BodyType<ProviderConfigInput>}
+
+    /**
+ * @summary Add a provider configuration
+ */
+export const useCreateProvider = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createProvider>>, TError,CreateProviderMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createProvider>>,
+        TError,
+        CreateProviderMutationVariables,
+        TContext
+      > => {
+      return useMutation(getCreateProviderMutationOptions(options));
+    }
+
+export const getUpdateProviderSettingsUrl = (providerId: string,) => {
+
+
+
+
+  return `/api/providers/${providerId}`
+}
+
+/**
+ * @summary Update provider enabled state or rotation order
+ */
+export const updateProviderSettings = async (providerId: string,
+    providerUpdateInput: ProviderUpdateInput, options?: Parameters<typeof customFetch>[1]): Promise<ProviderList> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<ProviderList>(getUpdateProviderSettingsUrl(providerId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(providerUpdateInput)
+  }
+);}
+
+
+
+
+
+export const getUpdateProviderSettingsMutationKey = () => ['updateProviderSettings'] as const;
+
+export const getUpdateProviderSettingsMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateProviderSettings>>, TError,UpdateProviderSettingsMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateProviderSettings>>, TError,UpdateProviderSettingsMutationVariables, TContext> => {
+
+const mutationKey = getUpdateProviderSettingsMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateProviderSettings>>, UpdateProviderSettingsMutationVariables> = (props) => {
+          const {providerId,data} = props ?? {};
+
+          return  updateProviderSettings(providerId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateProviderSettingsMutationResult = NonNullable<Awaited<ReturnType<typeof updateProviderSettings>>>
+    export type UpdateProviderSettingsMutationBody = BodyType<ProviderUpdateInput>
+    export type UpdateProviderSettingsMutationError = ErrorType<unknown>
+    export type UpdateProviderSettingsMutationVariables = {providerId: string;data: BodyType<ProviderUpdateInput>}
+
+    /**
+ * @summary Update provider enabled state or rotation order
+ */
+export const useUpdateProviderSettings = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateProviderSettings>>, TError,UpdateProviderSettingsMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateProviderSettings>>,
+        TError,
+        UpdateProviderSettingsMutationVariables,
+        TContext
+      > => {
+      return useMutation(getUpdateProviderSettingsMutationOptions(options));
     }
 
 export const getUpdateVaultKeyUrl = (provider: ProviderId,

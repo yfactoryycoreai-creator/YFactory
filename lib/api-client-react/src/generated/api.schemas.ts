@@ -17,25 +17,15 @@ export interface ImageGenerationInput {
   storyId: string | null;
   /**
      * @minLength 1
-     * @maxLength 4000
+     * @maxLength 20000
      */
   prompt: string;
   /**
      * @minimum 1
-     * @maximum 4
+     * @maximum 5
      */
   count: number;
 }
-
-export type GeneratedImageProvider = typeof GeneratedImageProvider[keyof typeof GeneratedImageProvider];
-
-
-export const GeneratedImageProvider = {
-  agnes: 'agnes',
-  glm: 'glm',
-  zsky: 'zsky',
-  pollinations: 'pollinations',
-} as const;
 
 export interface GeneratedImage {
   base64?: string;
@@ -43,7 +33,13 @@ export interface GeneratedImage {
   mimeType?: string;
   /** @minimum 0 */
   sizeBytes?: number;
-  provider: GeneratedImageProvider;
+  thumbnailUrl?: string;
+  publicId?: string;
+  folder?: string;
+  /** @minimum 1 */
+  sequence?: number;
+  savedToFactory?: boolean;
+  provider: string;
 }
 
 export interface ImageGenerationResult {
@@ -59,14 +55,115 @@ export interface ApiError {
   skippedCount?: number;
 }
 
-export type ProviderId = typeof ProviderId[keyof typeof ProviderId];
+/**
+ * @pattern ^[a-z0-9][a-z0-9-]{0,63}$
+ */
+export type ProviderId = string;
+
+export interface StorageUsage {
+  configured: boolean;
+  /** @nullable */
+  usedBytes: number | null;
+  /** @nullable */
+  limitBytes: number | null;
+}
+
+export type ProviderConfigCategory = typeof ProviderConfigCategory[keyof typeof ProviderConfigCategory];
 
 
-export const ProviderId = {
-  zsky: 'zsky',
+export const ProviderConfigCategory = {
+  image: 'image',
+  storage: 'storage',
+} as const;
+
+export type ProviderConfigAdapter = typeof ProviderConfigAdapter[keyof typeof ProviderConfigAdapter];
+
+
+export const ProviderConfigAdapter = {
   agnes: 'agnes',
   glm: 'glm',
+  zsky: 'zsky',
+  pollinations: 'pollinations',
+  cloudinary: 'cloudinary',
+  'openai-compatible': 'openai-compatible',
 } as const;
+
+export interface ProviderConfig {
+  id: string;
+  name: string;
+  category: ProviderConfigCategory;
+  adapter: ProviderConfigAdapter;
+  enabled: boolean;
+  rotationOrder: number;
+  baseUrl?: string;
+  model?: string;
+  builtIn: boolean;
+  secretFallback?: string;
+}
+
+export interface ProviderList {
+  providers: ProviderConfig[];
+}
+
+export type ProviderConfigInputCategory = typeof ProviderConfigInputCategory[keyof typeof ProviderConfigInputCategory];
+
+
+export const ProviderConfigInputCategory = {
+  image: 'image',
+  storage: 'storage',
+} as const;
+
+export type ProviderConfigInputAdapter = typeof ProviderConfigInputAdapter[keyof typeof ProviderConfigInputAdapter];
+
+
+export const ProviderConfigInputAdapter = {
+  agnes: 'agnes',
+  glm: 'glm',
+  zsky: 'zsky',
+  pollinations: 'pollinations',
+  cloudinary: 'cloudinary',
+  'openai-compatible': 'openai-compatible',
+} as const;
+
+export interface ProviderConfigInput {
+  /**
+     * @minLength 1
+     * @maxLength 80
+     */
+  name: string;
+  category: ProviderConfigInputCategory;
+  adapter: ProviderConfigInputAdapter;
+  enabled?: boolean;
+  rotationOrder?: number;
+  baseUrl?: string;
+  model?: string;
+}
+
+export interface ProviderUpdateInput {
+  enabled?: boolean;
+  rotationOrder?: number;
+}
+
+export interface SaveStoryImageInput {
+  imageData: string;
+  /** @maxLength 20000 */
+  prompt?: string;
+  provider?: string;
+}
+
+export interface StoryImage {
+  id: string;
+  url: string;
+  thumbnailUrl?: string;
+  publicId?: string;
+  folder?: string;
+  /** @minimum 1 */
+  sequence?: number;
+  prompt: string;
+  sizeBytes: number;
+  storagePath: string;
+  provider: string;
+}
 
 export type VaultKeyStatus = typeof VaultKeyStatus[keyof typeof VaultKeyStatus];
 

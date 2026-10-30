@@ -472,3 +472,31 @@
 @media (prefers-reduced-motion: reduce) {
   .auth-screen *, .auth-screen *::before, .auth-screen *::after { animation-duration: .01ms!important; animation-iteration-count: 1!important; scroll-behavior: auto!important; transition-duration: .01ms!important; }
 }
+
+.provider-rotation { display:flex; align-items:center; gap:4px; margin-inline-start:auto; }
+.provider-rotation small { color:#8896b0; font-size:9px; white-space:nowrap; }
+.provider-storage-label { color:#8896b0; font-size:9px; }
+.provider-rotation .icon-action { width:27px; height:27px; }
+.provider-secret-fallback { display:flex; align-items:center; justify-content:space-between; gap:10px; margin:0 17px 10px; padding:9px 11px; border:1px solid rgba(100,125,170,.18); border-radius:7px; color:#bdc9dd; background:rgba(9,15,27,.5); }
+.provider-secret-fallback span { font:11px 'DM Mono',monospace; direction:ltr; unicode-bidi:isolate; }
+.provider-secret-fallback small { color:#7e8ba5; font-size:9px; }
+.provider-create-form { margin-top:14px; padding:15px; border:1px solid rgba(111,139,199,.2); border-radius:10px; background:rgba(9,15,27,.38); }
+.provider-create-form h3 { margin:0; color:#dce5f5; font-size:13px; }
+.provider-create-form label { display:grid; gap:6px; color:#9ba9c2; font-size:10px; }
+.provider-create-form input,.provider-create-form select { width:100%; min-height:36px; padding:0 10px; border:1px solid #293650; border-radius:6px; color:#e3eaf7; background:#0c1424; font:12px 'DM Sans',sans-serif; }
+.provider-create-form select { appearance:auto; }
+.storage-usage-panel { display:grid; gap:10px; margin-top:18px; }
+.storage-usage-panel .section-kicker { display:flex; align-items:center; gap:7px; }
+.storage-usage-panel h2 { margin:0; color:#e8edf7; font-size:15px; }
+.storage-usage-panel p { margin:0; color:#9aa8c0; font-size:11px; line-height:1.55; }
+.storage-usage-copy { display:flex; justify-content:space-between; color:#c2cde0; font-size:11px; }
+.settings-inline-warning { color:#e9bd70!important; }
+.settings-inline-error { color:#ff9299!important; }
+.factory-storage-track .storage-warning { background:#ed6877; }
+
+@media (max-width: 620px) {
+  .provider-rotation { gap:2px; }
+  .provider-rotation .icon-action { width:23px; height:23px; }
+  .provider-secret-fallback { margin-inline:12px; }
+  .provider-create-form { padding:12px; }
+}

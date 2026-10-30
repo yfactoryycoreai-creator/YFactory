@@ -31,17 +31,13 @@ service cloud.firestore {
                       && request.resource.data.imageCount == 0
                       && request.resource.data.storageBytes == 0;
         allow update: if ownsStory()
-                      && request.resource.data.storyName == resource.data.storyName
-                      && request.resource.data.createdAt == resource.data.createdAt
-                      && request.resource.data.script is string
-                      && request.resource.data.imageCount is int
-                      && request.resource.data.imageCount >= 0
-                      && request.resource.data.imageCount <= 100
-                      && request.resource.data.storageBytes is int
-                      && request.resource.data.storageBytes >= 0;
+                      && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['script'])
+                      && request.resource.data.script is string;
 
         match /images/{imageId} {
-          allow read, write: if request.auth != null && request.auth.uid == userId;
+          allow read: if ownsStory();
+          // Image documents and counters are written only by the authenticated API server.
+          allow create, update, delete: if false;
         }
       }
 

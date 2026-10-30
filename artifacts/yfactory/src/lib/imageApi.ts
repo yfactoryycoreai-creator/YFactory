@@ -1,10 +1,11 @@
-export type ImageProvider = 'agnes' | 'glm' | 'zsky' | 'pollinations';
+export type ImageProvider = string;
 
 export type GeneratedImage = {
   imageData: string;
   provider: ImageProvider;
   savedToFactory?: boolean;
   sizeBytes?: number;
+  thumbnailUrl?: string;
 };
 
 export class ImageGenerationError extends Error {
@@ -90,7 +91,11 @@ export async function generateImages(
 
   if (!response.ok) {
     throw new ImageGenerationError(
-      code === 'story_limit' ? 'Story limit reached.' : 'Image generation failed.',
+      typeof result.error === 'string'
+        ? result.error
+        : code === 'story_limit'
+          ? 'Story limit reached.'
+          : 'Image generation failed. Check enabled provider keys and try again.',
       code,
       typeof result.failedCount === 'number' ? result.failedCount : 0,
       typeof result.skippedCount === 'number' ? result.skippedCount : 0,
@@ -109,15 +114,14 @@ export async function generateImages(
   for (const item of result.images) {
     if (typeof item !== 'object' || item === null) continue;
     const image = item as Record<string, unknown>;
-    if (!['agnes', 'glm', 'zsky', 'pollinations'].includes(String(image.provider))) {
-      continue;
-    }
+    if (typeof image.provider !== 'string' || !image.provider.trim()) continue;
     if (typeof image.url === 'string' && image.url.startsWith('https://')) {
       images.push({
         imageData: image.url,
         provider: image.provider as ImageProvider,
-        savedToFactory: true,
+        ...(image.savedToFactory === true ? { savedToFactory: true } : {}),
         ...(typeof image.sizeBytes === 'number' ? { sizeBytes: image.sizeBytes } : {}),
+        ...(typeof image.thumbnailUrl === 'string' ? { thumbnailUrl: image.thumbnailUrl } : {}),
       });
       continue;
     }
@@ -133,7 +137,7 @@ export async function generateImages(
   }
   const preparedResults = await Promise.allSettled(
     images.map(async (image) =>
-      image.savedToFactory
+      image.savedToFactory || image.imageData.startsWith('https://')
         ? image
         : {
             ...image,

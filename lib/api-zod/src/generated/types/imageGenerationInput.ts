@@ -14,12 +14,12 @@ export interface ImageGenerationInput {
   storyId: string | null;
   /**
      * @minLength 1
-     * @maxLength 4000
+     * @maxLength 20000
      */
   prompt: string;
   /**
      * @minimum 1
-     * @maximum 4
+     * @maximum 5
      */
   count: number;
 }

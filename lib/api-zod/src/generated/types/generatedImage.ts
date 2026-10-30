@@ -5,7 +5,6 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
-import type { GeneratedImageProvider } from './generatedImageProvider';
 
 export interface GeneratedImage {
   base64?: string;
@@ -13,5 +12,11 @@ export interface GeneratedImage {
   mimeType?: string;
   /** @minimum 0 */
   sizeBytes?: number;
-  provider: GeneratedImageProvider;
+  thumbnailUrl?: string;
+  publicId?: string;
+  folder?: string;
+  /** @minimum 1 */
+  sequence?: number;
+  savedToFactory?: boolean;
+  provider: string;
 }

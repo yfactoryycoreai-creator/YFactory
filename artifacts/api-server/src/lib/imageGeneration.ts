@@ -1,14 +1,16 @@
 import type {
+  ProviderConfig,
   ProviderGenerationKeys,
   ProviderKey,
 } from "./apiKeyVault";
 
-export type ImageProvider = ProviderKey | "pollinations";
+export type ImageProvider = string;
 
 export type GeneratedImageAsset = {
   base64: string;
   mimeType: string;
   provider: ImageProvider;
+  sourceUrl?: string;
 };
 
 type JsonRecord = Record<string, unknown>;
@@ -21,7 +23,6 @@ type KeyFailureHandler = (
 
 const PROVIDER_TIMEOUT_MS = 40_000;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
-const PROVIDER_ORDER: ProviderKey[] = ["agnes", "glm", "zsky"];
 
 export class ProviderAttemptError extends Error {
   constructor(
@@ -178,6 +179,7 @@ async function imageFromUrl(
     base64: bytes.toString("base64"),
     mimeType: verifiedImageMimeType(bytes),
     provider,
+    sourceUrl: rawUrl,
   };
 }
 
@@ -281,76 +283,51 @@ async function requestGlm(
   return parseProviderImage(response, "glm", signal, fetchImage);
 }
 
-async function requestZsky(
+async function requestProvider(
+  provider: ProviderConfig,
   apiKey: string,
   prompt: string,
   fetchImage: ImageFetch,
   signal: AbortSignal,
 ): Promise<GeneratedImageAsset> {
-  const baseUrl = "https://zsky.ai/api";
-  const headers = {
-    "X-API-Key": apiKey,
-    "User-Agent": "YFactory/1.0",
-  };
-  const response = await fetchImage(`${baseUrl}/v1/images/generate`, {
-    method: "POST",
-    headers: { ...headers, "Content-Type": "application/json" },
-    body: JSON.stringify({ prompt, width: 1024, height: 1024 }),
-    signal,
-  });
-  if (!response.ok) {
-    throw new ProviderAttemptError(
-      `Provider returned HTTP ${response.status}.`,
-      response.status,
-    );
+  if (provider.adapter === "agnes") {
+    return requestAgnes(apiKey, prompt, fetchImage, signal).then((asset) => ({
+      ...asset,
+      provider: provider.id,
+    }));
   }
-  const initialPayload: unknown = await response.json().catch(() => null);
-  const initial = asRecord(initialPayload);
-  const pollPath = typeof initial.poll_url === "string" ? initial.poll_url : "";
-  if (!pollPath) throw new ProviderAttemptError("ZSky returned no polling URL.");
-
-  const pollUrl = new URL(pollPath, baseUrl);
-  if (pollUrl.origin !== baseUrl) {
-    throw new ProviderAttemptError("ZSky returned an unsafe polling URL.");
+  if (provider.adapter === "glm") {
+    return requestGlm(apiKey, prompt, fetchImage, signal).then((asset) => ({
+      ...asset,
+      provider: provider.id,
+    }));
   }
-  while (!signal.aborted) {
-    const statusResponse = await fetchImage(pollUrl, {
-      headers,
+  if (provider.adapter === "openai-compatible") {
+    const baseUrl = provider.baseUrl?.trim().replace(/\/+$/, "");
+    const model = provider.model?.trim();
+    if (!baseUrl || !model) {
+      throw new ProviderAttemptError("OpenAI-compatible provider needs a base URL and model.");
+    }
+    const parsedUrl = assertPublicHttpsUrl(baseUrl);
+    const endpoint = /\/v\d+(?:\/|$)/i.test(parsedUrl.pathname)
+      ? `${baseUrl}/images/generations`
+      : `${baseUrl}/v1/images/generations`;
+    const response = await fetchImage(endpoint, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ model, prompt, n: 1, response_format: "url" }),
       signal,
     });
-    if (!statusResponse.ok) {
-      throw new ProviderAttemptError(
-        `Provider returned HTTP ${statusResponse.status}.`,
-        statusResponse.status,
-      );
-    }
-    const statusPayload: unknown = await statusResponse.json().catch(() => null);
-    const status = asRecord(statusPayload);
-    if (status.status === "completed" && typeof status.result_url === "string") {
-      return imageFromUrl(status.result_url, "zsky", signal, fetchImage);
-    }
-    if (status.status === "failed" || status.status === "blocked") {
-      throw new ProviderAttemptError("ZSky could not complete this image.");
-    }
-    await new Promise((resolve) => setTimeout(resolve, 1200));
+    return parseProviderImage(response, provider.id, signal, fetchImage);
   }
-  throw new ProviderAttemptError("ZSky generation timed out.");
-}
-
-async function requestProvider(
-  provider: ProviderKey,
-  apiKey: string,
-  prompt: string,
-  fetchImage: ImageFetch,
-  signal: AbortSignal,
-): Promise<GeneratedImageAsset> {
-  if (provider === "agnes") {
-    return requestAgnes(apiKey, prompt, fetchImage, signal);
+  if (provider.adapter === "zsky") {
+    // Its current API contract is not established; never send user keys to a guessed endpoint.
+    throw new ProviderAttemptError("ZSky is skipped until its API format is verified.");
   }
-  if (provider === "glm") {
-    return requestGlm(apiKey, prompt, fetchImage, signal);
-  }
-  return requestZsky(apiKey, prompt, fetchImage, signal);
+  throw new ProviderAttemptError("This provider is not an image-generation adapter.");
 }
 
 async function requestPollinationsImage(
@@ -387,6 +364,7 @@ async function requestPollinationsImage(
       base64: bytes.toString("base64"),
       mimeType: verifiedImageMimeType(bytes),
       provider: "pollinations",
+      sourceUrl: url,
     };
   } catch (error) {
     if (error instanceof ProviderAttemptError) throw error;
@@ -403,24 +381,29 @@ async function requestPollinationsImage(
 export async function generateImageWithFallback(
   prompt: string,
   keys: ProviderGenerationKeys,
+  providers: ProviderConfig[],
   fetchImage: ImageFetch = fetch,
   onKeyFailure: KeyFailureHandler = () => undefined,
   onKeySuccess: KeyFailureHandler = () => undefined,
   onProviderFailure: (provider: ImageProvider, status: number | null) => void = () => undefined,
 ): Promise<GeneratedImageAsset> {
-  for (const provider of PROVIDER_ORDER) {
-    const providerKeys = keys[provider];
+  const providerOrder = providers
+    .filter((provider) => provider.category === "image" && provider.enabled && provider.adapter !== "pollinations")
+    .sort((left, right) => left.rotationOrder - right.rotationOrder);
+  for (const provider of providerOrder) {
+    if (provider.adapter === "zsky") continue;
+    const providerKeys = keys[provider.id] ?? { hasVaultKeys: false, keys: [] };
     const candidates = [...providerKeys.keys];
     if (
       !providerKeys.hasVaultKeys &&
-      provider === "agnes" &&
+      provider.id === "agnes" &&
       process.env.AGNES_API_KEY?.trim()
     ) {
       candidates.push({ id: "environment", value: process.env.AGNES_API_KEY.trim() });
     }
     if (
       !providerKeys.hasVaultKeys &&
-      provider === "glm" &&
+      provider.id === "glm" &&
       process.env.GLM_API_KEY?.trim()
     ) {
       candidates.push({ id: "environment", value: process.env.GLM_API_KEY.trim() });
@@ -437,17 +420,17 @@ export async function generateImageWithFallback(
           fetchImage,
           controller.signal,
         );
-        await onKeySuccess(provider, candidate.id, null);
+        await onKeySuccess(provider.id, candidate.id, null);
         return image;
       } catch (error) {
         const status =
           error instanceof ProviderAttemptError ? error.status : null;
         if (controller.signal.aborted) {
-          await onKeyFailure(provider, candidate.id, null);
-          onProviderFailure(provider, null);
+          await onKeyFailure(provider.id, candidate.id, null);
+          onProviderFailure(provider.id, null);
         } else {
-          await onKeyFailure(provider, candidate.id, status);
-          onProviderFailure(provider, status);
+          await onKeyFailure(provider.id, candidate.id, status);
+          onProviderFailure(provider.id, status);
         }
       } finally {
         clearTimeout(timeout);
@@ -456,7 +439,10 @@ export async function generateImageWithFallback(
   }
 
   try {
-    return await requestPollinationsImage(prompt, fetchImage);
+    if (providers.some((provider) => provider.id === "pollinations" && provider.enabled)) {
+      return await requestPollinationsImage(prompt, fetchImage);
+    }
+    throw new ProviderAttemptError("No enabled image providers are configured.");
   } catch (error) {
     onProviderFailure(
       "pollinations",

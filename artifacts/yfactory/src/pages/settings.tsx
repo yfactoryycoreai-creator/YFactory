@@ -2,7 +2,10 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   ArrowLeft,
+  ArrowDown,
+  ArrowUp,
   Check,
+  HardDrive,
   Eye,
   EyeOff,
   KeyRound,
@@ -15,10 +18,16 @@ import {
 import ConfirmActionDialog from '@/components/confirm-action-dialog';
 import {
   createVaultKey,
+  createProvider,
   deleteVaultKey,
   loadVaultKeys,
+  loadProviders,
+  loadStorageUsage,
   maskNewKey,
   updateVaultKey,
+  updateProviderConfig,
+  type ProviderConfig,
+  type ProviderAdapter,
   type ProviderKey,
   type VaultKey,
 } from '@/lib/apiKeyVault';
@@ -38,16 +47,34 @@ export type SettingsPageProps = {
   onDeleteAccount: () => Promise<void>;
 };
 
-const providers: Array<{ id: ProviderKey; symbol: string }> = [
-  { id: 'zsky', symbol: 'Z' },
-  { id: 'agnes', symbol: 'A' },
-  { id: 'glm', symbol: 'G' },
+const providerSymbols: Record<string, string> = {
+  zsky: 'Z',
+  agnes: 'A',
+  glm: 'G',
+  pollinations: 'P',
+  cloudinary: 'C',
+};
+
+const providerAdapters: Array<{ id: ProviderAdapter; label: string }> = [
+  { id: 'agnes', label: 'Agnes' },
+  { id: 'glm', label: 'GLM' },
+  { id: 'zsky', label: 'ZSky' },
+  { id: 'pollinations', label: 'Pollinations' },
+  { id: 'cloudinary', label: 'Cloudinary' },
+  { id: 'openai-compatible', label: 'OpenAI-compatible' },
 ];
 
 function formatCreatedDate(timestamp: number, locale: string): string {
   return new Intl.DateTimeFormat(locale, { dateStyle: 'medium' }).format(
     new Date(timestamp),
   );
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(2)} GB`;
+  if (bytes >= 1024 ** 2) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${bytes} B`;
 }
 
 export default function SettingsPage({
@@ -61,6 +88,13 @@ export default function SettingsPage({
   const locale = i18n.resolvedLanguage ?? i18n.language;
   const isRtl = locale === 'ar';
   const [keys, setKeys] = useState<VaultKey[]>([]);
+  const [providerConfigs, setProviderConfigs] = useState<ProviderConfig[]>([]);
+  const [storageUsage, setStorageUsage] = useState<{
+    configured: boolean;
+    usedBytes: number | null;
+    limitBytes: number | null;
+  } | null>(null);
+  const [storageUsageError, setStorageUsageError] = useState('');
   const [keysLoading, setKeysLoading] = useState(true);
   const [error, setError] = useState('');
   const [toast, setToast] = useState('');
@@ -69,6 +103,13 @@ export default function SettingsPage({
   const [addingProvider, setAddingProvider] = useState<ProviderKey | null>(null);
   const [newLabel, setNewLabel] = useState('');
   const [newValue, setNewValue] = useState('');
+  const [providerFormOpen, setProviderFormOpen] = useState(false);
+  const [providerName, setProviderName] = useState('');
+  const [providerCategory, setProviderCategory] = useState<'image' | 'storage'>('image');
+  const [providerAdapter, setProviderAdapter] = useState<ProviderAdapter>('agnes');
+  const [providerBaseUrl, setProviderBaseUrl] = useState('');
+  const [providerModel, setProviderModel] = useState('');
+  const [providerSaving, setProviderSaving] = useState(false);
   const [revealNewValue, setRevealNewValue] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const [logoutError, setLogoutError] = useState('');
@@ -113,6 +154,48 @@ export default function SettingsPage({
         }
       } finally {
         if (active) setKeysLoading(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [getIdToken, t]);
+
+  useEffect(() => {
+    if (!getIdToken) return;
+    let active = true;
+    void (async () => {
+      try {
+        const token = await getIdToken();
+        const [receivedProviders, usageResult] = await Promise.allSettled([
+          loadProviders(token),
+          loadStorageUsage(token),
+        ]);
+        if (!active) return;
+        if (receivedProviders.status === 'fulfilled') {
+          setProviderConfigs(receivedProviders.value);
+        } else {
+          setError(
+            receivedProviders.reason instanceof Error
+              ? receivedProviders.reason.message
+              : t('settings.vaultLoadFailed'),
+          );
+        }
+        if (usageResult.status === 'fulfilled') {
+          setStorageUsage(usageResult.value);
+          setStorageUsageError('');
+        } else {
+          setStorageUsage(null);
+          setStorageUsageError(
+            usageResult.reason instanceof Error
+              ? usageResult.reason.message
+              : 'Cloudinary usage could not be loaded.',
+          );
+        }
+      } catch (loadError) {
+        if (active) {
+          setError(loadError instanceof Error ? loadError.message : t('settings.vaultLoadFailed'));
+        }
       }
     })();
     return () => {
@@ -286,6 +369,64 @@ export default function SettingsPage({
   const keysForProvider = (provider: ProviderKey) =>
     keys.filter((key) => key.provider === provider);
 
+  const handleCreateProvider = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!getIdToken || !providerName.trim() || providerSaving) return;
+    setProviderSaving(true);
+    setError('');
+    try {
+      const token = await getIdToken();
+      const result = await createProvider(token, {
+        name: providerName.trim(),
+        category: providerCategory,
+        adapter: providerAdapter,
+        ...(providerAdapter === 'openai-compatible'
+          ? { baseUrl: providerBaseUrl.trim(), model: providerModel.trim() }
+          : {}),
+      });
+      setProviderConfigs(result.providers);
+      setProviderName('');
+      setProviderBaseUrl('');
+      setProviderModel('');
+      setProviderFormOpen(false);
+      setToast('Provider added');
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Provider could not be added.');
+    } finally {
+      setProviderSaving(false);
+    }
+  };
+
+  const handleProviderUpdate = async (
+    provider: ProviderConfig,
+    updates: { enabled?: boolean; rotationOrder?: number },
+  ) => {
+    if (!getIdToken) return;
+    const previous = providerConfigs;
+    setProviderConfigs((current) =>
+      current.map((item) => item.id === provider.id ? { ...item, ...updates } : item),
+    );
+    try {
+      const token = await getIdToken();
+      const result = await updateProviderConfig(token, provider.id, updates);
+      setProviderConfigs(result.providers);
+    } catch (updateError) {
+      setProviderConfigs(previous);
+      setError(updateError instanceof Error ? updateError.message : 'Provider could not be updated.');
+    }
+  };
+
+  const moveImageProvider = async (provider: ProviderConfig, delta: -1 | 1) => {
+    const imageProviders = providerConfigs
+      .filter((item) => item.category === 'image')
+      .sort((left, right) => left.rotationOrder - right.rotationOrder);
+    const index = imageProviders.findIndex((item) => item.id === provider.id);
+    const swap = imageProviders[index + delta];
+    if (!swap) return;
+    await handleProviderUpdate(provider, { rotationOrder: swap.rotationOrder });
+    await handleProviderUpdate(swap, { rotationOrder: provider.rotationOrder });
+  };
+
   return (
     <main className="auth-screen settings-screen" dir={isRtl ? 'rtl' : 'ltr'}>
       <div className="settings-shell">
@@ -359,9 +500,15 @@ export default function SettingsPage({
             </div>
 
             <div className="provider-list">
-              {providers.map(({ id: provider, symbol }) => {
+              {providerConfigs.map((providerConfig) => {
+                const provider = providerConfig.id;
+                const symbol = providerSymbols[providerConfig.adapter] ?? providerConfig.name.slice(0, 1).toUpperCase();
                 const providerKeys = keysForProvider(provider);
                 const isAdding = addingProvider === provider;
+                const imageProviderOrder = providerConfigs
+                  .filter((item) => item.category === 'image')
+                  .sort((left, right) => left.rotationOrder - right.rotationOrder);
+                const imagePosition = imageProviderOrder.findIndex((item) => item.id === provider);
                 return (
                   <article className="provider-card" key={provider} data-testid={`card-provider-${provider}`}>
                     <div className="provider-card-head">
@@ -369,14 +516,69 @@ export default function SettingsPage({
                         {symbol}
                       </div>
                       <div className="provider-copy">
-                        <h3>{t(`settings.providers.${provider}`)}</h3>
-                        <p>{t(`settings.providerDescriptions.${provider}`)}</p>
+                        <h3>{providerConfig.name}</h3>
+                        <p>
+                          {providerConfig.category === 'storage' ? 'Storage provider' : `Image provider · ${providerConfig.adapter}`}
+                          {providerConfig.adapter === 'zsky' ? ' · API format not verified; skipped' : ''}
+                        </p>
                       </div>
                       <span className="provider-count">{providerKeys.length}</span>
+                      {providerConfig.category === 'image' && (
+                        <div className="provider-rotation">
+                          <button
+                            className="icon-action"
+                            type="button"
+                            aria-label={`Move ${providerConfig.name} earlier`}
+                            title="Move earlier"
+                            disabled={imagePosition <= 0}
+                            onClick={() => void moveImageProvider(providerConfig, -1)}
+                          ><ArrowUp size={14} /></button>
+                          <button
+                            className="icon-action"
+                            type="button"
+                            aria-label={`Move ${providerConfig.name} later`}
+                            title="Move later"
+                            disabled={imagePosition < 0 || imagePosition >= imageProviderOrder.length - 1}
+                            onClick={() => void moveImageProvider(providerConfig, 1)}
+                          ><ArrowDown size={14} /></button>
+                          {provider === 'pollinations' ? (
+                            <small>Always last</small>
+                          ) : (
+                            <button
+                              className={`vault-key-toggle${providerConfig.enabled ? ' is-enabled' : ''}`}
+                              type="button"
+                              role="switch"
+                              aria-checked={providerConfig.enabled}
+                              aria-label={`Enable ${providerConfig.name}`}
+                              onClick={() => void handleProviderUpdate(providerConfig, { enabled: !providerConfig.enabled })}
+                            ><span /></button>
+                          )}
+                        </div>
+                      )}
+                      {providerConfig.category === 'storage' && (
+                        <div className="provider-rotation">
+                          <span className="provider-storage-label">Enabled</span>
+                          <button
+                            className={`vault-key-toggle${providerConfig.enabled ? ' is-enabled' : ''}`}
+                            type="button"
+                            role="switch"
+                            aria-checked={providerConfig.enabled}
+                            aria-label={`Enable ${providerConfig.name}`}
+                            onClick={() => void handleProviderUpdate(providerConfig, { enabled: !providerConfig.enabled })}
+                          ><span /></button>
+                        </div>
+                      )}
                     </div>
 
+                    {providerConfig.secretFallback && !providerKeys.some((key) => key.enabled) && (
+                      <div className="provider-secret-fallback">
+                        <span>{providerConfig.secretFallback}</span>
+                        <small>from Replit Secrets · read-only</small>
+                      </div>
+                    )}
+
                     {providerKeys.length > 0 ? (
-                      <ul className="provider-key-list" aria-label={`${t(`settings.providers.${provider}`)} API keys`}>
+                      <ul className="provider-key-list" aria-label={`${providerConfig.name} API keys`}>
                         {providerKeys.map((key) => {
                           const labelValue = labelDrafts[key.id] ?? key.label;
                           const labelChanged = labelValue.trim() !== key.label;
@@ -461,15 +663,15 @@ export default function SettingsPage({
                           );
                         })}
                       </ul>
-                    ) : (
+                    ) : providerConfig.adapter !== 'pollinations' ? (
                       <div className="provider-empty" data-testid={`text-empty-keys-${provider}`}>
                         <span className="empty-indicator" />
                         {keysLoading ? t('settings.loadingKeys') : t('settings.emptyKeys')}
                       </div>
-                    )}
+                    ) : null}
 
                     <div className="provider-add-form">
-                      {isAdding ? (
+                      {isAdding && providerConfig.adapter !== 'pollinations' ? (
                         <form className="vault-add-form" onSubmit={(event) => void handleAddKey(event)}>
                           <input
                             className="vault-add-label"
@@ -530,7 +732,7 @@ export default function SettingsPage({
                             </button>
                           </div>
                         </form>
-                      ) : (
+                      ) : providerConfig.adapter !== 'pollinations' ? (
                         <button
                           className="add-key-button"
                           type="button"
@@ -541,17 +743,95 @@ export default function SettingsPage({
                           <Plus size={16} />
                           <span>{t('settings.addKey')}</span>
                         </button>
-                      )}
+                      ) : null}
                     </div>
                   </article>
                 );
               })}
             </div>
 
+            {providerFormOpen ? (
+              <form className="vault-add-form provider-create-form" onSubmit={(event) => void handleCreateProvider(event)}>
+                <h3>Add provider</h3>
+                <label>
+                  <span>Provider name</span>
+                  <input value={providerName} maxLength={80} required onChange={(event) => setProviderName(event.currentTarget.value)} placeholder="My image provider" />
+                </label>
+                <label>
+                  <span>Category</span>
+                  <select
+                    value={providerCategory}
+                    onChange={(event) => {
+                      const next = event.currentTarget.value as 'image' | 'storage';
+                      setProviderCategory(next);
+                      setProviderAdapter(next === 'storage' ? 'cloudinary' : 'agnes');
+                    }}
+                  >
+                    <option value="image">Image</option>
+                    <option value="storage">Storage</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Adapter</span>
+                  <select value={providerAdapter} onChange={(event) => setProviderAdapter(event.currentTarget.value as ProviderAdapter)}>
+                    {providerAdapters
+                      .filter((adapter) => providerCategory === 'storage' ? adapter.id === 'cloudinary' : adapter.id !== 'cloudinary')
+                      .map((adapter) => <option key={adapter.id} value={adapter.id}>{adapter.label}</option>)}
+                  </select>
+                </label>
+                {providerAdapter === 'openai-compatible' && (
+                  <>
+                    <label>
+                      <span>Base URL</span>
+                      <input type="url" value={providerBaseUrl} required placeholder="https://api.example.com/v1" onChange={(event) => setProviderBaseUrl(event.currentTarget.value)} />
+                    </label>
+                    <label>
+                      <span>Model name</span>
+                      <input value={providerModel} required placeholder="image-model" onChange={(event) => setProviderModel(event.currentTarget.value)} />
+                    </label>
+                  </>
+                )}
+                <div className="vault-add-actions">
+                  <button className="add-key-button" type="submit" disabled={providerSaving || !providerName.trim() || (providerAdapter === 'openai-compatible' && (!providerBaseUrl.trim() || !providerModel.trim()))}>
+                    {providerSaving ? 'Adding…' : 'Add provider'}
+                  </button>
+                  <button className="vault-cancel-button" type="button" onClick={() => setProviderFormOpen(false)} disabled={providerSaving}>Cancel</button>
+                </div>
+              </form>
+            ) : (
+              <button className="add-key-button" type="button" onClick={() => setProviderFormOpen(true)} disabled={!getIdToken}>
+                <Plus size={16} /><span>Add provider</span>
+              </button>
+            )}
+
             <div className="security-note">
               <ShieldCheck size={16} aria-hidden="true" />
               <span>{t('settings.securityNote')}</span>
             </div>
+          </section>
+          <section className="account-panel storage-usage-panel" aria-labelledby="cloudinary-usage-title">
+            <div className="section-kicker"><HardDrive size={14} /> Cloudinary storage</div>
+            <h2 id="cloudinary-usage-title">Storage usage</h2>
+            {!storageUsage && storageUsageError ? (
+              <p className="settings-inline-error">{storageUsageError}</p>
+            ) : !providerConfigs.some((provider) => provider.id === 'cloudinary' && provider.enabled) ? (
+              <p>Cloudinary is disabled in provider settings.</p>
+            ) : storageUsage && !storageUsage.configured ? (
+              <p>Cloudinary credentials are missing. Add a Cloudinary key in the vault or set `CLOUDINARY_URL` in Replit Secrets.</p>
+            ) : storageUsage?.configured && storageUsage.usedBytes !== null && storageUsage.limitBytes !== null ? (
+              <>
+                <div className="storage-usage-copy">
+                  <span>{formatBytes(storageUsage.usedBytes)} used</span>
+                  <span>{formatBytes(storageUsage.limitBytes)} limit</span>
+                </div>
+                <div className="factory-storage-track" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.min(100, Math.round(storageUsage.usedBytes / Math.max(storageUsage.limitBytes, 1) * 100))}>
+                  <span className={storageUsage.usedBytes / Math.max(storageUsage.limitBytes, 1) >= 0.8 ? 'storage-warning' : ''} style={{ width: `${Math.min(100, storageUsage.usedBytes / Math.max(storageUsage.limitBytes, 1) * 100)}%` }} />
+                </div>
+                {storageUsage.usedBytes / Math.max(storageUsage.limitBytes, 1) >= 0.8 && <p className="settings-inline-warning">Cloudinary storage is at least 80% used.</p>}
+              </>
+            ) : (
+              <p>Cloudinary is configured; usage limits were not included in the account response.</p>
+            )}
           </section>
           <section className="danger-zone" aria-labelledby="danger-zone-title">
             <div>

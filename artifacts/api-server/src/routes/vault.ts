@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { Router, type IRouter } from "express";
 import {
   CreateVaultKeyBody,
@@ -12,12 +13,94 @@ import {
   createVaultKey,
   deleteVaultKey,
   listVaultKeys,
+  listProviderConfigs,
+  saveProviderConfig,
   updateVaultKey,
   type ProviderKey,
 } from "../lib/apiKeyVault";
 import { verifyFirebaseIdToken } from "../lib/firebaseAdmin";
 
 const router: IRouter = Router();
+
+router.get("/providers", async (req, res): Promise<void> => {
+  const uid = await authenticatedUid(req, res);
+  if (!uid) return;
+  try {
+    res.json({ providers: await listProviderConfigs(uid) });
+  } catch (error) {
+    req.log.error({ reason: error instanceof Error ? error.message : "unknown" }, "Could not load providers.");
+    res.status(503).json({ error: "Providers could not be loaded.", code: "providers_unavailable" });
+  }
+});
+
+router.post("/providers", async (req, res): Promise<void> => {
+  const uid = await authenticatedUid(req, res);
+  if (!uid) return;
+  const body = req.body as Record<string, unknown>;
+  const name = typeof body.name === "string" ? body.name.trim() : "";
+  const category = body.category;
+  const adapter = body.adapter;
+  const baseUrl = typeof body.baseUrl === "string" ? body.baseUrl.trim() : "";
+  const model = typeof body.model === "string" ? body.model.trim() : "";
+  if (!name || name.length > 80 ||
+      (category !== "image" && category !== "storage") ||
+      !["agnes", "glm", "zsky", "pollinations", "cloudinary", "openai-compatible"].includes(String(adapter)) ||
+      (adapter === "openai-compatible" && (!baseUrl || !model))) {
+    res.status(400).json({ error: "Provide a provider name, category, and supported adapter configuration.", code: "invalid_request" });
+    return;
+  }
+  if ((category === "storage") !== (adapter === "cloudinary")) {
+    res.status(400).json({ error: "Cloudinary is the only storage adapter; image adapters use the image category.", code: "invalid_request" });
+    return;
+  }
+  const id = `${name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 48) || "provider"}-${randomUUID().slice(0, 6)}`;
+  try {
+    await saveProviderConfig(uid, {
+      id,
+      name,
+      category,
+      adapter: adapter as "agnes" | "glm" | "zsky" | "pollinations" | "cloudinary" | "openai-compatible",
+      enabled: body.enabled !== false,
+      rotationOrder: Number.isInteger(body.rotationOrder) ? Number(body.rotationOrder) : 10,
+      ...(baseUrl ? { baseUrl } : {}),
+      ...(model ? { model } : {}),
+    });
+    res.status(201).json({ providers: await listProviderConfigs(uid) });
+  } catch (error) {
+    req.log.error({ reason: error instanceof Error ? error.message : "unknown" }, "Could not save provider.");
+    res.status(503).json({ error: "Provider could not be saved.", code: "providers_unavailable" });
+  }
+});
+
+router.patch("/providers/:providerId", async (req, res): Promise<void> => {
+  const uid = await authenticatedUid(req, res);
+  if (!uid) return;
+  const providerId = String(req.params.providerId ?? "");
+  const current = (await listProviderConfigs(uid)).find((provider) => provider.id === providerId);
+  if (!current) {
+    res.status(404).json({ error: "Provider not found.", code: "provider_not_found" });
+    return;
+  }
+  const body = req.body as Record<string, unknown>;
+  const enabled = typeof body.enabled === "boolean" ? body.enabled : current.enabled;
+  const rotationOrder = Number.isInteger(body.rotationOrder) ? Number(body.rotationOrder) : current.rotationOrder;
+  try {
+    await saveProviderConfig(uid, {
+      id: current.id,
+      name: current.name,
+      category: current.category,
+      adapter: current.adapter,
+      enabled,
+      rotationOrder,
+      ...(current.baseUrl ? { baseUrl: current.baseUrl } : {}),
+      ...(current.model ? { model: current.model } : {}),
+    });
+    res.json({ providers: await listProviderConfigs(uid) });
+  } catch (error) {
+    req.log.error({ reason: error instanceof Error ? error.message : "unknown" }, "Could not update provider.");
+    res.status(503).json({ error: "Provider could not be updated.", code: "providers_unavailable" });
+  }
+});
 
 async function authenticatedUid(
   req: Parameters<Parameters<IRouter["get"]>[1]>[0],
@@ -77,6 +160,23 @@ router.post("/vault/keys", async (req, res): Promise<void> => {
     !parsed.data.value.trim()
   ) {
     res.status(400).json({ error: "Provide a provider, key name, and API key.", code: "invalid_request" });
+    return;
+  }
+  const providerConfig = (await listProviderConfigs(uid)).find(
+    (provider) => provider.id === parsed.data.provider,
+  );
+  if (!providerConfig) {
+    res.status(400).json({ error: "Add this provider before saving a key.", code: "provider_not_found" });
+    return;
+  }
+  if (
+    providerConfig.adapter === "cloudinary" &&
+    !/^cloudinary:\/\/[^:]+:.+@[^/]+$/i.test(parsed.data.value.trim())
+  ) {
+    res.status(400).json({
+      error: "Cloudinary keys must use cloudinary://API_KEY:API_SECRET@CLOUD_NAME.",
+      code: "invalid_cloudinary_key",
+    });
     return;
   }
   try {

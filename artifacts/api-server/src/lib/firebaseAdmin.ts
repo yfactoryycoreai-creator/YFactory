@@ -2,7 +2,6 @@ import { createHash } from "node:crypto";
 import { cert, getApps, initializeApp, type App } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { FieldValue, getFirestore } from "firebase-admin/firestore";
-import { getStorage } from "firebase-admin/storage";
 
 let adminApp: App | null = null;
 
@@ -55,11 +54,6 @@ export function getFirebaseAdmin() {
       );
     }
 
-    const storageBucket = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET;
-    if (!storageBucket) {
-      throw new Error("NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET is missing.");
-    }
-
     const existingApp = getApps().find((app) => app.name === "yfactory-admin");
     adminApp =
       existingApp ??
@@ -71,7 +65,6 @@ export function getFirebaseAdmin() {
             privateKey,
           }),
           projectId,
-          storageBucket,
         },
         "yfactory-admin",
       );
@@ -82,7 +75,6 @@ export function getFirebaseAdmin() {
     app,
     auth: getAuth(app),
     db: getFirestore(app),
-    bucket: getStorage(app).bucket(),
     FieldValue,
   };
 }

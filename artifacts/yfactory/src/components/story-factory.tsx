@@ -2,10 +2,12 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import {
   ArrowLeft,
   BookOpen,
+  Download,
   Image as ImageIcon,
   LoaderCircle,
   Plus,
   Save,
+  Share2,
   Trash2,
   X,
 } from 'lucide-react';
@@ -25,14 +27,16 @@ import {
   type StoryRecord,
 } from '@/lib/stories';
 import type { GeneratedImageHistoryItem } from '@/lib/generationStorage';
+import { generateImages } from '@/lib/imageApi';
 
 type StoryFactoryProps = {
   uid: string;
+  getIdToken: () => Promise<string>;
+  requestedImageCount: number;
   visible: boolean;
   selectedStoryId: string | null;
   pendingImage: GeneratedImageHistoryItem | null;
   onStorySelected: (story: StoryRecord | null) => void;
-  onOpenGenerator: (story: StoryRecord) => void;
   onTemporaryImageSaved: (
     image: GeneratedImageHistoryItem,
     story: StoryRecord,
@@ -42,6 +46,49 @@ type StoryFactoryProps = {
 };
 
 const STORAGE_QUOTA_BYTES = 20 * 1024 * 1024 * 1024;
+
+function imageSequenceLabel(image: StoryImageRecord, index: number): string {
+  const publicIdTail = image.publicId?.split('/').at(-1);
+  const sequence = image.sequence ??
+    (publicIdTail && /^\d+$/.test(publicIdTail) ? Number(publicIdTail) : index + 1);
+  return String(sequence).padStart(3, '0');
+}
+
+async function fetchAsWebp(url: string): Promise<Blob> {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error('This image could not be downloaded.');
+  const original = await response.blob();
+  try {
+    const bitmap = await createImageBitmap(original);
+    const canvas = document.createElement('canvas');
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Image conversion is unavailable.');
+    context.drawImage(bitmap, 0, 0);
+    bitmap.close();
+    return await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob(
+        (blob) => blob ? resolve(blob) : reject(new Error('Image conversion failed.')),
+        'image/webp',
+        0.9,
+      );
+    });
+  } catch {
+    return original;
+  }
+}
+
+function downloadBlob(blob: Blob, filename: string): void {
+  const objectUrl = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = objectUrl;
+  anchor.download = filename;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(objectUrl);
+}
 
 function formatBytes(bytes: number): string {
   if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(2)} GB`;
@@ -66,11 +113,12 @@ function formatStoryDate(value: unknown, locale: string): string {
 
 export default function StoryFactory({
   uid,
+  getIdToken,
+  requestedImageCount,
   visible,
   selectedStoryId,
   pendingImage,
   onStorySelected,
-  onOpenGenerator,
   onTemporaryImageSaved,
   onCancelPendingSave,
 }: StoryFactoryProps) {
@@ -96,6 +144,9 @@ export default function StoryFactory({
     null,
   );
   const [deletingImage, setDeletingImage] = useState(false);
+  const [generatingStoryImages, setGeneratingStoryImages] = useState(false);
+  const [imageAction, setImageAction] = useState<string | null>(null);
+  const [downloadingZip, setDownloadingZip] = useState(false);
   const selectedStory = useMemo(
     () => stories.find((story) => story.id === selectedStoryId) ?? null,
     [stories, selectedStoryId],
@@ -247,14 +298,13 @@ export default function StoryFactory({
     setSavingImageForStory(story.id);
     setError('');
     try {
-      const response = await fetch(pendingImage.imageData);
-      if (!response.ok) throw new Error('Could not read the temporary image.');
-      const blob = await response.blob();
       const saved = await saveImageToStory(
         uid,
         story.id,
-        blob,
+        pendingImage.imageData,
         pendingImage.prompt,
+        await getIdToken(),
+        pendingImage.provider,
       );
       onTemporaryImageSaved(pendingImage, story, saved);
     } catch (saveError) {
@@ -276,13 +326,115 @@ export default function StoryFactory({
     setDeletingImage(true);
     setError('');
     try {
-      await deleteStoryImage(uid, selectedStory.id, imageToDelete);
+      await deleteStoryImage(
+        uid,
+        selectedStory.id,
+        imageToDelete,
+        await getIdToken(),
+      );
       setImageToDelete(null);
     } catch (deleteError) {
       console.error('Could not delete story image:', deleteError);
       setError(t('stories.imageDeleteFailed'));
     } finally {
       setDeletingImage(false);
+    }
+  };
+
+  const handleGenerateStoryImages = async () => {
+    if (!selectedStory || generatingStoryImages) return;
+    const prompt = script.trim();
+    if (!prompt) {
+      setError('Add a prompt to this story before generating images.');
+      return;
+    }
+    if (selectedStory.imageCount >= MAX_STORY_IMAGES) {
+      setError(t('stories.limitReached'));
+      return;
+    }
+    setGeneratingStoryImages(true);
+    setError('');
+    try {
+      if (!(await handleSaveScript())) return;
+      const count = Math.min(
+        Math.max(1, requestedImageCount),
+        MAX_STORY_IMAGES - selectedStory.imageCount,
+      );
+      const result = await generateImages(
+        await getIdToken(),
+        selectedStory.id,
+        prompt,
+        count,
+      );
+      if (result.failedCount > 0) {
+        setError(`${result.images.length} image(s) saved; ${result.failedCount} could not be saved.`);
+      }
+    } catch (generationError) {
+      setError(
+        generationError instanceof Error
+          ? generationError.message
+          : 'Image generation failed. Check enabled provider keys and try again.',
+      );
+    } finally {
+      setGeneratingStoryImages(false);
+    }
+  };
+
+  const handleImageDownload = async (
+    image: StoryImageRecord,
+    index: number,
+    share: boolean,
+  ) => {
+    if (!selectedStory || imageAction) return;
+    setImageAction(image.id);
+    setError('');
+    const filename = `${selectedStory.storyName.replace(/[\\/:*?"<>|]/g, '_')}_${imageSequenceLabel(image, index)}.webp`;
+    try {
+      const blob = await fetchAsWebp(image.url);
+      const file = new File([blob], filename, { type: 'image/webp' });
+      if (
+        share &&
+        typeof navigator.share === 'function' &&
+        typeof navigator.canShare === 'function' &&
+        navigator.canShare({ files: [file] })
+      ) {
+        await navigator.share({ files: [file], title: selectedStory.storyName });
+      } else {
+        downloadBlob(blob, filename);
+      }
+    } catch (downloadError) {
+      if (downloadError instanceof DOMException && downloadError.name === 'AbortError') return;
+      setError(downloadError instanceof Error ? downloadError.message : 'The image could not be downloaded.');
+    } finally {
+      setImageAction(null);
+    }
+  };
+
+  const handleDownloadStoryZip = async () => {
+    if (!selectedStory || downloadingZip) return;
+    setDownloadingZip(true);
+    setError('');
+    try {
+      const response = await fetch(
+        `/api/images/stories/${encodeURIComponent(selectedStory.id)}/download.zip`,
+        { headers: { Authorization: `Bearer ${await getIdToken()}` } },
+      );
+      if (!response.ok) {
+        const body: unknown = await response.json().catch(() => null);
+        const message = body && typeof body === 'object' &&
+          typeof (body as Record<string, unknown>).error === 'string'
+          ? String((body as Record<string, unknown>).error)
+          : 'The story ZIP could not be downloaded.';
+        throw new Error(message);
+      }
+      downloadBlob(
+        await response.blob(),
+        `${selectedStory.storyName.replace(/[\\/:*?"<>|]/g, '_')}.zip`,
+      );
+    } catch (downloadError) {
+      setError(downloadError instanceof Error ? downloadError.message : 'The story ZIP could not be downloaded.');
+    } finally {
+      setDownloadingZip(false);
     }
   };
 
@@ -363,16 +515,23 @@ export default function StoryFactory({
             <button
               className="factory-primary-button"
               type="button"
-              onClick={() => {
-                void handleSaveScript().then((saved) => {
-                  if (saved) onOpenGenerator({ ...selectedStory, script });
-                });
-              }}
-              disabled={!script.trim() || selectedStory.imageCount >= MAX_STORY_IMAGES}
+              onClick={() => void handleGenerateStoryImages()}
+              disabled={!script.trim() || selectedStory.imageCount >= MAX_STORY_IMAGES || generatingStoryImages}
+              aria-busy={generatingStoryImages}
               data-testid="button-generate-story-scenes"
             >
-              <ImageIcon size={16} />
-              {t('stories.generateScenes')}
+              {generatingStoryImages ? <LoaderCircle className="loading-spinner" size={16} /> : <ImageIcon size={16} />}
+              {generatingStoryImages ? 'Generating…' : t('stories.generateScenes')}
+            </button>
+            <button
+              className="factory-quiet-button"
+              type="button"
+              onClick={() => void handleDownloadStoryZip()}
+              disabled={!images.length || downloadingZip}
+              aria-busy={downloadingZip}
+            >
+              {downloadingZip ? <LoaderCircle className="loading-spinner" size={15} /> : <Download size={15} />}
+              {downloadingZip ? 'Preparing ZIP…' : 'Download story as ZIP'}
             </button>
           </div>
 
@@ -419,7 +578,7 @@ export default function StoryFactory({
             <span>{t('stories.scriptLabel')}</span>
             <textarea
               value={script}
-              maxLength={10000}
+              maxLength={20000}
               onChange={(event) => setScript(event.currentTarget.value)}
               onBlur={() => void handleSaveScript()}
               placeholder={t('stories.scriptPlaceholder')}
@@ -444,19 +603,37 @@ export default function StoryFactory({
             </div>
           ) : images.length ? (
             <div className="story-images-grid">
-              {images.map((image) => (
+              {images.map((image, index) => (
                 <article className="story-image-card" key={image.id}>
-                  <img src={image.url} alt={image.prompt || t('labels.generatedImage')} loading="lazy" />
+                  <img src={image.thumbnailUrl || image.url} alt={image.prompt || t('labels.generatedImage')} loading="lazy" />
                   <div className="story-image-caption">
                     <p>{image.prompt}</p>
-                    <button
-                      className="story-icon-button delete-action"
-                      type="button"
-                      aria-label={t('stories.deleteImage')}
-                      onClick={() => setImageToDelete(image)}
-                    >
-                      <Trash2 size={15} />
-                    </button>
+                    <div className="story-image-actions">
+                      <button
+                        className="story-icon-button"
+                        type="button"
+                        aria-label={`Download image ${imageSequenceLabel(image, index)}`}
+                        title="Download"
+                        disabled={imageAction === image.id}
+                        onClick={() => void handleImageDownload(image, index, false)}
+                      >
+                        {imageAction === image.id ? <LoaderCircle className="loading-spinner" size={15} /> : <Download size={15} />}
+                      </button>
+                      <button
+                        className="story-icon-button"
+                        type="button"
+                        aria-label={`Share image ${imageSequenceLabel(image, index)}`}
+                        title="Share"
+                        disabled={imageAction === image.id}
+                        onClick={() => void handleImageDownload(image, index, true)}
+                      ><Share2 size={15} /></button>
+                      <button
+                        className="story-icon-button delete-action"
+                        type="button"
+                        aria-label={t('stories.deleteImage')}
+                        onClick={() => setImageToDelete(image)}
+                      ><Trash2 size={15} /></button>
+                    </div>
                   </div>
                 </article>
               ))}
