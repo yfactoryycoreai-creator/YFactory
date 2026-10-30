@@ -1,3 +1,4 @@
 - [Stable deployment domain](stable-deployment-domain.md) — use the user's published Replit domain for production-domain guidance.
 - [Firebase account deletion](firebase-account-deletion.md) — restore the Firestore user document if Auth deletion fails after the document is removed.
 - [Content Factory storage model](content-factory-storage-model.md) — keep each user's story metadata in Firestore and image bytes in Firebase Storage; label quota as an estimate.
+- [Firebase database region](firebase-database-region.md) — preserve YFactory's default Firestore database in europe-west8 (Milan), Production mode.
