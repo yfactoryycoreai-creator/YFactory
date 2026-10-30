@@ -251,13 +251,15 @@ export const ListVaultKeysResponse = zod.object({
 export const createVaultKeyBodyProviderRegExp = new RegExp('^[a-z0-9][a-z0-9-]{0,63}$');
 export const createVaultKeyBodyLabelMax = 80;
 
+
+export const createVaultKeyBodyLabelRegExp = new RegExp('^(AGNES|GLM)_API_KEY(?:_([2-9]|[1-9][0-9]+))?$');
 export const createVaultKeyBodyValueMax = 4096;
 
 
 
 export const CreateVaultKeyBody = zod.object({
   "provider": zod.string().regex(createVaultKeyBodyProviderRegExp),
-  "label": zod.string().min(1).max(createVaultKeyBodyLabelMax),
+  "label": zod.string().min(1).max(createVaultKeyBodyLabelMax).regex(createVaultKeyBodyLabelRegExp),
   "value": zod.string().min(1).max(createVaultKeyBodyValueMax)
 })
 
@@ -296,108 +298,6 @@ export const ListProvidersResponse = zod.object({
 
 
 /**
- * @summary Add a provider configuration
- */
-export const createProviderBodyNameMax = 80;
-
-
-
-export const CreateProviderBody = zod.object({
-  "name": zod.string().min(1).max(createProviderBodyNameMax),
-  "category": zod.enum(['image', 'storage']),
-  "adapter": zod.enum(['agnes', 'glm', 'zsky', 'pollinations', 'cloudinary', 'openai-compatible']),
-  "enabled": zod.boolean().optional(),
-  "rotationOrder": zod.number().int().optional(),
-  "baseUrl": zod.string().optional(),
-  "model": zod.string().optional()
-})
-
-export const CreateProviderResponse = zod.object({
-  "providers": zod.array(zod.object({
-  "id": zod.string(),
-  "name": zod.string(),
-  "category": zod.enum(['image', 'storage']),
-  "adapter": zod.enum(['agnes', 'glm', 'zsky', 'pollinations', 'cloudinary', 'openai-compatible']),
-  "enabled": zod.boolean(),
-  "rotationOrder": zod.number().int(),
-  "baseUrl": zod.string().optional(),
-  "model": zod.string().optional(),
-  "builtIn": zod.boolean(),
-  "secretFallback": zod.string().optional()
-}))
-})
-
-
-/**
- * @summary Update provider enabled state or rotation order
- */
-export const updateProviderSettingsPathProviderIdMax = 64;
-
-
-
-export const UpdateProviderSettingsParams = zod.object({
-  "providerId": zod.coerce.string().max(updateProviderSettingsPathProviderIdMax)
-})
-
-export const UpdateProviderSettingsBody = zod.object({
-  "enabled": zod.boolean().optional(),
-  "rotationOrder": zod.number().int().optional()
-})
-
-export const UpdateProviderSettingsResponse = zod.object({
-  "providers": zod.array(zod.object({
-  "id": zod.string(),
-  "name": zod.string(),
-  "category": zod.enum(['image', 'storage']),
-  "adapter": zod.enum(['agnes', 'glm', 'zsky', 'pollinations', 'cloudinary', 'openai-compatible']),
-  "enabled": zod.boolean(),
-  "rotationOrder": zod.number().int(),
-  "baseUrl": zod.string().optional(),
-  "model": zod.string().optional(),
-  "builtIn": zod.boolean(),
-  "secretFallback": zod.string().optional()
-}))
-})
-
-
-/**
- * @summary Update a key label or enabled state
- */
-export const updateVaultKeyPathProviderRegExp = new RegExp('^[a-z0-9][a-z0-9-]{0,63}$');
-export const updateVaultKeyPathKeyIdMax = 128;
-
-
-
-export const UpdateVaultKeyParams = zod.object({
-  "provider": zod.coerce.string().regex(updateVaultKeyPathProviderRegExp),
-  "keyId": zod.coerce.string().min(1).max(updateVaultKeyPathKeyIdMax)
-})
-
-export const updateVaultKeyBodyLabelMax = 80;
-
-
-
-export const UpdateVaultKeyBody = zod.object({
-  "label": zod.string().min(1).max(updateVaultKeyBodyLabelMax).optional(),
-  "enabled": zod.boolean().optional()
-})
-
-export const updateVaultKeyResponseProviderRegExp = new RegExp('^[a-z0-9][a-z0-9-]{0,63}$');
-
-
-export const UpdateVaultKeyResponse = zod.object({
-  "id": zod.string(),
-  "provider": zod.string().regex(updateVaultKeyResponseProviderRegExp),
-  "label": zod.string(),
-  "maskedValue": zod.string(),
-  "enabled": zod.boolean(),
-  "createdAt": zod.number().int(),
-  "status": zod.enum(['ready', 'failing', 'cooldown']),
-  "cooldownUntil": zod.number().int().nullish()
-})
-
-
-/**
  * @summary Delete a provider API key
  */
 export const deleteVaultKeyPathProviderRegExp = new RegExp('^[a-z0-9][a-z0-9-]{0,63}$');
@@ -411,5 +311,41 @@ export const DeleteVaultKeyParams = zod.object({
 })
 
 export const DeleteVaultKeyResponse = zod.void()
+
+
+/**
+ * @summary Replace a saved API key value
+ */
+export const replaceVaultKeyValuePathProviderRegExp = new RegExp('^[a-z0-9][a-z0-9-]{0,63}$');
+export const replaceVaultKeyValuePathKeyIdMax = 128;
+
+
+
+export const ReplaceVaultKeyValueParams = zod.object({
+  "provider": zod.coerce.string().regex(replaceVaultKeyValuePathProviderRegExp),
+  "keyId": zod.coerce.string().min(1).max(replaceVaultKeyValuePathKeyIdMax)
+})
+
+export const replaceVaultKeyValueBodyValueMax = 4096;
+
+
+
+export const ReplaceVaultKeyValueBody = zod.object({
+  "value": zod.string().min(1).max(replaceVaultKeyValueBodyValueMax)
+})
+
+export const replaceVaultKeyValueResponseProviderRegExp = new RegExp('^[a-z0-9][a-z0-9-]{0,63}$');
+
+
+export const ReplaceVaultKeyValueResponse = zod.object({
+  "id": zod.string(),
+  "provider": zod.string().regex(replaceVaultKeyValueResponseProviderRegExp),
+  "label": zod.string(),
+  "maskedValue": zod.string(),
+  "enabled": zod.boolean(),
+  "createdAt": zod.number().int(),
+  "status": zod.enum(['ready', 'failing', 'cooldown']),
+  "cooldownUntil": zod.number().int().nullish()
+})
 
 

@@ -12,6 +12,7 @@ export interface CreateVaultKeyInput {
   /**
      * @minLength 1
      * @maxLength 80
+     * @pattern ^(AGNES|GLM)_API_KEY(?:_([2-9]|[1-9][0-9]+))?$
      */
   label: string;
   /**

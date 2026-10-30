@@ -348,52 +348,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ProviderList"
-    post:
-      operationId: createProvider
-      tags: [vault]
-      summary: Add a provider configuration
-      security:
-        - FirebaseBearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/ProviderConfigInput"
-      responses:
-        "201":
-          description: Updated provider list.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ProviderList"
-  /providers/{providerId}:
-    patch:
-      operationId: updateProviderSettings
-      tags: [vault]
-      summary: Update provider enabled state or rotation order
-      security:
-        - FirebaseBearerAuth: []
-      parameters:
-        - name: providerId
-          in: path
-          required: true
-          schema:
-            type: string
-            maxLength: 64
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/ProviderUpdateInput"
-      responses:
-        "200":
-          description: Updated provider list.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ProviderList"
   /vault/keys/{provider}/{keyId}:
     parameters:
       - name: provider
@@ -408,31 +362,15 @@ paths:
           type: string
           minLength: 1
           maxLength: 128
-    patch:
-      operationId: updateVaultKey
+    delete:
+      operationId: deleteVaultKey
       tags: [vault]
-      summary: Update a key label or enabled state
+      summary: Delete a provider API key
       security:
         - FirebaseBearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/UpdateVaultKeyInput"
       responses:
-        "200":
-          description: Updated masked key metadata.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/VaultKey"
-        "400":
-          description: Invalid key metadata.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
+        "204":
+          description: Key deleted.
         "401":
           description: Missing or invalid Firebase ID token.
           content:
@@ -445,15 +383,45 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
-    delete:
-      operationId: deleteVaultKey
+  /vault/keys/{provider}/{keyId}/value:
+    parameters:
+      - name: provider
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/ProviderId"
+      - name: keyId
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+    put:
+      operationId: replaceVaultKeyValue
       tags: [vault]
-      summary: Delete a provider API key
+      summary: Replace a saved API key value
       security:
         - FirebaseBearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReplaceVaultKeyValueInput"
       responses:
-        "204":
-          description: Key deleted.
+        "200":
+          description: Updated masked key metadata.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VaultKey"
+        "400":
+          description: Invalid key value.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
         "401":
           description: Missing or invalid Firebase ID token.
           content:
@@ -764,21 +732,20 @@ components:
           type: string
           minLength: 1
           maxLength: 80
+          pattern: '^(AGNES|GLM)_API_KEY(?:_([2-9]|[1-9][0-9]+))?$'
         value:
           type: string
           minLength: 1
           maxLength: 4096
       required: [provider, label, value]
-    UpdateVaultKeyInput:
+    ReplaceVaultKeyValueInput:
       type: object
       properties:
-        label:
+        value:
           type: string
           minLength: 1
-          maxLength: 80
-        enabled:
-          type: boolean
-      minProperties: 1
+          maxLength: 4096
+      required: [value]
   securitySchemes:
     FirebaseBearerAuth:
       type: http

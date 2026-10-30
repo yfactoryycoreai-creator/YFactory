@@ -26,7 +26,6 @@ export type {
   StoryZipDownloadToken,
   StoryZipProgress,
   StoryZipProgressStatus,
-  UpdateVaultKeyInput,
   VaultKey,
   VaultKeyList,
   VaultKeyStatus,

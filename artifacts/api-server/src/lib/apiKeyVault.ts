@@ -70,6 +70,13 @@ export type GenerationKey = {
   value: string;
 };
 
+export function providerForSecretName(name: string): "agnes" | "glm" | null {
+  const match = /^(AGNES|GLM)_API_KEY(?:_([2-9]|[1-9]\d+))?$/.exec(name.trim());
+  if (match?.[1] === "AGNES") return "agnes";
+  if (match?.[1] === "GLM") return "glm";
+  return null;
+}
+
 export type ProviderGenerationKeys = Record<
   string,
   { hasVaultKeys: boolean; keys: GenerationKey[] }
@@ -174,7 +181,9 @@ export async function listProviderConfigs(uid: string): Promise<ProviderConfig[]
       name: typeof saved?.name === "string" ? saved.name : provider.name,
       category: (saved?.category === "storage" ? "storage" : "image") as ProviderCategory,
       adapter: (typeof saved?.adapter === "string" ? saved.adapter : provider.adapter) as ProviderAdapter,
-      enabled: typeof saved?.enabled === "boolean" ? saved.enabled : provider.enabled,
+      enabled: provider.id === "agnes" || provider.id === "glm"
+        ? true
+        : typeof saved?.enabled === "boolean" ? saved.enabled : provider.enabled,
       rotationOrder: typeof saved?.rotationOrder === "number" ? saved.rotationOrder : provider.rotationOrder,
       ...(typeof saved?.baseUrl === "string" ? { baseUrl: saved.baseUrl } : {}),
       ...(typeof saved?.model === "string" ? { model: saved.model } : {}),
@@ -206,22 +215,6 @@ export async function listProviderConfigs(uid: string): Promise<ProviderConfig[]
       ? a.rotationOrder - b.rotationOrder || a.name.localeCompare(b.name)
       : a.category.localeCompare(b.category),
   );
-}
-
-export async function saveProviderConfig(
-  uid: string,
-  input: Omit<ProviderConfig, "builtIn" | "secretFallback">,
-): Promise<void> {
-  if (!isProviderId(input.id)) throw new Error("Invalid provider ID.");
-  await userProvidersCollection(uid).doc(input.id).set({
-    name: input.name.trim(),
-    category: input.category,
-    adapter: input.adapter,
-    enabled: input.enabled,
-    rotationOrder: input.rotationOrder,
-    ...(input.baseUrl ? { baseUrl: input.baseUrl } : {}),
-    ...(input.model ? { model: input.model } : {}),
-  }, { merge: true });
 }
 
 function createdAtMillis(value: unknown): number {
@@ -332,7 +325,12 @@ export async function getGenerationKeys(
     const provider = imageProviders[index]?.id;
     const snapshot = snapshots[index];
     if (!provider || !snapshot) continue;
-    const allDocs = snapshot.docs;
+    const allDocs = [...snapshot.docs].sort((left, right) => {
+      const leftLabel = String((left.data() as StoredKey).label ?? "");
+      const rightLabel = String((right.data() as StoredKey).label ?? "");
+      return leftLabel.localeCompare(rightLabel, undefined, { numeric: true }) ||
+        left.id.localeCompare(right.id);
+    });
     const eligible = allDocs
       .filter((document) => {
         const data = document.data() as StoredKey;
@@ -383,26 +381,22 @@ export async function createVaultKey(
   return metadataFromSnapshot(saved as QueryDocumentSnapshot, provider);
 }
 
-export async function updateVaultKey(
+export async function updateVaultKeyValue(
   uid: string,
   provider: ProviderKey,
   keyId: string,
-  input: { label?: string; enabled?: boolean },
+  value: string,
 ): Promise<VaultKeyMetadata | null> {
   const keyRef = userProviderKeysCollection(uid, provider).doc(keyId);
   const snapshot = await keyRef.get();
   if (!snapshot.exists) return null;
 
-  const updates: Record<string, unknown> = {};
-  if (input.label !== undefined) updates.label = input.label.trim();
-  if (input.enabled !== undefined) {
-    updates.enabled = input.enabled;
-    if (input.enabled) {
-      updates.failureStatus = FieldValue.delete();
-      updates.cooldownUntil = FieldValue.delete();
-    }
-  }
-  await keyRef.update(updates);
+  await keyRef.update({
+    ...encryptValue(value.trim()),
+    enabled: true,
+    failureStatus: FieldValue.delete(),
+    cooldownUntil: FieldValue.delete(),
+  });
   const updated = await keyRef.get();
   return metadataFromSnapshot(updated as QueryDocumentSnapshot, provider);
 }

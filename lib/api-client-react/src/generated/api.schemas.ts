@@ -257,6 +257,7 @@ export interface CreateVaultKeyInput {
   /**
      * @minLength 1
      * @maxLength 80
+     * @pattern ^(AGNES|GLM)_API_KEY(?:_([2-9]|[1-9][0-9]+))?$
      */
   label: string;
   /**
@@ -266,13 +267,12 @@ export interface CreateVaultKeyInput {
   value: string;
 }
 
-export interface UpdateVaultKeyInput {
+export interface ReplaceVaultKeyValueInput {
   /**
      * @minLength 1
-     * @maxLength 80
+     * @maxLength 4096
      */
-  label?: string;
-  enabled?: boolean;
+  value: string;
 }
 
 export type DownloadStoryZipParams = {

@@ -88,37 +88,6 @@ export async function loadProviders(idToken: string): Promise<ProviderConfig[]> 
   return result.providers;
 }
 
-export function createProvider(
-  idToken: string,
-  input: {
-    name: string;
-    category: 'image' | 'storage';
-    adapter: ProviderAdapter;
-    baseUrl?: string;
-    model?: string;
-  },
-): Promise<{ providers: ProviderConfig[] }> {
-  return vaultRequest(idToken, '/api/providers', {
-    method: 'POST',
-    body: JSON.stringify(input),
-  });
-}
-
-export function updateProviderConfig(
-  idToken: string,
-  providerId: string,
-  updates: { enabled?: boolean; rotationOrder?: number },
-): Promise<{ providers: ProviderConfig[] }> {
-  return vaultRequest(
-    idToken,
-    `/api/providers/${encodeURIComponent(providerId)}`,
-    {
-      method: 'PATCH',
-      body: JSON.stringify(updates),
-    },
-  );
-}
-
 export async function loadStorageUsage(idToken: string): Promise<StorageUsage> {
   return vaultRequest(idToken, '/api/images/storage-usage');
 }
@@ -133,17 +102,17 @@ export function createVaultKey(
   });
 }
 
-export function updateVaultKey(
+export function replaceVaultKeyValue(
   idToken: string,
   key: Pick<VaultKey, 'provider' | 'id'>,
-  updates: { label?: string; enabled?: boolean },
+  value: string,
 ): Promise<VaultKey> {
   return vaultRequest<VaultKey>(
     idToken,
-    `/api/vault/keys/${encodeURIComponent(key.provider)}/${encodeURIComponent(key.id)}`,
+    `/api/vault/keys/${encodeURIComponent(key.provider)}/${encodeURIComponent(key.id)}/value`,
     {
-      method: 'PATCH',
-      body: JSON.stringify(updates),
+      method: 'PUT',
+      body: JSON.stringify({ value }),
     },
   );
 }

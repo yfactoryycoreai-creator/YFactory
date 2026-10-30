@@ -1,21 +1,17 @@
-import { randomUUID } from "node:crypto";
 import { Router, type IRouter } from "express";
 import {
   CreateVaultKeyBody,
   CreateVaultKeyResponse,
   DeleteVaultKeyParams,
   ListVaultKeysResponse,
-  UpdateVaultKeyBody,
-  UpdateVaultKeyParams,
-  UpdateVaultKeyResponse,
 } from "@workspace/api-zod";
 import {
   createVaultKey,
   deleteVaultKey,
   listVaultKeys,
   listProviderConfigs,
-  saveProviderConfig,
-  updateVaultKey,
+  updateVaultKeyValue,
+  providerForSecretName,
   type ProviderKey,
 } from "../lib/apiKeyVault";
 import { verifyFirebaseIdToken } from "../lib/firebaseAdmin";
@@ -30,75 +26,6 @@ router.get("/providers", async (req, res): Promise<void> => {
   } catch (error) {
     req.log.error({ reason: error instanceof Error ? error.message : "unknown" }, "Could not load providers.");
     res.status(503).json({ error: "Providers could not be loaded.", code: "providers_unavailable" });
-  }
-});
-
-router.post("/providers", async (req, res): Promise<void> => {
-  const uid = await authenticatedUid(req, res);
-  if (!uid) return;
-  const body = req.body as Record<string, unknown>;
-  const name = typeof body.name === "string" ? body.name.trim() : "";
-  const category = body.category;
-  const adapter = body.adapter;
-  const baseUrl = typeof body.baseUrl === "string" ? body.baseUrl.trim() : "";
-  const model = typeof body.model === "string" ? body.model.trim() : "";
-  if (!name || name.length > 80 ||
-      (category !== "image" && category !== "storage") ||
-      !["agnes", "glm", "zsky", "pollinations", "cloudinary", "openai-compatible"].includes(String(adapter)) ||
-      (adapter === "openai-compatible" && (!baseUrl || !model))) {
-    res.status(400).json({ error: "Provide a provider name, category, and supported adapter configuration.", code: "invalid_request" });
-    return;
-  }
-  if ((category === "storage") !== (adapter === "cloudinary")) {
-    res.status(400).json({ error: "Cloudinary is the only storage adapter; image adapters use the image category.", code: "invalid_request" });
-    return;
-  }
-  const id = `${name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 48) || "provider"}-${randomUUID().slice(0, 6)}`;
-  try {
-    await saveProviderConfig(uid, {
-      id,
-      name,
-      category,
-      adapter: adapter as "agnes" | "glm" | "zsky" | "pollinations" | "cloudinary" | "openai-compatible",
-      enabled: body.enabled !== false,
-      rotationOrder: Number.isInteger(body.rotationOrder) ? Number(body.rotationOrder) : 10,
-      ...(baseUrl ? { baseUrl } : {}),
-      ...(model ? { model } : {}),
-    });
-    res.status(201).json({ providers: await listProviderConfigs(uid) });
-  } catch (error) {
-    req.log.error({ reason: error instanceof Error ? error.message : "unknown" }, "Could not save provider.");
-    res.status(503).json({ error: "Provider could not be saved.", code: "providers_unavailable" });
-  }
-});
-
-router.patch("/providers/:providerId", async (req, res): Promise<void> => {
-  const uid = await authenticatedUid(req, res);
-  if (!uid) return;
-  const providerId = String(req.params.providerId ?? "");
-  const current = (await listProviderConfigs(uid)).find((provider) => provider.id === providerId);
-  if (!current) {
-    res.status(404).json({ error: "Provider not found.", code: "provider_not_found" });
-    return;
-  }
-  const body = req.body as Record<string, unknown>;
-  const enabled = typeof body.enabled === "boolean" ? body.enabled : current.enabled;
-  const rotationOrder = Number.isInteger(body.rotationOrder) ? Number(body.rotationOrder) : current.rotationOrder;
-  try {
-    await saveProviderConfig(uid, {
-      id: current.id,
-      name: current.name,
-      category: current.category,
-      adapter: current.adapter,
-      enabled,
-      rotationOrder,
-      ...(current.baseUrl ? { baseUrl: current.baseUrl } : {}),
-      ...(current.model ? { model: current.model } : {}),
-    });
-    res.json({ providers: await listProviderConfigs(uid) });
-  } catch (error) {
-    req.log.error({ reason: error instanceof Error ? error.message : "unknown" }, "Could not update provider.");
-    res.status(503).json({ error: "Provider could not be updated.", code: "providers_unavailable" });
   }
 });
 
@@ -157,9 +84,18 @@ router.post("/vault/keys", async (req, res): Promise<void> => {
   if (
     !parsed.success ||
     !parsed.data.label.trim() ||
-    !parsed.data.value.trim()
+    !parsed.data.value.trim() ||
+    parsed.data.value.trim().length > 4096
   ) {
     res.status(400).json({ error: "Provide a provider, key name, and API key.", code: "invalid_request" });
+    return;
+  }
+  const secretProvider = providerForSecretName(parsed.data.label);
+  if (!secretProvider || parsed.data.provider !== secretProvider) {
+    res.status(400).json({
+      error: "Use an AGNES_API_KEY or GLM_API_KEY name, with an optional numeric suffix.",
+      code: "invalid_secret_name",
+    });
     return;
   }
   const providerConfig = (await listProviderConfigs(uid)).find(
@@ -169,17 +105,12 @@ router.post("/vault/keys", async (req, res): Promise<void> => {
     res.status(400).json({ error: "Add this provider before saving a key.", code: "provider_not_found" });
     return;
   }
-  if (
-    providerConfig.adapter === "cloudinary" &&
-    !/^cloudinary:\/\/[^:]+:.+@[^/]+$/i.test(parsed.data.value.trim())
-  ) {
-    res.status(400).json({
-      error: "Cloudinary keys must use cloudinary://API_KEY:API_SECRET@CLOUD_NAME.",
-      code: "invalid_cloudinary_key",
-    });
-    return;
-  }
   try {
+    const existingKeys = await listVaultKeys(uid);
+    if (existingKeys.some((key) => key.label === parsed.data.label.trim())) {
+      res.status(409).json({ error: "A secret with this name already exists.", code: "duplicate_secret_name" });
+      return;
+    }
     const key = await createVaultKey(
       uid,
       parsed.data.provider as ProviderKey,
@@ -199,36 +130,34 @@ router.post("/vault/keys", async (req, res): Promise<void> => {
   }
 });
 
-router.patch("/vault/keys/:provider/:keyId", async (req, res): Promise<void> => {
+router.put("/vault/keys/:provider/:keyId/value", async (req, res): Promise<void> => {
   const uid = await authenticatedUid(req, res);
   if (!uid) return;
-  const params = UpdateVaultKeyParams.safeParse(req.params);
-  const body = UpdateVaultKeyBody.safeParse(req.body);
-  if (
-    !params.success ||
-    !body.success ||
-    (body.data.label === undefined && body.data.enabled === undefined) ||
-    (body.data.label !== undefined && !body.data.label.trim())
-  ) {
-    res.status(400).json({ error: "Provide a valid key name or enabled state.", code: "invalid_request" });
+  const provider = String(req.params.provider ?? "");
+  const keyId = String(req.params.keyId ?? "");
+  const value = typeof req.body?.value === "string" ? req.body.value.trim() : "";
+  if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(provider) ||
+      !/^[A-Za-z0-9_-]{1,128}$/.test(keyId) ||
+      !value || value.length > 4096) {
+    res.status(400).json({ error: "Provide a valid API key value.", code: "invalid_request" });
     return;
   }
   try {
-    const key = await updateVaultKey(
+    const key = await updateVaultKeyValue(
       uid,
-      params.data.provider as ProviderKey,
-      params.data.keyId,
-      body.data,
+      provider as ProviderKey,
+      keyId,
+      value,
     );
     if (!key) {
       res.status(404).json({ error: "API key not found.", code: "key_not_found" });
       return;
     }
-    res.json(UpdateVaultKeyResponse.parse(key));
+    res.json(CreateVaultKeyResponse.parse(key));
   } catch (error) {
     req.log.error(
       { reason: error instanceof Error ? error.message : "unknown" },
-      "Could not update encrypted API key.",
+      "Could not replace encrypted API key value.",
     );
     res.status(503).json({
       error: "The API key could not be updated.",

@@ -27,10 +27,9 @@ import type {
   HealthStatus,
   ImageGenerationInput,
   ImageGenerationResult,
-  ProviderConfigInput,
   ProviderId,
   ProviderList,
-  ProviderUpdateInput,
+  ReplaceVaultKeyValueInput,
   SaveStoryImageInput,
   SceneGenerationAccepted,
   SceneGenerationInput,
@@ -40,7 +39,6 @@ import type {
   StoryImage,
   StoryZipDownloadToken,
   StoryZipProgress,
-  UpdateVaultKeyInput,
   VaultKey,
   VaultKeyList
 } from './api.schemas';
@@ -1214,274 +1212,6 @@ export function useListProviders<TData = Awaited<ReturnType<typeof listProviders
 
 
 
-export const getCreateProviderUrl = () => {
-
-
-
-
-  return `/api/providers`
-}
-
-/**
- * @summary Add a provider configuration
- */
-export const createProvider = async (providerConfigInput: ProviderConfigInput, options?: Parameters<typeof customFetch>[1]): Promise<ProviderList> => {
-
-    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
-    if (!h) return {};
-    if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Symbol.iterator in h) {
-      return Object.fromEntries(
-        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
-      );
-    }
-    const headers: Record<string, string | readonly string[]> = {};
-    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
-      if (value !== undefined) headers[name] = value;
-    }
-    return headers;
-  };
-return customFetch<ProviderList>(getCreateProviderUrl(),
-  {
-    ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
-    body: JSON.stringify(providerConfigInput)
-  }
-);}
-
-
-
-
-
-export const getCreateProviderMutationKey = () => ['createProvider'] as const;
-
-export const getCreateProviderMutationOptions = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createProvider>>, TError,CreateProviderMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof createProvider>>, TError,CreateProviderMutationVariables, TContext> => {
-
-const mutationKey = getCreateProviderMutationKey();
-const {mutation: mutationOptions, request: requestOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }, request: undefined};
-
-
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createProvider>>, CreateProviderMutationVariables> = (props) => {
-          const {data} = props ?? {};
-
-          return  createProvider(data,requestOptions)
-        }
-
-
-
-
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type CreateProviderMutationResult = NonNullable<Awaited<ReturnType<typeof createProvider>>>
-    export type CreateProviderMutationBody = BodyType<ProviderConfigInput>
-    export type CreateProviderMutationError = ErrorType<unknown>
-    export type CreateProviderMutationVariables = {data: BodyType<ProviderConfigInput>}
-
-    /**
- * @summary Add a provider configuration
- */
-export const useCreateProvider = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createProvider>>, TError,CreateProviderMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
- ): UseMutationResult<
-        Awaited<ReturnType<typeof createProvider>>,
-        TError,
-        CreateProviderMutationVariables,
-        TContext
-      > => {
-      return useMutation(getCreateProviderMutationOptions(options));
-    }
-
-export const getUpdateProviderSettingsUrl = (providerId: string,) => {
-
-
-
-
-  return `/api/providers/${providerId}`
-}
-
-/**
- * @summary Update provider enabled state or rotation order
- */
-export const updateProviderSettings = async (providerId: string,
-    providerUpdateInput: ProviderUpdateInput, options?: Parameters<typeof customFetch>[1]): Promise<ProviderList> => {
-
-    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
-    if (!h) return {};
-    if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Symbol.iterator in h) {
-      return Object.fromEntries(
-        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
-      );
-    }
-    const headers: Record<string, string | readonly string[]> = {};
-    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
-      if (value !== undefined) headers[name] = value;
-    }
-    return headers;
-  };
-return customFetch<ProviderList>(getUpdateProviderSettingsUrl(providerId),
-  {
-    ...options,
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
-    body: JSON.stringify(providerUpdateInput)
-  }
-);}
-
-
-
-
-
-export const getUpdateProviderSettingsMutationKey = () => ['updateProviderSettings'] as const;
-
-export const getUpdateProviderSettingsMutationOptions = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateProviderSettings>>, TError,UpdateProviderSettingsMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof updateProviderSettings>>, TError,UpdateProviderSettingsMutationVariables, TContext> => {
-
-const mutationKey = getUpdateProviderSettingsMutationKey();
-const {mutation: mutationOptions, request: requestOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }, request: undefined};
-
-
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateProviderSettings>>, UpdateProviderSettingsMutationVariables> = (props) => {
-          const {providerId,data} = props ?? {};
-
-          return  updateProviderSettings(providerId,data,requestOptions)
-        }
-
-
-
-
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type UpdateProviderSettingsMutationResult = NonNullable<Awaited<ReturnType<typeof updateProviderSettings>>>
-    export type UpdateProviderSettingsMutationBody = BodyType<ProviderUpdateInput>
-    export type UpdateProviderSettingsMutationError = ErrorType<unknown>
-    export type UpdateProviderSettingsMutationVariables = {providerId: string;data: BodyType<ProviderUpdateInput>}
-
-    /**
- * @summary Update provider enabled state or rotation order
- */
-export const useUpdateProviderSettings = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateProviderSettings>>, TError,UpdateProviderSettingsMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
- ): UseMutationResult<
-        Awaited<ReturnType<typeof updateProviderSettings>>,
-        TError,
-        UpdateProviderSettingsMutationVariables,
-        TContext
-      > => {
-      return useMutation(getUpdateProviderSettingsMutationOptions(options));
-    }
-
-export const getUpdateVaultKeyUrl = (provider: ProviderId,
-    keyId: string,) => {
-
-
-
-
-  return `/api/vault/keys/${provider}/${keyId}`
-}
-
-/**
- * @summary Update a key label or enabled state
- */
-export const updateVaultKey = async (provider: ProviderId,
-    keyId: string,
-    updateVaultKeyInput: UpdateVaultKeyInput, options?: Parameters<typeof customFetch>[1]): Promise<VaultKey> => {
-
-    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
-    if (!h) return {};
-    if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Symbol.iterator in h) {
-      return Object.fromEntries(
-        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
-      );
-    }
-    const headers: Record<string, string | readonly string[]> = {};
-    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
-      if (value !== undefined) headers[name] = value;
-    }
-    return headers;
-  };
-return customFetch<VaultKey>(getUpdateVaultKeyUrl(provider,keyId),
-  {
-    ...options,
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
-    body: JSON.stringify(updateVaultKeyInput)
-  }
-);}
-
-
-
-
-
-export const getUpdateVaultKeyMutationKey = () => ['updateVaultKey'] as const;
-
-export const getUpdateVaultKeyMutationOptions = <TError = ErrorType<ApiError>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateVaultKey>>, TError,UpdateVaultKeyMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof updateVaultKey>>, TError,UpdateVaultKeyMutationVariables, TContext> => {
-
-const mutationKey = getUpdateVaultKeyMutationKey();
-const {mutation: mutationOptions, request: requestOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }, request: undefined};
-
-
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateVaultKey>>, UpdateVaultKeyMutationVariables> = (props) => {
-          const {provider,keyId,data} = props ?? {};
-
-          return  updateVaultKey(provider,keyId,data,requestOptions)
-        }
-
-
-
-
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type UpdateVaultKeyMutationResult = NonNullable<Awaited<ReturnType<typeof updateVaultKey>>>
-    export type UpdateVaultKeyMutationBody = BodyType<UpdateVaultKeyInput>
-    export type UpdateVaultKeyMutationError = ErrorType<ApiError>
-    export type UpdateVaultKeyMutationVariables = {provider: ProviderId;keyId: string;data: BodyType<UpdateVaultKeyInput>}
-
-    /**
- * @summary Update a key label or enabled state
- */
-export const useUpdateVaultKey = <TError = ErrorType<ApiError>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateVaultKey>>, TError,UpdateVaultKeyMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
- ): UseMutationResult<
-        Awaited<ReturnType<typeof updateVaultKey>>,
-        TError,
-        UpdateVaultKeyMutationVariables,
-        TContext
-      > => {
-      return useMutation(getUpdateVaultKeyMutationOptions(options));
-    }
-
 export const getDeleteVaultKeyUrl = (provider: ProviderId,
     keyId: string,) => {
 
@@ -1556,5 +1286,96 @@ export const useDeleteVaultKey = <TError = ErrorType<ApiError>,
         TContext
       > => {
       return useMutation(getDeleteVaultKeyMutationOptions(options));
+    }
+
+export const getReplaceVaultKeyValueUrl = (provider: ProviderId,
+    keyId: string,) => {
+
+
+
+
+  return `/api/vault/keys/${provider}/${keyId}/value`
+}
+
+/**
+ * @summary Replace a saved API key value
+ */
+export const replaceVaultKeyValue = async (provider: ProviderId,
+    keyId: string,
+    replaceVaultKeyValueInput: ReplaceVaultKeyValueInput, options?: Parameters<typeof customFetch>[1]): Promise<VaultKey> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<VaultKey>(getReplaceVaultKeyValueUrl(provider,keyId),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(replaceVaultKeyValueInput)
+  }
+);}
+
+
+
+
+
+export const getReplaceVaultKeyValueMutationKey = () => ['replaceVaultKeyValue'] as const;
+
+export const getReplaceVaultKeyValueMutationOptions = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof replaceVaultKeyValue>>, TError,ReplaceVaultKeyValueMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof replaceVaultKeyValue>>, TError,ReplaceVaultKeyValueMutationVariables, TContext> => {
+
+const mutationKey = getReplaceVaultKeyValueMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof replaceVaultKeyValue>>, ReplaceVaultKeyValueMutationVariables> = (props) => {
+          const {provider,keyId,data} = props ?? {};
+
+          return  replaceVaultKeyValue(provider,keyId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ReplaceVaultKeyValueMutationResult = NonNullable<Awaited<ReturnType<typeof replaceVaultKeyValue>>>
+    export type ReplaceVaultKeyValueMutationBody = BodyType<ReplaceVaultKeyValueInput>
+    export type ReplaceVaultKeyValueMutationError = ErrorType<ApiError>
+    export type ReplaceVaultKeyValueMutationVariables = {provider: ProviderId;keyId: string;data: BodyType<ReplaceVaultKeyValueInput>}
+
+    /**
+ * @summary Replace a saved API key value
+ */
+export const useReplaceVaultKeyValue = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof replaceVaultKeyValue>>, TError,ReplaceVaultKeyValueMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof replaceVaultKeyValue>>,
+        TError,
+        ReplaceVaultKeyValueMutationVariables,
+        TContext
+      > => {
+      return useMutation(getReplaceVaultKeyValueMutationOptions(options));
     }
 

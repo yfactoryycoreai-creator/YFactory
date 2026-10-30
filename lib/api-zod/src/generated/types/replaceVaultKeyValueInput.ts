@@ -6,11 +6,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface UpdateVaultKeyInput {
+export interface ReplaceVaultKeyValueInput {
   /**
      * @minLength 1
-     * @maxLength 80
+     * @maxLength 4096
      */
-  label?: string;
-  enabled?: boolean;
+  value: string;
 }

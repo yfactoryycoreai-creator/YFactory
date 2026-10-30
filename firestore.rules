@@ -46,8 +46,8 @@ service cloud.firestore {
         }
       }
 
-      match /providerKeys/{provider}/keys/{keyId} {
-        // Provider key documents are accessible only through the Admin SDK vault API.
+      match /providerKeys/{document=**} {
+        // Provider keys are accessible only through the Admin SDK vault API.
         allow read, write: if false;
       }
     }

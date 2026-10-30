@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import ConfirmActionDialog from '@/components/confirm-action-dialog';
+import StoryImageLightbox from '@/components/story-image-lightbox';
 import {
   createStory,
   createStoryZipDownloadToken,
@@ -171,6 +172,7 @@ export default function StoryFactory({
   const [deletingImage, setDeletingImage] = useState(false);
   const [generatingStoryImages, setGeneratingStoryImages] = useState(false);
   const [imageAction, setImageAction] = useState<string | null>(null);
+  const [lightboxImageId, setLightboxImageId] = useState<string | null>(null);
   const [downloadingZip, setDownloadingZip] = useState(false);
   const [zipProgress, setZipProgress] = useState<{ completed: number; total: number } | null>(null);
   const [resumingScenes, setResumingScenes] = useState(false);
@@ -181,6 +183,13 @@ export default function StoryFactory({
     () => stories.find((story) => story.id === selectedStoryId) ?? null,
     [stories, selectedStoryId],
   );
+  useEffect(() => {
+    setLightboxImageId(null);
+  }, [selectedStoryId]);
+  const previewImages = images.filter(
+    (image) => image.status === 'done' && Boolean(image.url),
+  );
+  const lightboxIndex = previewImages.findIndex((image) => image.id === lightboxImageId);
   const totalStorageBytes = stories.reduce(
     (total, story) => total + story.storageBytes,
     0,
@@ -801,7 +810,17 @@ export default function StoryFactory({
                   data-testid={`story-image-${image.id}`}
                 >
                   {image.status === 'done' && image.url ? (
-                    <img src={image.thumbnailUrl || image.url} alt={image.prompt || t('labels.generatedImage')} loading="lazy" />
+                    <button
+                      className="story-image-preview"
+                      type="button"
+                      aria-label={t('stories.openPreview', {
+                        index: imageSequenceLabel(image, index),
+                      })}
+                      onClick={() => setLightboxImageId(image.id)}
+                      data-testid={`button-preview-image-${image.id}`}
+                    >
+                      <img src={image.thumbnailUrl || image.url} alt={image.prompt || t('labels.generatedImage')} loading="lazy" />
+                    </button>
                   ) : (
                     <div
                       className={`story-image-state story-image-state-${image.status}`}
@@ -1017,6 +1036,19 @@ export default function StoryFactory({
             </div>
           )}
         </>
+      )}
+
+      {lightboxIndex >= 0 && (
+        <StoryImageLightbox
+          images={previewImages}
+          initialIndex={lightboxIndex}
+          onClose={() => setLightboxImageId(null)}
+          onDownload={(image) => {
+            const imageIndex = images.findIndex((item) => item.id === image.id);
+            return handleImageDownload(image, Math.max(0, imageIndex), false);
+          }}
+          downloadingImageId={imageAction}
+        />
       )}
 
       {createDialogOpen && (

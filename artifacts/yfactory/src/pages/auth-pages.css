@@ -500,3 +500,83 @@
   .provider-secret-fallback { margin-inline:12px; }
   .provider-create-form { padding:12px; }
 }
+
+.secrets-panel {
+  display:grid;
+  gap:14px;
+  margin-top:26px;
+  padding:18px;
+  border:1px solid rgba(111,139,199,.2);
+  border-radius:12px;
+  background:rgba(9,15,27,.42);
+}
+.secrets-panel h2 { margin:0; color:#e8edf7; font-size:15px; }
+.secrets-add-form {
+  display:grid;
+  grid-template-columns:minmax(130px,.8fr) minmax(180px,1.2fr) auto;
+  align-items:end;
+  gap:10px;
+}
+.secrets-add-form label { display:grid; gap:6px; color:#9ba9c2; font-size:11px; }
+.secrets-add-form input,.secrets-edit-form input {
+  width:100%;
+  min-width:0;
+  height:38px;
+  padding:0 11px;
+  border:1px solid rgba(127,147,186,.22);
+  border-radius:8px;
+  outline:none;
+  color:#e2e8f7;
+  background:rgba(7,11,20,.55);
+  font:12px 'DM Sans',sans-serif;
+}
+.secrets-add-form input:focus,.secrets-edit-form input:focus {
+  border-color:rgba(84,121,231,.68);
+  box-shadow:0 0 0 3px rgba(68,101,211,.1);
+}
+.secrets-add-form input[type=password],.secrets-edit-form input[type=password] {
+  font-family:'DM Mono',monospace;
+}
+.secrets-add-button { min-height:38px; }
+.secrets-list { display:grid; margin:0; padding:0; list-style:none; }
+.secrets-row {
+  display:flex;
+  min-height:54px;
+  align-items:center;
+  justify-content:space-between;
+  gap:14px;
+  padding:10px 0;
+  border-top:1px solid rgba(124,143,180,.13);
+}
+.secrets-entry { display:grid; min-width:0; gap:5px; }
+.secrets-entry strong {
+  overflow-wrap:anywhere;
+  color:#dce5fa;
+  font:12px 'DM Mono',monospace;
+  text-align:start;
+}
+.secrets-entry code { color:#95a4c0; font:11px 'DM Mono',monospace; }
+.secrets-actions { display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end; gap:7px; }
+.secrets-actions button {
+  min-height:32px;
+  padding:0 10px;
+  border:1px solid rgba(127,147,186,.2);
+  border-radius:7px;
+  color:#c4d0e5;
+  background:rgba(17,26,45,.75);
+  cursor:pointer;
+  font-size:11px;
+}
+.secrets-actions button:hover:not(:disabled) { border-color:rgba(134,155,197,.38); color:#f0f4ff; }
+.secrets-actions button:disabled { opacity:.55; cursor:wait; }
+.secrets-actions .secrets-delete-button:hover:not(:disabled) { color:#ff9aa6; border-color:rgba(255,115,132,.32); }
+.secrets-edit-form { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
+.secrets-edit-form input { width:min(230px,48vw); }
+.secrets-empty { padding:10px 0; color:#8795ad; font-size:11px; }
+@media (max-width:650px) {
+  .secrets-panel { padding:14px; }
+  .secrets-add-form { grid-template-columns:1fr; }
+  .secrets-add-button { width:100%; }
+  .secrets-row { align-items:flex-start; flex-direction:column; }
+  .secrets-actions { width:100%; justify-content:flex-start; }
+}
