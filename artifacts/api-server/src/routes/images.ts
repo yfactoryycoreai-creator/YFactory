@@ -5,7 +5,9 @@ import { getCloudinaryUsage } from "../lib/cloudinary";
 import { getFirebaseAdmin, verifyFirebaseIdToken } from "../lib/firebaseAdmin";
 import { storyImageStorage } from "../lib/storyImageStorage";
 import {
+  generateImageEditWithReference,
   generateImageWithFallback,
+  ImageGenerationFailure,
   ProviderAttemptError,
   type GeneratedImageAsset,
 } from "../lib/imageGeneration";
@@ -16,6 +18,7 @@ router.use(storyScenesRouter);
 const MAX_STORY_IMAGES = 100;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_IMAGE_CONCURRENCY = 2;
+const MAX_VIDEO_REFERENCE_IMAGES = 10;
 
 class StoryNotFoundError extends Error {}
 class StoryLimitReachedError extends Error {}
@@ -174,6 +177,32 @@ async function parseImageData(value: unknown): Promise<{ asset: GeneratedImageAs
   };
 }
 
+function parseImageEditReference(value: unknown): { bytes: Buffer; mimeType: string } {
+  if (typeof value !== "string") throw new Error("Image reference is required.");
+  const match = value.match(/^data:(image\/(?:jpeg|png|webp));base64,([a-z0-9+/=]+)$/i);
+  if (!match?.[1] || !match[2]) throw new Error("Use a JPG, PNG, or WEBP image.");
+  const bytes = Buffer.from(match[2], "base64");
+  if (!bytes.length || bytes.length > 5 * 1024 * 1024) {
+    throw new Error("The resized reference image must be under 5 MB.");
+  }
+  const mimeType = match[1].toLowerCase();
+  const isPng = bytes.length >= 8 &&
+    bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+  const isJpeg = bytes.length >= 3 &&
+    bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+  const isWebp = bytes.length >= 12 &&
+    bytes.toString("ascii", 0, 4) === "RIFF" &&
+    bytes.toString("ascii", 8, 12) === "WEBP";
+  if (
+    (mimeType === "image/png" && !isPng) ||
+    (mimeType === "image/jpeg" && !isJpeg) ||
+    (mimeType === "image/webp" && !isWebp)
+  ) {
+    throw new Error("The reference image data is invalid.");
+  }
+  return { bytes, mimeType };
+}
+
 async function authenticatedUid(req: Parameters<Parameters<IRouter["get"]>[1]>[0], res: Parameters<Parameters<IRouter["get"]>[1]>[1]): Promise<string | null> {
   const token = (req.get("authorization") ?? "").match(/^Bearer\s+(.+)$/i)?.[1];
   if (!token) {
@@ -215,6 +244,41 @@ router.get("/images/storage-usage", async (req, res): Promise<void> => {
     req.log.warn({ reason: error instanceof Error ? error.message : "unknown" }, "Could not read Cloudinary usage.");
     res.status(502).json({ error: "Cloudinary usage could not be loaded.", code: "cloudinary_usage_failed" });
   }
+});
+
+router.post("/video/references/validate", async (req, res): Promise<void> => {
+  const uid = await authenticatedUid(req, res);
+  if (!uid) return;
+  const references: unknown = req.body?.references;
+  if (!Array.isArray(references) || references.length < 1) {
+    res.status(400).json({ error: "Choose at least one reference image.", code: "invalid_references" });
+    return;
+  }
+  if (references.length > MAX_VIDEO_REFERENCE_IMAGES) {
+    res.status(400).json({
+      error: "A video can use up to 10 reference images.",
+      code: "too_many_references",
+    });
+    return;
+  }
+  const valid = references.every((reference) => {
+    if (typeof reference !== "object" || reference === null) return false;
+    const record = reference as Record<string, unknown>;
+    return typeof record.type === "string" &&
+      record.type.startsWith("image/") &&
+      typeof record.size === "number" &&
+      Number.isFinite(record.size) &&
+      record.size > 0 &&
+      record.size <= MAX_IMAGE_BYTES;
+  });
+  if (!valid) {
+    res.status(400).json({
+      error: "Reference images must be valid image files under 10 MB each.",
+      code: "invalid_references",
+    });
+    return;
+  }
+  res.json({ acceptedCount: references.length });
 });
 
 router.post("/images/stories/:storyId/images", async (req, res): Promise<void> => {
@@ -284,6 +348,70 @@ router.delete("/images/stories/:storyId/images/:imageId", async (req, res): Prom
   } catch (error) {
     req.log.error({ reason: error instanceof Error ? error.message : "unknown" }, "Could not delete story image.");
     res.status(500).json({ error: "The image could not be deleted.", code: "image_delete_failed" });
+  }
+});
+
+router.post("/images/edit", async (req, res): Promise<void> => {
+  const uid = await authenticatedUid(req, res);
+  if (!uid) return;
+  const prompt = typeof req.body?.prompt === "string" ? req.body.prompt.trim() : "";
+  if (!prompt || prompt.length > 20_000) {
+    res.status(400).json({ error: "Add an edit prompt of up to 20,000 characters.", code: "invalid_request" });
+    return;
+  }
+  let reference: { bytes: Buffer; mimeType: string };
+  try {
+    reference = parseImageEditReference(req.body?.referenceImage);
+  } catch (error) {
+    res.status(400).json({
+      error: error instanceof Error ? error.message : "The reference image is invalid.",
+      code: "invalid_reference",
+    });
+    return;
+  }
+
+  let uploadedReference: Awaited<ReturnType<typeof storyImageStorage.upload>> | null = null;
+  let generated: GeneratedImageAsset | null = null;
+  try {
+    uploadedReference = await storyImageStorage.upload(
+      uid,
+      "image-edits",
+      randomUUID(),
+      reference.bytes,
+      reference.mimeType,
+    );
+    generated = await generateImageEditWithReference(prompt, uploadedReference.imageUrl);
+  } catch (error) {
+    if (error instanceof ImageGenerationFailure) {
+      const status = error.code === "missing_key" ? 503 : error.code === "bad_prompt" ? 400 : 502;
+      const message = error.code === "missing_key"
+        ? "Configure an Agnes image key to edit images."
+        : error.code === "bad_prompt"
+          ? "Revise the image-edit prompt and try again."
+          : "Image editing is temporarily unavailable. Please try again.";
+      res.status(status).json({ error: message, code: error.code });
+    } else {
+      req.log.warn(
+        { reason: error instanceof Error ? error.name : "unknown" },
+        "Image edit request failed.",
+      );
+      res.status(502).json({ error: "The reference image could not be processed.", code: "image_edit_failed" });
+    }
+  } finally {
+    if (uploadedReference) {
+      await storyImageStorage.delete(uid, uploadedReference).catch(() => {
+        req.log.warn("Temporary image-edit reference cleanup failed.");
+      });
+    }
+  }
+  if (generated) {
+    res.json({
+      image: {
+        base64: generated.base64,
+        mimeType: generated.mimeType,
+        provider: generated.provider,
+      },
+    });
   }
 });
 

@@ -11,8 +11,10 @@ import {
 import ConfirmActionDialog from '@/components/confirm-action-dialog';
 import SecretsPanel from '@/components/secrets-panel';
 import {
+  loadKeyPoolStatus,
   loadProviders,
   loadStorageUsage,
+  type KeyPoolProviderStatus,
 } from '@/lib/apiKeyVault';
 import './auth-pages.css';
 
@@ -53,6 +55,8 @@ export default function SettingsPage({
     limitBytes: number | null;
   } | null>(null);
   const [storageUsageError, setStorageUsageError] = useState('');
+  const [keyPoolStatus, setKeyPoolStatus] = useState<KeyPoolProviderStatus[] | null>(null);
+  const [keyPoolStatusError, setKeyPoolStatusError] = useState('');
   const [cloudinaryEnabled, setCloudinaryEnabled] = useState(true);
   const [signingOut, setSigningOut] = useState(false);
   const [logoutError, setLogoutError] = useState('');
@@ -66,20 +70,31 @@ export default function SettingsPage({
     .join('');
 
   useEffect(() => {
-    if (!getIdToken) return;
+    if (!getIdToken) {
+      setKeyPoolStatusError(t('settings.keyPoolLoadFailed'));
+      return;
+    }
     let active = true;
     void (async () => {
       try {
         const token = await getIdToken();
-        const [providersResult, usageResult] = await Promise.allSettled([
+        const [providersResult, usageResult, keyStatusResult] = await Promise.allSettled([
           loadProviders(token),
           loadStorageUsage(token),
+          loadKeyPoolStatus(token),
         ]);
         if (!active) return;
         if (providersResult.status === 'fulfilled') {
           setCloudinaryEnabled(
             providersResult.value.some((provider) => provider.id === 'cloudinary' && provider.enabled),
           );
+        }
+        if (keyStatusResult.status === 'fulfilled') {
+          setKeyPoolStatus(keyStatusResult.value);
+          setKeyPoolStatusError('');
+        } else {
+          setKeyPoolStatus(null);
+          setKeyPoolStatusError(t('settings.keyPoolLoadFailed'));
         }
         if (usageResult.status === 'rejected') {
           setStorageUsage(null);
@@ -93,9 +108,12 @@ export default function SettingsPage({
         setStorageUsage(usageResult.value);
         setStorageUsageError('');
       } catch (loadError) {
-        if (active) setStorageUsageError(
-          loadError instanceof Error ? loadError.message : 'Cloudinary usage could not be loaded.',
-        );
+        if (active) {
+          setStorageUsageError(
+            loadError instanceof Error ? loadError.message : 'Cloudinary usage could not be loaded.',
+          );
+          setKeyPoolStatusError(t('settings.keyPoolLoadFailed'));
+        }
       }
     })();
     return () => {
@@ -178,6 +196,47 @@ export default function SettingsPage({
           </section>
 
           <SecretsPanel getIdToken={getIdToken} />
+          <section className="account-panel key-pool-status-panel" aria-labelledby="key-pool-status-title" data-testid="key-pool-status-panel">
+            <div className="section-kicker">{t('settings.keyPoolTitle')}</div>
+            <h2 id="key-pool-status-title">{t('settings.keyPoolTitle')}</h2>
+            <p className="key-pool-status-description">{t('settings.keyPoolDescription')}</p>
+            {keyPoolStatusError ? (
+              <p className="settings-inline-error" role="status">{keyPoolStatusError}</p>
+            ) : !keyPoolStatus ? (
+              <p role="status">{t('settings.keyPoolLoading')}</p>
+            ) : (
+              <div className="key-pool-provider-list">
+                {keyPoolStatus.map((provider) => (
+                  <div className="key-pool-provider" key={provider.provider}>
+                    <div className="key-pool-provider-heading">
+                      <strong>{t(`settings.keyPoolProviders.${provider.provider}`)}</strong>
+                      <span>{t('settings.keyPoolCount', { count: provider.credentialCount })}</span>
+                    </div>
+                    {provider.credentials.length > 0 && (
+                      <ul>
+                        {provider.credentials.map((credential) => (
+                          <li key={`${provider.provider}-${credential.index}`}>
+                            <span>{t('settings.keyPoolIndex', { index: credential.index })}</span>
+                            <span>
+                              {credential.state === 'ready'
+                                ? t('settings.statusReady')
+                                : credential.state === 'disabled'
+                                  ? t('settings.statusDisabled')
+                                  : t('settings.keyPoolCooldownUntil', {
+                                      time: typeof credential.until === 'number'
+                                        ? new Date(credential.until).toLocaleString(locale)
+                                        : '—',
+                                    })}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
           <section className="account-panel storage-usage-panel" aria-labelledby="cloudinary-usage-title">
             <div className="section-kicker"><HardDrive size={14} /> Cloudinary storage</div>
             <h2 id="cloudinary-usage-title">Storage usage</h2>

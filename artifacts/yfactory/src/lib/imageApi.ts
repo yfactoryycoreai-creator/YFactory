@@ -8,6 +8,189 @@ export type GeneratedImage = {
   thumbnailUrl?: string;
 };
 
+export type EditedImage = {
+  imageData: string;
+  provider: string;
+};
+
+export const MAX_IMAGE_REFERENCE_FILE_BYTES = 10 * 1024 * 1024;
+const MAX_RESIZED_REFERENCE_BYTES = 5 * 1024 * 1024;
+
+export class ImageEditError extends Error {
+  constructor(
+    message: string,
+    public readonly code: string,
+  ) {
+    super(message);
+    this.name = 'ImageEditError';
+  }
+}
+
+export class VideoReferenceValidationError extends Error {
+  constructor(
+    message: string,
+    public readonly code: string,
+  ) {
+    super(message);
+    this.name = 'VideoReferenceValidationError';
+  }
+}
+
+export async function validateVideoReferences(
+  idToken: string,
+  references: File[],
+): Promise<void> {
+  let response: Response;
+  try {
+    response = await fetch('/api/video/references/validate', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${idToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        references: references.map(({ type, size }) => ({ type, size })),
+      }),
+    });
+  } catch {
+    throw new VideoReferenceValidationError(
+      'Video reference validation could not be reached.',
+      'network_error',
+    );
+  }
+  const payload: unknown = await response.json().catch(() => null);
+  const result = typeof payload === 'object' && payload !== null
+    ? payload as Record<string, unknown>
+    : {};
+  if (!response.ok) {
+    throw new VideoReferenceValidationError(
+      typeof result.error === 'string' ? result.error : 'The reference images are invalid.',
+      typeof result.code === 'string' ? result.code : 'invalid_references',
+    );
+  }
+}
+
+export async function prepareImageReference(file: File): Promise<string> {
+  const extension = file.name.split('.').pop()?.toLowerCase();
+  const allowedTypes = new Set(['image/jpeg', 'image/png', 'image/webp']);
+  const inferredType = file.type || (
+    extension === 'jpg' || extension === 'jpeg'
+      ? 'image/jpeg'
+      : extension === 'png'
+        ? 'image/png'
+        : extension === 'webp'
+          ? 'image/webp'
+          : ''
+  );
+  if (!allowedTypes.has(inferredType)) {
+    throw new ImageEditError('Choose a JPG, PNG, or WEBP image.', 'invalid_reference');
+  }
+  if (file.size <= 0 || file.size > MAX_IMAGE_REFERENCE_FILE_BYTES) {
+    throw new ImageEditError('The source image must be 10 MB or smaller.', 'reference_too_large');
+  }
+
+  const objectUrl = URL.createObjectURL(file);
+  let bitmap: ImageBitmap | null = null;
+  try {
+    let source: CanvasImageSource;
+    let width: number;
+    let height: number;
+    if (typeof createImageBitmap === 'function') {
+      bitmap = await createImageBitmap(file);
+      source = bitmap;
+      width = bitmap.width;
+      height = bitmap.height;
+    } else {
+      const image = new Image();
+      image.src = objectUrl;
+      await image.decode();
+      source = image;
+      width = image.naturalWidth;
+      height = image.naturalHeight;
+    }
+    if (!width || !height) throw new Error('invalid_image_dimensions');
+
+    let edge = 1536;
+    let quality = 0.86;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const scale = Math.min(1, edge / Math.max(width, height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(width * scale));
+      canvas.height = Math.max(1, Math.round(height * scale));
+      const context = canvas.getContext('2d');
+      if (!context) throw new Error('image_canvas_unavailable');
+      context.drawImage(source, 0, 0, canvas.width, canvas.height);
+      const blob = await new Promise<Blob | null>((resolve) =>
+        canvas.toBlob(resolve, 'image/jpeg', quality),
+      );
+      if (blob && blob.size > 0 && blob.size <= MAX_RESIZED_REFERENCE_BYTES) {
+        return await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onerror = () => reject(new Error('image_reference_read_failed'));
+          reader.onload = () => {
+            if (typeof reader.result === 'string') resolve(reader.result);
+            else reject(new Error('image_reference_read_failed'));
+          };
+          reader.readAsDataURL(blob);
+        });
+      }
+      edge = Math.max(512, Math.floor(edge * 0.82));
+      quality = Math.max(0.5, quality - 0.08);
+    }
+    throw new ImageEditError('The resized image is still too large.', 'reference_too_large');
+  } catch (error) {
+    if (error instanceof ImageEditError) throw error;
+    throw new ImageEditError('The reference image could not be prepared.', 'invalid_reference');
+  } finally {
+    bitmap?.close();
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
+export async function editImageFromReference(
+  idToken: string,
+  prompt: string,
+  referenceImage: string,
+): Promise<EditedImage> {
+  let response: Response;
+  try {
+    response = await fetch('/api/images/edit', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${idToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ prompt, referenceImage }),
+    });
+  } catch {
+    throw new ImageEditError('Image editing could not be reached.', 'network_error');
+  }
+  const payload: unknown = await response.json().catch(() => null);
+  const result = typeof payload === 'object' && payload !== null
+    ? payload as Record<string, unknown>
+    : {};
+  if (!response.ok) {
+    throw new ImageEditError(
+      typeof result.error === 'string' ? result.error : 'The image could not be edited.',
+      typeof result.code === 'string' ? result.code : 'image_edit_failed',
+    );
+  }
+  const image = typeof result.image === 'object' && result.image !== null
+    ? result.image as Record<string, unknown>
+    : {};
+  if (
+    typeof image.base64 !== 'string' ||
+    !['image/jpeg', 'image/png', 'image/webp'].includes(String(image.mimeType)) ||
+    typeof image.provider !== 'string'
+  ) {
+    throw new ImageEditError('The image edit returned an invalid result.', 'invalid_response');
+  }
+  return {
+    imageData: `data:${image.mimeType};base64,${image.base64}`,
+    provider: image.provider,
+  };
+}
+
 export class ImageGenerationError extends Error {
   constructor(
     message: string,

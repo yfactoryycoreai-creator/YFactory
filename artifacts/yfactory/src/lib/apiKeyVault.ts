@@ -39,6 +39,18 @@ export type VaultKey = {
   cooldownUntil?: number;
 };
 
+export type KeyPoolCredentialState = 'ready' | 'cooldown' | 'disabled';
+
+export type KeyPoolProviderStatus = {
+  provider: 'agnes' | 'cloudflare' | 'glm' | 'magic_hour';
+  credentialCount: number;
+  credentials: Array<{
+    index: number;
+    state: KeyPoolCredentialState;
+    until?: number;
+  }>;
+};
+
 type VaultKeyListResponse = { keys: VaultKey[] };
 
 async function vaultRequest<T>(
@@ -90,6 +102,14 @@ export async function loadProviders(idToken: string): Promise<ProviderConfig[]> 
 
 export async function loadStorageUsage(idToken: string): Promise<StorageUsage> {
   return vaultRequest(idToken, '/api/images/storage-usage');
+}
+
+export async function loadKeyPoolStatus(idToken: string): Promise<KeyPoolProviderStatus[]> {
+  const result = await vaultRequest<{ providers: KeyPoolProviderStatus[] }>(
+    idToken,
+    '/api/vault/key-pool-status',
+  );
+  return result.providers;
 }
 
 export function createVaultKey(

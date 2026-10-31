@@ -26,6 +26,7 @@ type ImageKeyPool = Pick<typeof keyPool, "run">;
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const PROVIDER_ORDER = ["agnes", "cloudflare", "glm"] as const satisfies readonly KeyPoolProvider[];
+const REFERENCE_IMAGE_PROVIDERS = ["agnes"] as const satisfies readonly KeyPoolProvider[];
 const PROVIDER_DEADLINE_MS: Record<KeyPoolProvider, number> = {
   agnes: 35_000,
   cloudflare: 30_000,
@@ -276,6 +277,91 @@ async function requestAgnes(
     },
   );
   return parseProviderImage(response, "agnes", signal, fetchImage);
+}
+
+async function requestAgnesImageEdit(
+  apiKey: string,
+  prompt: string,
+  referenceImageUrl: string,
+  fetchImage: ImageFetch,
+  signal: AbortSignal,
+): Promise<GeneratedImageAsset> {
+  const referenceUrl = assertPublicHttpsUrl(referenceImageUrl).toString();
+  const response = await fetchImage(
+    "https://apihub.agnes-ai.com/v1/images/generations",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "agnes-image-2.0-flash",
+        prompt,
+        size: "1024x1024",
+        extra_body: {
+          image: [referenceUrl],
+          response_format: "b64_json",
+        },
+      }),
+      signal,
+    },
+  );
+  return parseProviderImage(response, "agnes", signal, fetchImage);
+}
+
+export async function generateImageEditWithReference(
+  prompt: string,
+  referenceImageUrl: string,
+  fetchImage: ImageFetch = fetch,
+  jobSignal?: AbortSignal,
+  pool: ImageKeyPool = keyPool,
+): Promise<GeneratedImageAsset> {
+  if (!prompt.trim()) throw new ImageGenerationFailure("bad_prompt");
+  for (const provider of REFERENCE_IMAGE_PROVIDERS) {
+    if (jobSignal?.aborted) throw new ImageGenerationFailure("timeout");
+    const result = await pool.run(
+      provider,
+      async (credential, poolSignal) => {
+        if (!credential.apiKey) {
+          throw new ProviderAttemptError("Missing provider credential.");
+        }
+        const signal = jobSignal
+          ? AbortSignal.any([poolSignal, jobSignal])
+          : poolSignal;
+        try {
+          return await requestAgnesImageEdit(
+            credential.apiKey,
+            prompt.trim(),
+            referenceImageUrl,
+            fetchImage,
+            signal,
+          );
+        } catch (error) {
+          if (jobSignal?.aborted) throw new KeyPoolHttpError(400);
+          throw error;
+        }
+      },
+      { totalDeadlineMs: 90_000 },
+    );
+    if (result.ok) return { ...result.value, provider };
+    if (jobSignal?.aborted) throw new ImageGenerationFailure("timeout");
+    if (result.code === "bad_prompt") {
+      throw new ImageGenerationFailure("bad_prompt");
+    }
+    if (result.code === "no_credentials" || result.attempts.length === 0) {
+      throw new ImageGenerationFailure("missing_key");
+    }
+    const outcomes = new Set(result.attempts.map((attempt) => attempt.outcome));
+    if (outcomes.has("auth_failed")) {
+      throw new ImageGenerationFailure("auth_failed");
+    }
+    if (outcomes.has("rate_limited")) {
+      throw new ImageGenerationFailure("rate_limited");
+    }
+    throw new ImageGenerationFailure("timeout");
+  }
+  throw new ImageGenerationFailure("missing_key");
 }
 
 async function requestGlm(

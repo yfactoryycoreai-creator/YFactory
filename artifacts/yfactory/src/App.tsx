@@ -49,7 +49,13 @@ import {
 } from '@/lib/userApiKeys';
 import {
   generateImages,
+  editImageFromReference,
+  prepareImageReference,
+  validateVideoReferences,
+  ImageEditError,
   ImageGenerationError,
+  MAX_IMAGE_REFERENCE_FILE_BYTES,
+  VideoReferenceValidationError,
 } from '@/lib/imageApi';
 import {
   MAX_PERSISTED_IMAGES,
@@ -92,7 +98,7 @@ const queryClient = new QueryClient();
 
 type Mode = 'image' | 'video' | 'audio';
 const sampleAudioUrl = 'https://samplelib.com/lib/preview/mp3/sample-3s.mp3';
-const maxVideoReferenceImages = 6;
+const maxVideoReferenceImages = 10;
 const settingBySelectId = {
   'image-count': 'imageCount',
   'video-duration': 'videoDuration',
@@ -161,12 +167,20 @@ function Home() {
   const [generatedImages, setGeneratedImages] =
     useState<GeneratedImageHistoryItem[]>(readGeneratedImageHistory);
   const [isImageGenerating, setIsImageGenerating] = useState(false);
+  const [imageEditFile, setImageEditFile] = useState<File | null>(null);
+  const [imageEditPreviewUrl, setImageEditPreviewUrl] = useState('');
+  const [imageEditPrompt, setImageEditPrompt] = useState('');
+  const [imageEditResult, setImageEditResult] =
+    useState<GeneratedImageHistoryItem | null>(null);
+  const [isImageEditing, setIsImageEditing] = useState(false);
+  const [imageEditError, setImageEditError] = useState('');
   const [imageError, setImageError] = useState('');
   const [historyWarning, setHistoryWarning] = useState('');
   const [downloadingImageIndex, setDownloadingImageIndex] = useState<number | null>(null);
   const [isAudioGenerating, setIsAudioGenerating] = useState(false);
   const [audioGenerated, setAudioGenerated] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const imageEditInputRef = useRef<HTMLInputElement>(null);
   const audioTimeoutRef = useRef<number | null>(null);
   const imageGenerationAbortRef = useRef<AbortController | null>(null);
   const profileMenuRef = useRef<HTMLDivElement>(null);
@@ -176,7 +190,8 @@ function Home() {
   const isCurrentAudioGenerating = mode === 'audio' && isAudioGenerating;
   const isCurrentImageGenerating = mode === 'image' && isImageGenerating;
   const isCurrentGenerateLoading =
-    isCurrentAudioGenerating || isCurrentImageGenerating;
+    isCurrentAudioGenerating || isCurrentImageGenerating ||
+    (mode === 'image' && isImageEditing);
   const statusMessage =
     mode === 'audio' && audioGenerated
       ? t('status.audioReady')
@@ -216,6 +231,16 @@ function Home() {
     setImagePreviewUrls(previewUrls);
     return () => previewUrls.forEach((url) => URL.revokeObjectURL(url));
   }, [videoImages]);
+
+  useEffect(() => {
+    if (!imageEditFile) {
+      setImageEditPreviewUrl('');
+      return;
+    }
+    const previewUrl = URL.createObjectURL(imageEditFile);
+    setImageEditPreviewUrl(previewUrl);
+    return () => URL.revokeObjectURL(previewUrl);
+  }, [imageEditFile]);
 
   useEffect(() => {
     if (!profileOpen) return;
@@ -278,9 +303,14 @@ function Home() {
       storageBytes: story.storageBytes + savedImage.sizeBytes,
     });
     setStoriesOpen(true);
-  }, []);
+    if (imageEditResult?.id === image.id) {
+      setImageEditResult(null);
+      setImageEditFile(null);
+      setImageEditPrompt('');
+    }
+  }, [imageEditResult]);
 
-  const handleImageFiles = (files: FileList | File[] | null) => {
+  const handleImageFiles = async (files: FileList | File[] | null) => {
     if (!files?.length) return;
     const receivedFiles = Array.from(files);
     const validFiles = receivedFiles.filter((file) =>
@@ -290,15 +320,56 @@ function Home() {
       setNoticeKey('status.invalidImage');
       return;
     }
-    const nextCount = videoImages.length + validFiles.length;
-    setVideoImages((current) =>
-      [...current, ...validFiles].slice(0, maxVideoReferenceImages),
-    );
-    if (nextCount > maxVideoReferenceImages) {
-      setNoticeKey('status.maxReferenceImages');
+    if (!user) {
+      setNoticeKey('status.authRequired');
       return;
     }
-    setNoticeKey('');
+    const candidate = [...videoImages, ...validFiles];
+    const capped = candidate.slice(0, maxVideoReferenceImages);
+    try {
+      await validateVideoReferences(
+        await user.getIdToken(),
+        candidate,
+      );
+      setVideoImages(capped);
+      setNoticeKey(candidate.length > maxVideoReferenceImages ? 'status.maxReferenceImages' : '');
+    } catch (error) {
+      if (error instanceof VideoReferenceValidationError &&
+          error.code === 'too_many_references') {
+        setVideoImages(capped);
+        setNoticeKey('status.maxReferenceImages');
+      } else {
+        setNoticeKey(
+          error instanceof VideoReferenceValidationError &&
+            error.code === 'invalid_references'
+            ? 'status.invalidImage'
+            : 'status.referenceValidationFailed',
+        );
+      }
+    }
+  };
+
+  const handleImageEditFile = (file: File | undefined) => {
+    setImageEditError('');
+    setImageEditResult(null);
+    if (!file) {
+      setImageEditFile(null);
+      return;
+    }
+    const extension = file.name.split('.').pop()?.toLowerCase();
+    const acceptedType = ['image/jpeg', 'image/png', 'image/webp'].includes(file.type) ||
+      (!file.type && ['jpg', 'jpeg', 'png', 'webp'].includes(extension ?? ''));
+    if (!acceptedType) {
+      setImageEditFile(null);
+      setImageEditError(t('imageEdit.invalidType'));
+      return;
+    }
+    if (file.size <= 0 || file.size > MAX_IMAGE_REFERENCE_FILE_BYTES) {
+      setImageEditFile(null);
+      setImageEditError(t('imageEdit.tooLarge'));
+      return;
+    }
+    setImageEditFile(file);
   };
 
   const updateGeneratorSetting = (
@@ -497,6 +568,54 @@ function Home() {
       setIsAudioGenerating(false);
       setAudioGenerated(true);
     }, 900);
+  };
+
+  const handleImageEdit = async () => {
+    setImageEditError('');
+    const promptToEdit = imageEditPrompt.trim();
+    if (!imageEditFile) {
+      setImageEditError(t('imageEdit.referenceRequired'));
+      return;
+    }
+    if (!promptToEdit) {
+      setImageEditError(t('imageEdit.promptRequired'));
+      return;
+    }
+    if (!user) {
+      setImageEditError(t('status.authRequired'));
+      return;
+    }
+    setIsImageEditing(true);
+    try {
+      const referenceImage = await prepareImageReference(imageEditFile);
+      const edited = await editImageFromReference(
+        await user.getIdToken(),
+        promptToEdit,
+        referenceImage,
+      );
+      setImageEditResult({
+        id: crypto.randomUUID(),
+        prompt: promptToEdit,
+        createdAt: Date.now(),
+        imageData: edited.imageData,
+        provider: edited.provider,
+      });
+    } catch (error) {
+      const code = error instanceof ImageEditError ? error.code : '';
+      setImageEditError(
+        code === 'image_edit_provider_missing' || code === 'missing_key'
+          ? t('imageEdit.providerKeyMissing')
+          : code === 'unsupported_image_input'
+            ? t('imageEdit.unsupported')
+            : code === 'invalid_reference'
+              ? t('imageEdit.invalidReference')
+              : code === 'reference_too_large'
+                ? t('imageEdit.tooLarge')
+                : t('imageEdit.failed'),
+      );
+    } finally {
+      setIsImageEditing(false);
+    }
   };
 
   const handleDownloadImage = async (imageData: string, index: number) => {
@@ -709,7 +828,7 @@ function Home() {
               aria-label={t('labels.upload')}
               data-testid="input-video-source-image"
               onChange={(event) => {
-                handleImageFiles(event.currentTarget.files);
+                void handleImageFiles(event.currentTarget.files);
                 event.currentTarget.value = '';
               }}
             />
@@ -731,7 +850,7 @@ function Home() {
               onDrop={(event) => {
                 event.preventDefault();
                 setIsDraggingImage(false);
-                handleImageFiles(event.dataTransfer.files);
+                void handleImageFiles(event.dataTransfer.files);
               }}
             >
               <UploadCloud size={22} aria-hidden="true" />
@@ -847,6 +966,110 @@ function Home() {
           </section>
         )}
 
+        {mode === 'image' && (
+          <section className="image-edit-panel" aria-labelledby="image-edit-title" data-testid="image-edit-panel">
+            <div className="image-edit-heading">
+              <div>
+                <h2 id="image-edit-title">{t('imageEdit.title')}</h2>
+                <p>{t('imageEdit.description')}</p>
+              </div>
+              <input
+                ref={imageEditInputRef}
+                className="visually-hidden"
+                type="file"
+                accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
+                aria-label={t('imageEdit.reference')}
+                data-testid="input-image-edit-reference"
+                onChange={(event) => {
+                  handleImageEditFile(event.currentTarget.files?.[0]);
+                  event.currentTarget.value = '';
+                }}
+              />
+              <button
+                type="button"
+                className="image-edit-upload"
+                onClick={() => imageEditInputRef.current?.click()}
+                disabled={isImageEditing}
+                data-testid="button-image-edit-upload"
+              >
+                <ImagePlus size={17} aria-hidden="true" />
+                <span>{imageEditFile ? imageEditFile.name : t('imageEdit.chooseReference')}</span>
+              </button>
+            </div>
+            <label className="image-edit-prompt-label" htmlFor="image-edit-prompt">
+              {t('imageEdit.prompt')}
+            </label>
+            <textarea
+              id="image-edit-prompt"
+              className="image-edit-prompt"
+              value={imageEditPrompt}
+              maxLength={20_000}
+              onChange={(event) => {
+                setImageEditPrompt(event.currentTarget.value);
+                setImageEditError('');
+              }}
+              placeholder={t('imageEdit.promptPlaceholder')}
+              data-testid="input-image-edit-prompt"
+            />
+            <button
+              type="button"
+              className="generate image-edit-generate"
+              onClick={() => void handleImageEdit()}
+              disabled={isImageEditing || !imageEditFile || !imageEditPrompt.trim()}
+              aria-busy={isImageEditing}
+              data-testid="button-image-edit-generate"
+            >
+              {isImageEditing
+                ? <LoaderCircle className="loading-spinner" size={18} />
+                : <Sparkles size={18} />}
+              <span>{isImageEditing ? t('imageEdit.loading') : t('imageEdit.generate')}</span>
+            </button>
+            {imageEditError && (
+              <div className="notice notice-error" role="alert" data-testid="image-edit-error">
+                {imageEditError}
+              </div>
+            )}
+            {imageEditResult && imageEditPreviewUrl && (
+              <div className="image-edit-result-grid" data-testid="image-edit-result">
+                <figure>
+                  <figcaption>{t('imageEdit.original')}</figcaption>
+                  <img src={imageEditPreviewUrl} alt={t('imageEdit.original')} />
+                </figure>
+                <figure>
+                  <figcaption>{t('imageEdit.edited')}</figcaption>
+                  <img src={imageEditResult.imageData} alt={t('imageEdit.edited')} />
+                  <div className="image-edit-result-actions">
+                    <button
+                      className="factory-save-button"
+                      type="button"
+                      onClick={() => {
+                        setPendingStorySave(imageEditResult);
+                        setStoriesOpen(true);
+                        setImageEditError('');
+                      }}
+                      data-testid="button-image-edit-save"
+                    >
+                      <Save size={14} aria-hidden="true" />
+                      <span>{t('imageEdit.save')}</span>
+                    </button>
+                    <button
+                      className="factory-quiet-button"
+                      type="button"
+                      disabled={downloadingImageIndex === -2}
+                      aria-busy={downloadingImageIndex === -2}
+                      onClick={() => void handleDownloadImage(imageEditResult.imageData, -2)}
+                      data-testid="button-image-edit-download"
+                    >
+                      <Download size={14} aria-hidden="true" />
+                      <span>{downloadingImageIndex === -2 ? t('labels.downloading') : t('labels.download')}</span>
+                    </button>
+                  </div>
+                </figure>
+              </div>
+            )}
+          </section>
+        )}
+
         <button
           type="button"
           className={`generate${isCurrentGenerateLoading ? ' is-loading' : ''}`}
@@ -869,6 +1092,8 @@ function Home() {
               ? t('generate.imageLoading')
               : isCurrentAudioGenerating
                 ? t('generate.loading')
+                : isImageEditing
+                  ? t('imageEdit.loading')
                 : t('generate.button')}
           </span>
         </button>

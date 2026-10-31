@@ -14,9 +14,11 @@ import {
   providerForSecretName,
   type ProviderKey,
 } from "../lib/apiKeyVault";
+import { keyPool } from "../lib/keyPool";
 import { verifyFirebaseIdToken } from "../lib/firebaseAdmin";
 
 const router: IRouter = Router();
+const KEY_STATUS_PROVIDERS = ["agnes", "cloudflare", "glm", "magic_hour"] as const;
 
 router.get("/providers", async (req, res): Promise<void> => {
   const uid = await authenticatedUid(req, res);
@@ -26,6 +28,34 @@ router.get("/providers", async (req, res): Promise<void> => {
   } catch (error) {
     req.log.error({ reason: error instanceof Error ? error.message : "unknown" }, "Could not load providers.");
     res.status(503).json({ error: "Providers could not be loaded.", code: "providers_unavailable" });
+  }
+});
+
+router.get("/vault/key-pool-status", async (req, res): Promise<void> => {
+  const uid = await authenticatedUid(req, res);
+  if (!uid) return;
+  try {
+    const status = await keyPool.readStatus();
+    res.json({
+      providers: KEY_STATUS_PROVIDERS.map((provider) => {
+        const current = status.providers.find((item) => item.provider === provider);
+        return {
+          provider,
+          credentialCount: current?.credentialCount ?? 0,
+          credentials: (current?.credentials ?? []).map((credential) => ({
+            index: credential.index,
+            state: credential.state,
+            ...(credential.state === "ready" ? {} : { until: credential.until }),
+          })),
+        };
+      }),
+    });
+  } catch (error) {
+    req.log.warn(
+      { reason: error instanceof Error ? error.name : "unknown" },
+      "Could not load provider key status.",
+    );
+    res.status(503).json({ error: "Provider key status is unavailable.", code: "key_status_unavailable" });
   }
 });
 
