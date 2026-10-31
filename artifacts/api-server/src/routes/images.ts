@@ -1,14 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { FieldValue } from "firebase-admin/firestore";
 import { Router, type IRouter } from "express";
-import {
-  clearProviderKeyCooldown,
-  getGenerationKeys,
-  listProviderConfigs,
-  recordProviderKeyFailure,
-  type ProviderConfig,
-  type ProviderKey,
-} from "../lib/apiKeyVault";
 import { deleteCloudinaryImage, getCloudinaryUsage } from "../lib/cloudinary";
 import { getFirebaseAdmin, verifyFirebaseIdToken } from "../lib/firebaseAdmin";
 import { deleteFirebaseStorageObject, uploadStoryImageToFirebase } from "../lib/firebaseStorage";
@@ -23,6 +15,7 @@ const router: IRouter = Router();
 router.use(storyScenesRouter);
 const MAX_STORY_IMAGES = 100;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+const MAX_IMAGE_CONCURRENCY = 2;
 
 class StoryNotFoundError extends Error {}
 class StoryLimitReachedError extends Error {}
@@ -301,32 +294,30 @@ router.post("/images/generate", async (req, res): Promise<void> => {
   const uid = await authenticatedUid(req, res);
   if (!uid) return;
   try {
-    const providers = await listProviderConfigs(uid);
-    const keys = await getGenerationKeys(uid, providers);
-    const settled = await Promise.allSettled(
-      Array.from({ length: count }, (_, imageIndex) => {
-        const rotatedKeys = Object.fromEntries(Object.entries(keys).map(([provider, entry]) => {
-          if (!entry.keys.length) return [provider, entry];
-          const offset = imageIndex % entry.keys.length;
-          return [provider, { ...entry, keys: [...entry.keys.slice(offset), ...entry.keys.slice(0, offset)] }];
-        }));
-        return generateImageWithFallback(prompt.trim(), rotatedKeys, providers, fetch,
-          async (provider: ProviderKey, keyId: string, status: number | null) => {
-            try { await recordProviderKeyFailure(uid, provider, keyId, status); }
-            catch { req.log.warn({ provider, status }, "Could not update provider key failure status."); }
-          },
-          async (provider: ProviderKey, keyId: string) => {
-            try { await clearProviderKeyCooldown(uid, provider, keyId); }
-            catch { req.log.warn({ provider }, "Could not clear provider key status."); }
-          },
-          (provider, status) => req.log.warn({ provider, status }, "Image provider attempt failed."),
-        );
+    const generatedByIndex: (GeneratedImageAsset | undefined)[] = new Array(count);
+    let nextImageIndex = 0;
+    await Promise.all(
+      Array.from({ length: Math.min(MAX_IMAGE_CONCURRENCY, count) }, async () => {
+        while (nextImageIndex < count) {
+          const imageIndex = nextImageIndex;
+          nextImageIndex += 1;
+          try {
+            generatedByIndex[imageIndex] = await generateImageWithFallback(
+              prompt.trim(),
+              fetch,
+            );
+          } catch {
+            // Preserve successful images in a partially completed batch.
+          }
+        }
       }),
     );
-    const generated = settled.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
+    const generated = generatedByIndex.filter(
+      (image): image is GeneratedImageAsset => Boolean(image),
+    );
     const failedCount = count - generated.length;
     const responseImages = generated.map((image) => ({
-      ...(image.sourceUrl ? { url: image.sourceUrl } : { base64: image.base64 }),
+      base64: image.base64,
       mimeType: image.mimeType,
       provider: image.provider,
     }));

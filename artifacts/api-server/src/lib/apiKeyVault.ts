@@ -158,15 +158,16 @@ function isProviderId(value: string): boolean {
 }
 
 function envFallbackFor(adapter: ProviderAdapter): string | undefined {
-  if (adapter === "agnes" && process.env.AGNES_API_KEY?.trim()) return "••••••" + process.env.AGNES_API_KEY.trim().slice(-4);
-  if (adapter === "glm" && process.env.GLM_API_KEY?.trim()) return "••••••" + process.env.GLM_API_KEY.trim().slice(-4);
+  const configured = (prefix: string) =>
+    Object.entries(process.env).some(
+      ([name, value]) =>
+        new RegExp(`^${prefix}(?:_[1-9]\\d*)?$`).test(name) &&
+        Boolean(value?.trim()),
+    );
+  if (adapter === "agnes" && configured("AGNES_API_KEY")) return "Configured from Replit Secrets";
+  if (adapter === "glm" && configured("GLM_API_KEY")) return "Configured from Replit Secrets";
   if (adapter === "cloudinary" && process.env.CLOUDINARY_URL?.trim()) {
-    try {
-      const username = new URL(process.env.CLOUDINARY_URL.trim()).username;
-      return username ? `••••••${decodeURIComponent(username).slice(-4)}` : "Configured from Replit Secrets";
-    } catch {
-      return "Configured from Replit Secrets";
-    }
+    return "Configured from Replit Secrets";
   }
   return undefined;
 }

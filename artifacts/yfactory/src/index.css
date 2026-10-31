@@ -685,15 +685,19 @@ button:not(:disabled):hover { filter:brightness(1.12); }
 .story-images-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
 .story-image-card { min-width:0; overflow:hidden; border:1px solid #293650; border-radius:10px; background:#0c1424; }
 .story-image-card > img { display:block; width:100%; aspect-ratio:1; object-fit:cover; background:#080d1a; }
-.story-image-caption { display:flex; align-items:center; gap:8px; padding:8px; }
-.story-image-copy { min-width:0; flex:1; display:flex; flex-direction:column; gap:5px; }
+.story-image-caption { display:flex; min-width:0; flex-direction:column; align-items:stretch; gap:8px; padding:8px; }
+.story-image-copy { display:flex; min-width:0; width:100%; flex-direction:column; gap:5px; }
 .story-image-caption p { overflow:hidden; margin:0; color:#aab7d0; font-size:10px; line-height:1.4; text-overflow:ellipsis; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
-.story-image-actions { display:flex; flex:none; align-items:center; gap:4px; }
+.story-image-actions { display:flex; width:100%; flex-wrap:wrap; justify-content:flex-end; align-items:center; gap:5px; }
 .story-image-state { display:flex; aspect-ratio:1; flex-direction:column; align-items:center; justify-content:center; gap:10px; padding:16px; color:#a9b8d5; background:#101a2b; font-size:11px; text-align:center; }
 .story-image-state-generating,.story-image-state-pending { background:linear-gradient(135deg,#101a2b,#17243a,#101a2b); }
 .story-image-state-failed { color:#f2a3ad; background:#241722; }
+.story-image-state-failed > span { display:grid; width:36px; height:36px; place-items:center; border:1px solid #71404b; border-radius:50%; font-size:20px; }
+.story-image-status { max-width:100%; padding:8px 9px; color:#b7c6e0; font-size:10px; line-height:1.45; overflow-wrap:anywhere; }
+.story-image-status-failed { border-top:1px solid #442936; color:#f2a3ad; background:rgba(36,23,34,.6); }
+.story-scene-error-code { display:block; margin-bottom:3px; color:#ffd2d8; font-size:9px; font-weight:700; }
 .story-scene-skeleton { width:44%; aspect-ratio:1; border:1px solid #354560; border-radius:9px; background:linear-gradient(110deg,#17243a 20%,#263752 38%,#17243a 60%); background-size:200% 100%; animation:story-scene-shimmer 1.6s linear infinite; }
-.story-scene-status,.story-legacy-grid { width:max-content; max-width:100%; padding:3px 6px; border:1px solid #394761; border-radius:999px; color:#b7c6e0; font-size:9px; line-height:1.2; }
+.story-scene-status,.story-legacy-grid { display:inline-block; width:auto; max-width:100%; padding:4px 7px; border:1px solid #394761; border-radius:8px; color:#b7c6e0; font-size:9px; line-height:1.35; white-space:normal; overflow-wrap:anywhere; }
 .story-scene-status-failed,.story-legacy-grid { color:#f2a3ad; border-color:#71404b; background:#241722; }
 .story-generation-progress { display:block; margin-top:4px; color:#8293b1; font-size:10px; }
 @keyframes story-scene-shimmer { to { background-position-x:-200%; } }
@@ -1125,6 +1129,29 @@ button, [role="button"], [role="tab"], [role="menuitem"] {
 }
 .story-lightbox-toolbar button:disabled { opacity:.55; cursor:wait; }
 @keyframes story-lightbox-in { from { opacity:0; } to { opacity:1; } }
+.auth-resolution-skeleton {
+  display:grid;
+  min-height:100vh;
+  align-content:start;
+  gap:18px;
+  padding:clamp(18px,5vw,52px);
+  background:#080d1a;
+}
+.auth-resolution-skeleton > span,
+.auth-resolution-skeleton > div > span,
+.auth-resolution-skeleton > section > span {
+  display:block;
+  height:14px;
+  border-radius:8px;
+  background:#17243a;
+}
+.auth-resolution-skeleton > span { width:36%; height:30px; }
+.auth-resolution-skeleton > div { display:grid; gap:8px; }
+.auth-resolution-skeleton > div > span:first-child { width:70%; height:22px; }
+.auth-resolution-skeleton > div > span:last-child { width:42%; }
+.auth-resolution-skeleton > section { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+.auth-resolution-skeleton > section > span { min-height:120px; height:auto; }
+.story-tab-error { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; }
 @media (max-width:650px) {
   .story-lightbox-stage { inset:54px 8px 72px; }
   .story-lightbox-close { top:10px; right:10px; width:40px; height:40px; }

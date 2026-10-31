@@ -93,6 +93,7 @@ function isGeneratedImageHistoryItem(
     typeof item.imageData === 'string' &&
     (item.provider === undefined ||
       item.provider === 'agnes' ||
+      item.provider === 'cloudflare' ||
       item.provider === 'glm' ||
       item.provider === 'zsky' ||
       item.provider === 'pollinations') &&

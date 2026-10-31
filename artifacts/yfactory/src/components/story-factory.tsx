@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { memo, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import {
   ArrowLeft,
   BookOpen,
@@ -136,7 +136,20 @@ function formatStoryDate(value: unknown, locale: string): string {
   return new Intl.DateTimeFormat(locale, { dateStyle: 'medium' }).format(date);
 }
 
-export default function StoryFactory({
+const sceneFailureCodes = new Set([
+  'missing_key',
+  'rate_limited',
+  'auth_failed',
+  'timeout',
+  'bad_prompt',
+  'save_failed',
+]);
+
+function sceneFailureKey(error: string | undefined): string {
+  return error && sceneFailureCodes.has(error) ? error : 'unknown';
+}
+
+function StoryFactory({
   uid,
   getIdToken,
   requestedImageCount,
@@ -155,6 +168,7 @@ export default function StoryFactory({
   const [hasMoreStories, setHasMoreStories] = useState(false);
   const [storiesLoadingMore, setStoriesLoadingMore] = useState(false);
   const [images, setImages] = useState<StoryImageRecord[]>([]);
+  const [visibleImageCount, setVisibleImageCount] = useState(24);
   const [imagesLoading, setImagesLoading] = useState(false);
   const [error, setError] = useState('');
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
@@ -185,6 +199,7 @@ export default function StoryFactory({
   );
   useEffect(() => {
     setLightboxImageId(null);
+    setVisibleImageCount(24);
   }, [selectedStoryId]);
   const previewImages = images.filter(
     (image) => image.status === 'done' && Boolean(image.url),
@@ -214,6 +229,7 @@ export default function StoryFactory({
   const downloadableImageCount = images.filter(
     (image) => image.status === 'done' && !image.legacyGrid,
   ).length;
+  const visibleImages = images.slice(0, visibleImageCount);
 
   const makeController = () => {
     const controller = new AbortController();
@@ -248,8 +264,7 @@ export default function StoryFactory({
         setStoriesLoading(false);
       },
       setHasMoreStories,
-      (loadError) => {
-        console.error('Could not load stories:', loadError);
+      () => {
         setError(t('stories.loadFailed'));
         setStoriesLoading(false);
       },
@@ -271,8 +286,7 @@ export default function StoryFactory({
         ];
       });
       setHasMoreStories(page.hasMore);
-    } catch (loadError) {
-      console.error('Could not load older stories:', loadError);
+    } catch {
       setError(t('stories.loadFailed'));
     } finally {
       setStoriesLoadingMore(false);
@@ -294,8 +308,7 @@ export default function StoryFactory({
         setImages(nextImages);
         setImagesLoading(false);
       },
-      (loadError) => {
-        console.error('Could not load story images:', loadError);
+      () => {
         setError(t('stories.imagesLoadFailed'));
         setImagesLoading(false);
       },
@@ -355,8 +368,7 @@ export default function StoryFactory({
         imageCount: 0,
         storageBytes: 0,
       });
-    } catch (createError) {
-      console.error('Could not create story:', createError);
+    } catch {
       setError(t('stories.createFailed'));
     } finally {
       setCreating(false);
@@ -374,8 +386,7 @@ export default function StoryFactory({
     const scriptToSave = script;
     const savePromise = updateStoryScript(uid, storyId, scriptToSave)
       .then(() => true)
-      .catch((saveError: unknown) => {
-        console.error('Could not save story script:', saveError);
+      .catch(() => {
         setError(t('stories.scriptSaveFailed'));
         return false;
       })
@@ -408,7 +419,6 @@ export default function StoryFactory({
       );
       onTemporaryImageSaved(pendingImage, story, saved);
     } catch (saveError) {
-      console.error('Could not save temporary image:', saveError);
       setError(
         saveError instanceof Error &&
           saveError.message ===
@@ -436,8 +446,7 @@ export default function StoryFactory({
         controller.signal,
       );
       setImageToDelete(null);
-    } catch (deleteError) {
-      console.error('Could not delete story image:', deleteError);
+    } catch {
       setError(t('stories.imageDeleteFailed'));
     } finally {
       setDeletingImage(false);
@@ -802,8 +811,9 @@ export default function StoryFactory({
               {t('stories.loadingImages')}
             </div>
           ) : images.length ? (
-            <div className="story-images-grid">
-              {images.map((image, index) => (
+            <>
+              <div className="story-images-grid">
+              {visibleImages.map((image, index) => (
                 <article
                   className={`story-image-card story-image-card-${image.status}`}
                   key={image.id}
@@ -828,7 +838,7 @@ export default function StoryFactory({
                       aria-label={t(`stories.sceneStatus.${image.status}`)}
                     >
                       {image.status === 'failed' ? (
-                        <span>{t('stories.sceneFailed')}</span>
+                        <span aria-hidden="true">!</span>
                       ) : (
                         <>
                           <span className="story-scene-skeleton" />
@@ -837,18 +847,22 @@ export default function StoryFactory({
                       )}
                     </div>
                   )}
+                  {image.status === 'failed' && (
+                    <div
+                      className="story-image-status story-image-status-failed"
+                      role="status"
+                    >
+                      <span className="story-scene-error-code" dir="ltr">
+                        {sceneFailureKey(image.error)}
+                      </span>
+                      <span>{t(`stories.sceneFailure.${sceneFailureKey(image.error)}`)}</span>
+                    </div>
+                  )}
                   <div className="story-image-caption">
                     <div className="story-image-copy">
                       <p>{image.index ? t('stories.sceneNumber', { index: image.index }) : image.prompt}</p>
                       {image.legacyGrid && (
                         <span className="story-legacy-grid">{t('stories.legacyGrid')}</span>
-                      )}
-                      {image.status !== 'done' && !image.legacyGrid && (
-                        <span className={`story-scene-status story-scene-status-${image.status}`}>
-                          {image.status === 'failed'
-                            ? t('stories.sceneFailed')
-                            : t(`stories.sceneStatus.${image.status}`)}
-                        </span>
                       )}
                     </div>
                     <div className="story-image-actions">
@@ -907,7 +921,23 @@ export default function StoryFactory({
                   </div>
                 </article>
               ))}
-            </div>
+              </div>
+              {visibleImages.length < images.length && (
+                <div className="story-images-load-more">
+                  <button
+                    className="factory-quiet-button"
+                    type="button"
+                    onClick={() =>
+                      setVisibleImageCount((current) =>
+                        Math.min(images.length, current + 24),
+                      )
+                    }
+                  >
+                    {t('stories.loadMoreImages')}
+                  </button>
+                </div>
+              )}
+            </>
           ) : (
             <div className="factory-empty">
               <ImageIcon size={25} />
@@ -1135,3 +1165,5 @@ export default function StoryFactory({
     </section>
   );
 }
+
+export default memo(StoryFactory);

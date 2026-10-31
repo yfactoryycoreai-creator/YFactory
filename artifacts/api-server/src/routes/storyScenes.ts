@@ -5,16 +5,14 @@ import type { Archiver, ArchiverOptions } from "archiver";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { Router, type IRouter, type Request, type Response } from "express";
 import sharp from "sharp";
-import {
-  clearProviderKeyCooldown,
-  getGenerationKeys,
-  listProviderConfigs,
-  recordProviderKeyFailure,
-  type ProviderKey,
-} from "../lib/apiKeyVault";
 import { deleteFirebaseStorageObject, uploadStoryImageToFirebase } from "../lib/firebaseStorage";
 import { getFirebaseAdmin, requireEncryptionKey, verifyFirebaseIdToken } from "../lib/firebaseAdmin";
-import { generateImageWithFallback, type GeneratedImageAsset } from "../lib/imageGeneration";
+import {
+  generateImageWithFallback,
+  ImageGenerationFailure,
+  type GeneratedImageAsset,
+  type SceneFailureCode,
+} from "../lib/imageGeneration";
 import { logger } from "../lib/logger";
 
 const archiver = createRequire(import.meta.url)("archiver") as (
@@ -23,7 +21,7 @@ const archiver = createRequire(import.meta.url)("archiver") as (
 ) => Archiver;
 const router: IRouter = Router();
 const MAX_STORY_IMAGES = 100;
-const MAX_SCENE_CONCURRENCY = 3;
+const MAX_SCENE_CONCURRENCY = 2;
 const JOB_TIMEOUT_MS = 180_000;
 const GENERATION_STALE_AFTER_MS = JOB_TIMEOUT_MS + 60_000;
 const DOWNLOAD_TOKEN_LIFETIME_MS = 5 * 60_000;
@@ -65,10 +63,6 @@ async function authenticatedUid(req: Request, res: Response): Promise<string | n
 
 function validStoryId(storyId: string): boolean {
   return /^[A-Za-z0-9_-]{1,200}$/.test(storyId);
-}
-
-function sanitizedSceneError(): string {
-  return "This scene could not be generated. Try again.";
 }
 
 function splitScenarioIntoMoments(scenario: string, count: number): string[] {
@@ -115,7 +109,7 @@ function splitScenarioIntoMoments(scenario: string, count: number): string[] {
       : "Keep every recurring character's face, age, hair, clothing, proportions, and distinguishing features consistent; follow the roles and appearance implied by the full story without inventing conflicting designs.",
   ].join(" ");
   const imageRestriction =
-    "single image, one scene only, no grid, no collage, no panels, no split frames, no text overlay";
+    "single image, one scene only, no grid, no collage, no panels, no text overlay";
 
   return moments.map((moment, index) =>
     `${styleAndCharacterBible}\nScene ${index + 1} of ${count}: depict exactly one frozen visual moment based only on this scene detail: ${moment}. ` +
@@ -123,22 +117,16 @@ function splitScenarioIntoMoments(scenario: string, count: number): string[] {
   );
 }
 
-function rotateGenerationKeys(
-  keys: Awaited<ReturnType<typeof getGenerationKeys>>,
-  index: number,
-) {
-  return Object.fromEntries(Object.entries(keys).map(([provider, entry]) => {
-    if (!entry.keys.length) return [provider, entry];
-    const offset = (index - 1) % entry.keys.length;
-    return [provider, { ...entry, keys: [...entry.keys.slice(offset), ...entry.keys.slice(0, offset)] }];
-  }));
-}
-
-async function markSceneFailed(uid: string, storyId: string, imageId: string): Promise<void> {
+async function markSceneFailed(
+  uid: string,
+  storyId: string,
+  imageId: string,
+  errorCode: SceneFailureCode,
+): Promise<void> {
   try {
     await storyReference(uid, storyId).collection("images").doc(imageId).update({
       status: "failed",
-      error: sanitizedSceneError(),
+      error: errorCode,
       generationStartedAt: FieldValue.delete(),
       updatedAt: FieldValue.serverTimestamp(),
     });
@@ -151,8 +139,6 @@ async function processSceneJob(
   uid: string,
   storyId: string,
   imageId: string,
-  providers: Awaited<ReturnType<typeof listProviderConfigs>>,
-  keys: Awaited<ReturnType<typeof getGenerationKeys>>,
 ): Promise<void> {
   const { db } = getFirebaseAdmin();
   const storyRef = storyReference(uid, storyId);
@@ -177,28 +163,11 @@ async function processSceneJob(
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), JOB_TIMEOUT_MS);
   let uploadedPath = "";
+  let failureCode: SceneFailureCode = "save_failed";
   try {
-    const rotatedKeys = rotateGenerationKeys(keys, claimed.index);
     const asset: GeneratedImageAsset = await generateImageWithFallback(
       claimed.scenePrompt,
-      rotatedKeys,
-      providers,
       fetch,
-      async (provider: ProviderKey, keyId: string, status: number | null) => {
-        try {
-          await recordProviderKeyFailure(uid, provider, keyId, status);
-        } catch {
-          logger.warn({ provider, status }, "Provider key failure state could not be updated.");
-        }
-      },
-      async (provider: ProviderKey, keyId: string) => {
-        try {
-          await clearProviderKeyCooldown(uid, provider, keyId);
-        } catch {
-          logger.warn({ provider }, "Provider key cooldown could not be cleared.");
-        }
-      },
-      (provider, status) => logger.warn({ provider, status }, "An image provider attempt failed."),
       controller.signal,
     );
     const bytes = Buffer.from(asset.base64, "base64");
@@ -223,7 +192,7 @@ async function processSceneJob(
       if (imageCount >= MAX_STORY_IMAGES) {
         transaction.update(imageRef, {
           status: "failed",
-          error: "The story has reached its 100-image limit.",
+          error: "save_failed",
           generationStartedAt: FieldValue.delete(),
           updatedAt: FieldValue.serverTimestamp(),
         });
@@ -248,10 +217,12 @@ async function processSceneJob(
       return true;
     });
     if (!saved) await deleteFirebaseStorageObject(uploaded.storagePath);
-  } catch {
+  } catch (error) {
     if (uploadedPath) await deleteFirebaseStorageObject(uploadedPath).catch(() => undefined);
-    await markSceneFailed(uid, storyId, imageId);
-    logger.warn({ storyId, imageId }, "A story scene job failed.");
+    failureCode =
+      error instanceof ImageGenerationFailure ? error.code : "save_failed";
+    await markSceneFailed(uid, storyId, imageId, failureCode);
+    logger.warn({ storyId, imageId, reason: failureCode }, "A story scene job failed.");
   } finally {
     clearTimeout(timeout);
   }
@@ -262,10 +233,6 @@ async function processSceneQueue(uid: string, storyId: string, imageIds: string[
   if (!jobs.length) return;
   for (const imageId of jobs) activeSceneJobs.add(imageId);
   try {
-    const [providers, keys] = await Promise.all([
-      listProviderConfigs(uid),
-      getGenerationKeys(uid),
-    ]);
     let cursor = 0;
     const workerCount = Math.min(MAX_SCENE_CONCURRENCY, jobs.length);
     await Promise.all(Array.from({ length: workerCount }, async () => {
@@ -273,11 +240,15 @@ async function processSceneQueue(uid: string, storyId: string, imageIds: string[
         const imageId = jobs[cursor];
         cursor += 1;
         if (!imageId) continue;
-        await processSceneJob(uid, storyId, imageId, providers, keys);
+        await processSceneJob(uid, storyId, imageId);
       }
     }));
   } catch {
-    await Promise.all(jobs.map((imageId) => markSceneFailed(uid, storyId, imageId)));
+    await Promise.all(
+      jobs.map((imageId) =>
+        markSceneFailed(uid, storyId, imageId, "timeout"),
+      ),
+    );
     logger.warn({ storyId }, "A story scene queue could not be started.");
   } finally {
     for (const imageId of jobs) activeSceneJobs.delete(imageId);

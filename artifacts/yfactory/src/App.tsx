@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { deleteUser } from 'firebase/auth';
 import {
   AudioLines,
@@ -25,14 +33,16 @@ import {
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { ErrorBoundary } from '@/components/error-boundary';
+import {
+  ErrorBoundary,
+  type ErrorFallbackProps,
+} from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { AuthProvider, useAuth } from '@/auth/AuthProvider';
 import LoginPage from '@/pages/login';
 import SettingsPage from '@/pages/settings';
 import NotFound from '@/pages/not-found';
-import StoryFactory from '@/components/story-factory';
 import {
   deleteUserDocument,
   restoreUserDocument,
@@ -93,6 +103,37 @@ const settingBySelectId = {
   'audio-style': 'audioStyle',
 } as const;
 type GeneratorSelectId = keyof typeof settingBySelectId;
+
+const StoryFactory = lazy(() => import('@/components/story-factory'));
+
+function StoryTabFallback({ resetError }: ErrorFallbackProps) {
+  const { t } = useTranslation();
+  return (
+    <div className="factory-error story-tab-error" role="alert">
+      <span>{t('stories.tabFailed')}</span>
+      <button className="factory-quiet-button" type="button" onClick={resetError}>
+        {t('stories.retryTab')}
+      </button>
+    </div>
+  );
+}
+
+function MediaTabFallback({ resetError }: ErrorFallbackProps) {
+  const { t } = useTranslation();
+  return (
+    <div className="notice notice-error app-tab-error" role="alert">
+      <span>{t('status.tabFailed')}</span>
+      <button className="factory-quiet-button" type="button" onClick={resetError}>
+        {t('status.retryTab')}
+      </button>
+    </div>
+  );
+}
+
+function StoryTabLoading() {
+  const { t } = useTranslation();
+  return <div className="factory-empty" role="status" aria-busy="true">{t('stories.loading')}</div>;
+}
 
 function Home() {
   const { t, i18n } = useTranslation();
@@ -215,7 +256,16 @@ function Home() {
     setActiveStory(story);
   }, []);
 
-  const handleTemporaryImageSaved = (
+  const getUserIdToken = useCallback(async () => {
+    if (!user) throw new Error('Sign in to manage story images.');
+    return user.getIdToken();
+  }, [user]);
+
+  const handleCancelPendingSave = useCallback(() => {
+    setPendingStorySave(null);
+  }, []);
+
+  const handleTemporaryImageSaved = useCallback((
     image: GeneratedImageHistoryItem,
     story: StoryRecord,
     savedImage: StoryImageRecord,
@@ -228,7 +278,7 @@ function Home() {
       storageBytes: story.storageBytes + savedImage.sizeBytes,
     });
     setStoriesOpen(true);
-  };
+  }, []);
 
   const handleImageFiles = (files: FileList | File[] | null) => {
     if (!files?.length) return;
@@ -383,9 +433,8 @@ function Home() {
                 total: requestedImages,
               }),
             );
-          } else {
-            setNoticeKey('status.imageBatchReady');
           }
+          setStoriesOpen(true);
           return;
         }
         const result = await generateImages(
@@ -468,8 +517,7 @@ function Home() {
       link.click();
       link.remove();
       window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
-    } catch (downloadError) {
-      console.error('Image download failed:', downloadError);
+    } catch {
       setImageError(t('status.imageDownloadFailed'));
     } finally {
       setDownloadingImageIndex(null);
@@ -628,21 +676,26 @@ function Home() {
           </button>
         </nav>
 
-        {user && (
-          <StoryFactory
-            uid={user.uid}
-            getIdToken={() => user.getIdToken()}
-            requestedImageCount={Number(generatorSettings.imageCount)}
-            visible={storiesOpen}
-            selectedStoryId={activeStory?.id ?? null}
-            pendingImage={pendingStorySave}
-            onStorySelected={handleStorySelected}
-            onTemporaryImageSaved={handleTemporaryImageSaved}
-            onCancelPendingSave={() => setPendingStorySave(null)}
-          />
+        {user && storiesOpen && (
+          <ErrorBoundary FallbackComponent={StoryTabFallback}>
+            <Suspense fallback={<StoryTabLoading />}>
+              <StoryFactory
+                uid={user.uid}
+                getIdToken={getUserIdToken}
+                requestedImageCount={Number(generatorSettings.imageCount)}
+                visible={storiesOpen}
+                selectedStoryId={activeStory?.id ?? null}
+                pendingImage={pendingStorySave}
+                onStorySelected={handleStorySelected}
+                onTemporaryImageSaved={handleTemporaryImageSaved}
+                onCancelPendingSave={handleCancelPendingSave}
+              />
+            </Suspense>
+          </ErrorBoundary>
         )}
 
         {!storiesOpen && (
+          <ErrorBoundary resetKey={mode} FallbackComponent={MediaTabFallback}>
           <>
         {mode === 'video' && (
           <div className="video-upload">
@@ -973,6 +1026,7 @@ function Home() {
           )}
         </section>
           </>
+          </ErrorBoundary>
         )}
       </main>
     </div>
@@ -1020,7 +1074,6 @@ function LoginRoute() {
           : signInError instanceof Error
             ? signInError.message
             : String(signInError);
-      console.error('Login Error:', code, message);
       setError(code);
       setErrorMessage(message);
     } finally {
@@ -1038,6 +1091,23 @@ function LoginRoute() {
   );
 }
 
+function AuthResolutionSkeleton() {
+  return (
+    <main className="auth-resolution-skeleton" role="status" aria-busy="true">
+      <span />
+      <div>
+        <span />
+        <span />
+      </div>
+      <section>
+        <span />
+        <span />
+        <span />
+      </section>
+    </main>
+  );
+}
+
 function ProtectedHome() {
   const { user, loading } = useAuth();
   const [, setLocation] = useLocation();
@@ -1046,6 +1116,8 @@ function ProtectedHome() {
     if (!loading && !user) setLocation('/login');
   }, [loading, setLocation, user]);
 
+  if (loading) return <AuthResolutionSkeleton />;
+  if (!user) return null;
   return <Home />;
 }
 
@@ -1056,6 +1128,9 @@ function ProtectedSettings() {
   useEffect(() => {
     if (!authLoading && !user) setLocation('/login');
   }, [authLoading, setLocation, user]);
+
+  if (authLoading) return <AuthResolutionSkeleton />;
+  if (!user) return null;
 
   const getIdToken = useCallback(async () => {
     if (!user) throw new Error('Sign in to manage API keys.');

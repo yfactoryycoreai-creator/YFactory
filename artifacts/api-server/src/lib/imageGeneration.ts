@@ -1,10 +1,17 @@
-import type {
-  ProviderConfig,
-  ProviderGenerationKeys,
-  ProviderKey,
-} from "./apiKeyVault";
+import {
+  KeyPoolHttpError,
+  keyPool,
+  type KeyPoolProvider,
+} from "./keyPool";
 
 export type ImageProvider = string;
+export type SceneFailureCode =
+  | "missing_key"
+  | "rate_limited"
+  | "auth_failed"
+  | "timeout"
+  | "bad_prompt"
+  | "save_failed";
 
 export type GeneratedImageAsset = {
   base64: string;
@@ -15,14 +22,19 @@ export type GeneratedImageAsset = {
 
 type JsonRecord = Record<string, unknown>;
 type ImageFetch = typeof fetch;
-type KeyFailureHandler = (
-  provider: ProviderKey,
-  keyId: string,
-  status: number | null,
-) => Promise<void> | void;
+type ImageKeyPool = Pick<typeof keyPool, "run">;
 
-const PROVIDER_TIMEOUT_MS = 40_000;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+const PROVIDER_ORDER = ["agnes", "cloudflare", "glm"] as const satisfies readonly KeyPoolProvider[];
+const PROVIDER_DEADLINE_MS: Record<KeyPoolProvider, number> = {
+  agnes: 35_000,
+  cloudflare: 30_000,
+  glm: 35_000,
+  magic_hour: 30_000,
+  pollinations: 35_000,
+};
+const SINGLE_IMAGE_RESTRICTION =
+  "single image, one scene only, no grid, no collage, no panels, no text overlay";
 
 export class ProviderAttemptError extends Error {
   constructor(
@@ -31,6 +43,13 @@ export class ProviderAttemptError extends Error {
   ) {
     super(message);
     this.name = "ProviderAttemptError";
+  }
+}
+
+export class ImageGenerationFailure extends Error {
+  constructor(public readonly code: SceneFailureCode) {
+    super("Image generation failed.");
+    this.name = "ImageGenerationFailure";
   }
 }
 
@@ -246,7 +265,7 @@ async function requestAgnes(
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "agnes-image-2.1-flash",
+        model: "agnes-image-2.5-flash",
         prompt,
         n: 1,
         size: "1K",
@@ -285,185 +304,150 @@ async function requestGlm(
   return parseProviderImage(response, "glm", signal, fetchImage);
 }
 
-async function requestProvider(
-  provider: ProviderConfig,
-  apiKey: string,
+async function requestCloudflare(
+  apiToken: string,
+  accountId: string,
   prompt: string,
   fetchImage: ImageFetch,
   signal: AbortSignal,
 ): Promise<GeneratedImageAsset> {
-  if (provider.adapter === "agnes") {
-    return requestAgnes(apiKey, prompt, fetchImage, signal).then((asset) => ({
-      ...asset,
-      provider: provider.id,
-    }));
-  }
-  if (provider.adapter === "glm") {
-    return requestGlm(apiKey, prompt, fetchImage, signal).then((asset) => ({
-      ...asset,
-      provider: provider.id,
-    }));
-  }
-  if (provider.adapter === "openai-compatible") {
-    const baseUrl = provider.baseUrl?.trim().replace(/\/+$/, "");
-    const model = provider.model?.trim();
-    if (!baseUrl || !model) {
-      throw new ProviderAttemptError("OpenAI-compatible provider needs a base URL and model.");
-    }
-    const parsedUrl = assertPublicHttpsUrl(baseUrl);
-    const endpoint = /\/v\d+(?:\/|$)/i.test(parsedUrl.pathname)
-      ? `${baseUrl}/images/generations`
-      : `${baseUrl}/v1/images/generations`;
-    const response = await fetchImage(endpoint, {
+  const response = await fetchImage(
+    `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/ai/run/@cf/black-forest-labs/flux-1-schnell`,
+    {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${apiKey}`,
+        Authorization: `Bearer ${apiToken}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ model, prompt, n: 1, response_format: "url" }),
+      body: JSON.stringify({ prompt }),
       signal,
-    });
-    return parseProviderImage(response, provider.id, signal, fetchImage);
+    },
+  );
+  if (!response.ok) throw new KeyPoolHttpError(response.status);
+  const payload: unknown = await response.json().catch(() => null);
+  const image = asRecord(asRecord(payload).result).image;
+  if (typeof image !== "string" || !image) {
+    throw new ProviderAttemptError("Provider returned no usable image.");
   }
-  if (provider.adapter === "zsky") {
-    // Its current API contract is not established; never send user keys to a guessed endpoint.
-    throw new ProviderAttemptError("ZSky is skipped until its API format is verified.");
-  }
-  throw new ProviderAttemptError("This provider is not an image-generation adapter.");
+  return normalizeBase64(image, "image/png", "cloudflare");
 }
 
 async function requestPollinationsImage(
   prompt: string,
   fetchImage: ImageFetch,
-  jobSignal?: AbortSignal,
+  signal: AbortSignal,
 ): Promise<GeneratedImageAsset> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), PROVIDER_TIMEOUT_MS);
-  const signal = jobSignal
-    ? AbortSignal.any([controller.signal, jobSignal])
-    : controller.signal;
-  try {
-    const seed = Math.floor(Math.random() * 2_147_483_647);
-    const url =
-      `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}` +
-      `?width=1024&height=1024&seed=${seed}`;
-    const response = await fetchImage(url, { signal });
-    if (!response.ok) {
-      throw new ProviderAttemptError(
-        `Provider returned HTTP ${response.status}.`,
-        response.status,
-      );
-    }
-    const mimeType = response.headers.get("content-type");
-    if (!mimeType?.toLowerCase().startsWith("image/")) {
-      throw new ProviderAttemptError("Provider returned a non-image response.");
-    }
-    const contentLength = Number(response.headers.get("content-length"));
-    if (Number.isFinite(contentLength) && contentLength > MAX_IMAGE_BYTES) {
-      throw new ProviderAttemptError("Provider returned an oversized image.");
-    }
-    const bytes = Buffer.from(await response.arrayBuffer());
-    if (!bytes.length || bytes.length > MAX_IMAGE_BYTES) {
-      throw new ProviderAttemptError("Provider returned an empty or oversized image.");
-    }
-    return {
-      base64: bytes.toString("base64"),
-      mimeType: verifiedImageMimeType(bytes),
-      provider: "pollinations",
-      sourceUrl: url,
-    };
-  } catch (error) {
-    if (error instanceof ProviderAttemptError) throw error;
-    throw new ProviderAttemptError(
-      jobSignal?.aborted || (error instanceof Error && error.name === "AbortError")
-        ? "Pollinations timed out."
-        : "Pollinations request failed.",
-    );
-  } finally {
-    clearTimeout(timeout);
+  const seed = Math.floor(Math.random() * 2_147_483_647);
+  const url =
+    `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}` +
+    `?width=768&height=768&seed=${seed}`;
+  const response = await fetchImage(url, { signal });
+  if (!response.ok) throw new KeyPoolHttpError(response.status);
+  const mimeType = response.headers.get("content-type");
+  if (!mimeType?.toLowerCase().startsWith("image/")) {
+    throw new ProviderAttemptError("Provider returned a non-image response.");
   }
+  const contentLength = Number(response.headers.get("content-length"));
+  if (Number.isFinite(contentLength) && contentLength > MAX_IMAGE_BYTES) {
+    throw new ProviderAttemptError("Provider returned an oversized image.");
+  }
+  const bytes = Buffer.from(await response.arrayBuffer());
+  if (!bytes.length || bytes.length > MAX_IMAGE_BYTES) {
+    throw new ProviderAttemptError("Provider returned an empty or oversized image.");
+  }
+  return {
+    base64: bytes.toString("base64"),
+    mimeType: verifiedImageMimeType(bytes),
+    provider: "pollinations",
+    sourceUrl: url,
+  };
 }
 
 export async function generateImageWithFallback(
   prompt: string,
-  keys: ProviderGenerationKeys,
-  providers: ProviderConfig[],
   fetchImage: ImageFetch = fetch,
-  onKeyFailure: KeyFailureHandler = () => undefined,
-  onKeySuccess: KeyFailureHandler = () => undefined,
-  onProviderFailure: (provider: ImageProvider, status: number | null) => void = () => undefined,
   jobSignal?: AbortSignal,
+  pool: ImageKeyPool = keyPool,
 ): Promise<GeneratedImageAsset> {
-  const providerOrder = providers
-    .filter((provider) => provider.category === "image" && provider.enabled && provider.adapter !== "pollinations")
-    .sort((left, right) => left.rotationOrder - right.rotationOrder);
+  const completePrompt = prompt.includes(SINGLE_IMAGE_RESTRICTION)
+    ? prompt
+    : `${prompt.trim()} ${SINGLE_IMAGE_RESTRICTION}`;
+  const reasons: SceneFailureCode[] = [];
+  const providerOrder: readonly KeyPoolProvider[] = [
+    ...PROVIDER_ORDER,
+    "pollinations",
+  ];
+
   for (const provider of providerOrder) {
-    if (jobSignal?.aborted) throw new ProviderAttemptError("Image generation timed out.");
-    if (provider.adapter === "zsky") continue;
-    const providerKeys = keys[provider.id] ?? { hasVaultKeys: false, keys: [] };
-    const candidates = [...providerKeys.keys];
-    if (
-      !providerKeys.hasVaultKeys &&
-      provider.id === "agnes" &&
-      process.env.AGNES_API_KEY?.trim()
-    ) {
-      candidates.push({ id: "environment", value: process.env.AGNES_API_KEY.trim() });
-    }
-    if (
-      !providerKeys.hasVaultKeys &&
-      provider.id === "glm" &&
-      process.env.GLM_API_KEY?.trim()
-    ) {
-      candidates.push({ id: "environment", value: process.env.GLM_API_KEY.trim() });
-    }
-
-    for (const candidate of candidates) {
-      if (jobSignal?.aborted) throw new ProviderAttemptError("Image generation timed out.");
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), PROVIDER_TIMEOUT_MS);
-      const signal = jobSignal
-        ? AbortSignal.any([controller.signal, jobSignal])
-        : controller.signal;
-      try {
-        const image = await requestProvider(
-          provider,
-          candidate.value,
-          prompt,
-          fetchImage,
-          signal,
-        );
-        await onKeySuccess(provider.id, candidate.id, null);
-        return image;
-      } catch (error) {
-        if (jobSignal?.aborted) {
-          throw new ProviderAttemptError("Image generation timed out.");
+    if (jobSignal?.aborted) throw new ImageGenerationFailure("timeout");
+    const result = await pool.run(
+      provider,
+      async (credential, poolSignal) => {
+        const signal = jobSignal
+          ? AbortSignal.any([poolSignal, jobSignal])
+          : poolSignal;
+        try {
+          if (provider === "agnes") {
+            if (!credential.apiKey) throw new ProviderAttemptError("Missing provider credential.");
+            return await requestAgnes(credential.apiKey, completePrompt, fetchImage, signal);
+          }
+          if (provider === "cloudflare") {
+            if (!credential.apiKey || !credential.accountId) {
+              throw new ProviderAttemptError("Missing provider credential.");
+            }
+            return await requestCloudflare(
+              credential.apiKey,
+              credential.accountId,
+              completePrompt,
+              fetchImage,
+              signal,
+            );
+          }
+          if (provider === "glm") {
+            if (!credential.apiKey) throw new ProviderAttemptError("Missing provider credential.");
+            return await requestGlm(credential.apiKey, completePrompt, fetchImage, signal);
+          }
+          return await requestPollinationsImage(completePrompt, fetchImage, signal);
+        } catch (error) {
+          if (jobSignal?.aborted) throw new KeyPoolHttpError(400);
+          throw error;
         }
-        const status =
-          error instanceof ProviderAttemptError ? error.status : null;
-        if (controller.signal.aborted) {
-          await onKeyFailure(provider.id, candidate.id, null);
-          onProviderFailure(provider.id, null);
-        } else {
-          await onKeyFailure(provider.id, candidate.id, status);
-          onProviderFailure(provider.id, status);
-        }
-      } finally {
-        clearTimeout(timeout);
-      }
-    }
-  }
-
-  try {
-    if (jobSignal?.aborted) throw new ProviderAttemptError("Image generation timed out.");
-    if (providers.some((provider) => provider.id === "pollinations" && provider.enabled)) {
-      return await requestPollinationsImage(prompt, fetchImage, jobSignal);
-    }
-    throw new ProviderAttemptError("No enabled image providers are configured.");
-  } catch (error) {
-    onProviderFailure(
-      "pollinations",
-      error instanceof ProviderAttemptError ? error.status : null,
+      },
+      { totalDeadlineMs: PROVIDER_DEADLINE_MS[provider] },
     );
-    throw new Error("All image providers failed.");
+    if (result.ok) {
+      return { ...result.value, provider };
+    }
+    if (jobSignal?.aborted) throw new ImageGenerationFailure("timeout");
+    if (result.code === "deadline_exceeded") {
+      reasons.push("timeout");
+      continue;
+    }
+    if (result.code === "bad_prompt") {
+      throw new ImageGenerationFailure("bad_prompt");
+    }
+    if (result.code === "no_credentials") {
+      reasons.push("missing_key");
+      continue;
+    }
+    const outcomes = new Set(result.attempts.map((attempt) => attempt.outcome));
+    if (outcomes.has("auth_failed")) reasons.push("auth_failed");
+    else if (outcomes.has("rate_limited")) reasons.push("rate_limited");
+    else if (outcomes.has("timeout")) {
+      reasons.push("timeout");
+    } else if (result.attempts.length === 0) {
+      reasons.push("missing_key");
+    } else {
+      reasons.push("timeout");
+    }
   }
+
+  const failureCode: SceneFailureCode = reasons.includes("auth_failed")
+    ? "auth_failed"
+    : reasons.includes("rate_limited")
+      ? "rate_limited"
+      : reasons.includes("timeout")
+        ? "timeout"
+        : "missing_key";
+  throw new ImageGenerationFailure(failureCode);
 }
