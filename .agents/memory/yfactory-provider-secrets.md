@@ -3,8 +3,8 @@ name: YFactory provider secrets
 description: Product requirements for managing and selecting user-supplied image-provider credentials.
 ---
 
-YFactory accepts user credentials named `AGNES_API_KEY`, `AGNES_API_KEY_2`, and subsequent numbered variants, plus the equivalent `GLM_API_KEY` names. Keep values server-side, return only masked previews to the client, rotate keys sharing a provider prefix with the existing cooldown logic, and use server environment credentials when the user has no key for that provider.
+Replit Secrets are the source of truth for global provider credentials. Discover unnumbered and positive-numbered names dynamically; Cloudflare token and account ID suffixes must match. Keep values server-side, expose only provider/index metadata, and persist cooldowns server-side. If user-specific keys are part of a later scope, keep them server-side and use global Replit Secrets as fallback.
 
-**Why:** The user specified this as the credential-management contract for YFactory.
+**Why:** The user specified this as YFactory's provider-credential contract and explicitly required Replit Secrets to remain authoritative.
 
-**How to apply:** Preserve the naming, server-only storage, masked responses, fallback, and per-provider rotation behavior in future key-management work.
+**How to apply:** Preserve dynamic discovery, Cloudflare pairing, sanitized status/trails, server-only state, and per-provider rotation when adding provider integrations or key-management UI.
