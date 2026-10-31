@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { FieldValue } from "firebase-admin/firestore";
 import { Router, type IRouter } from "express";
-import { deleteCloudinaryImage, getCloudinaryUsage } from "../lib/cloudinary";
+import { getCloudinaryUsage } from "../lib/cloudinary";
 import { getFirebaseAdmin, verifyFirebaseIdToken } from "../lib/firebaseAdmin";
-import { deleteFirebaseStorageObject, uploadStoryImageToFirebase } from "../lib/firebaseStorage";
+import { storyImageStorage } from "../lib/storyImageStorage";
 import {
   generateImageWithFallback,
   ProviderAttemptError,
@@ -29,6 +29,9 @@ type StoredImage = {
   createdAt: unknown;
   sizeBytes: number;
   storagePath: string;
+  publicId: string;
+  folder: string;
+  format: string;
   provider: string;
   index?: number;
   status?: "done";
@@ -49,7 +52,7 @@ async function saveOneImage(
   if (!buffer.length || buffer.length > MAX_IMAGE_BYTES) {
     throw new Error("Generated image was empty or larger than 10 MB.");
   }
-  const uploaded = await uploadStoryImageToFirebase(
+  const uploaded = await storyImageStorage.upload(
     uid,
     storyId,
     imageRef.id,
@@ -93,6 +96,9 @@ async function saveOneImage(
         createdAt: FieldValue.serverTimestamp(),
         sizeBytes: uploaded.sizeBytes,
         storagePath: uploaded.storagePath,
+        publicId: uploaded.publicId,
+        folder: uploaded.folder,
+        format: uploaded.format,
         provider: asset.provider,
       });
       transaction.update(storyRef, {
@@ -105,7 +111,7 @@ async function saveOneImage(
       });
     });
   } catch (error) {
-    await deleteFirebaseStorageObject(uploaded.storagePath).catch(() => undefined);
+    await storyImageStorage.delete(uid, uploaded).catch(() => undefined);
     throw error;
   }
   return {
@@ -117,6 +123,9 @@ async function saveOneImage(
     createdAt: new Date(),
     sizeBytes: uploaded.sizeBytes,
     storagePath: uploaded.storagePath,
+    publicId: uploaded.publicId,
+    folder: uploaded.folder,
+    format: uploaded.format,
     provider: asset.provider,
     index: sequence,
     status: "done",
@@ -266,13 +275,9 @@ router.delete("/images/stories/:storyId/images/:imageId", async (req, res): Prom
         storageBytes: Math.max(0, currentBytes - (counted ? Math.max(0, Number(data.sizeBytes) || 0) : 0)),
       });
     });
-    if (storagePath?.startsWith(`users/${uid}/stories/${storyId}/`)) {
-      await deleteFirebaseStorageObject(storagePath).catch(() => {
-        req.log.warn({ storyId, imageId }, "Firebase Storage cleanup failed.");
-      });
-    } else if (publicId) {
-      await deleteCloudinaryImage(uid, publicId).catch((error) => {
-        req.log.warn({ storyId, imageId }, "Cloudinary cleanup failed.");
+    if (publicId || storagePath) {
+      await storyImageStorage.delete(uid, { publicId, storagePath }).catch(() => {
+        req.log.warn({ storyId, imageId }, "Story image storage cleanup failed.");
       });
     }
     res.sendStatus(204);

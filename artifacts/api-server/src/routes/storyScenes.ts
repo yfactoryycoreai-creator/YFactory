@@ -1,12 +1,12 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { createRequire } from "node:module";
-import type { Readable } from "node:stream";
+import { Readable } from "node:stream";
 import type { Archiver, ArchiverOptions } from "archiver";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { Router, type IRouter, type Request, type Response } from "express";
 import sharp from "sharp";
-import { deleteFirebaseStorageObject, uploadStoryImageToFirebase } from "../lib/firebaseStorage";
 import { getFirebaseAdmin, requireEncryptionKey, verifyFirebaseIdToken } from "../lib/firebaseAdmin";
+import { storyImageStorage } from "../lib/storyImageStorage";
 import {
   generateImageWithFallback,
   ImageGenerationFailure,
@@ -41,6 +41,26 @@ class StoryLimitReachedError extends Error {}
 
 function storyReference(uid: string, storyId: string) {
   return getFirebaseAdmin().db.collection("users").doc(uid).collection("stories").doc(storyId);
+}
+
+async function cloudinaryImageStream(imageUrl: string): Promise<Readable> {
+  let url: URL;
+  try {
+    url = new URL(imageUrl);
+  } catch {
+    throw new Error("The stored Cloudinary image URL is invalid.");
+  }
+  if (url.protocol !== "https:" || url.hostname !== "res.cloudinary.com") {
+    throw new Error("The stored Cloudinary image URL is not allowed.");
+  }
+  const response = await fetch(url, {
+    redirect: "error",
+    signal: AbortSignal.timeout(60_000),
+  });
+  if (!response.ok || !response.body) {
+    throw new Error(`Cloudinary image download failed (HTTP ${response.status}).`);
+  }
+  return Readable.from(response.body as AsyncIterable<Uint8Array>);
 }
 
 async function authenticatedUid(req: Request, res: Response): Promise<string | null> {
@@ -162,7 +182,7 @@ async function processSceneJob(
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), JOB_TIMEOUT_MS);
-  let uploadedPath = "";
+  let uploadedImage: Awaited<ReturnType<typeof storyImageStorage.upload>> | null = null;
   let failureCode: SceneFailureCode = "save_failed";
   try {
     const asset: GeneratedImageAsset = await generateImageWithFallback(
@@ -171,14 +191,14 @@ async function processSceneJob(
       controller.signal,
     );
     const bytes = Buffer.from(asset.base64, "base64");
-    const uploaded = await uploadStoryImageToFirebase(
+    const uploaded = await storyImageStorage.upload(
       uid,
       storyId,
       imageId,
       bytes,
       asset.mimeType,
     );
-    uploadedPath = uploaded.storagePath;
+    uploadedImage = uploaded;
 
     const saved = await db.runTransaction(async (transaction) => {
       const [storySnapshot, imageSnapshot] = await Promise.all([
@@ -202,6 +222,9 @@ async function processSceneJob(
         imageUrl: uploaded.imageUrl,
         url: uploaded.imageUrl,
         storagePath: uploaded.storagePath,
+        publicId: uploaded.publicId,
+        folder: uploaded.folder,
+        format: uploaded.format,
         sizeBytes: uploaded.sizeBytes,
         provider: asset.provider,
         status: "done",
@@ -216,9 +239,11 @@ async function processSceneJob(
       });
       return true;
     });
-    if (!saved) await deleteFirebaseStorageObject(uploaded.storagePath);
+    if (!saved) await storyImageStorage.delete(uid, uploaded);
   } catch (error) {
-    if (uploadedPath) await deleteFirebaseStorageObject(uploadedPath).catch(() => undefined);
+    if (uploadedImage) {
+      await storyImageStorage.delete(uid, uploadedImage).catch(() => undefined);
+    }
     failureCode =
       error instanceof ImageGenerationFailure ? error.code : "save_failed";
     await markSceneFailed(uid, storyId, imageId, failureCode);
@@ -607,15 +632,22 @@ router.get("/images/stories/:storyId/download.zip", async (req, res): Promise<vo
     }
     const images = imagesSnapshot.docs.flatMap((document) => {
       const data = document.data();
+      const publicId = typeof data.publicId === "string" ? data.publicId : "";
+      const imagePrefix = `users/${uid}/stories/${storyId}/images/`;
       if (data.status !== "done" || !Number.isInteger(data.index) ||
           typeof data.storagePath !== "string" ||
-          !data.storagePath.startsWith(`users/${uid}/stories/${storyId}/images/`)) {
+          !data.storagePath.startsWith(imagePrefix) ||
+          (publicId && !publicId.startsWith(imagePrefix))) {
         return [];
       }
       return [{
         id: document.id,
         index: data.index as number,
         storagePath: data.storagePath,
+        publicId,
+        imageUrl: typeof data.imageUrl === "string"
+          ? data.imageUrl
+          : typeof data.url === "string" ? data.url : "",
       }];
     }).sort((left, right) => left.index - right.index).slice(0, MAX_STORY_IMAGES);
     if (!images.length) {
@@ -653,7 +685,9 @@ router.get("/images/stories/:storyId/download.zip", async (req, res): Promise<vo
     archive.on("error", streamError);
     archive.pipe(res);
     for (const image of images) {
-      const source = storage.bucket().file(image.storagePath).createReadStream();
+      const source = image.publicId
+        ? await cloudinaryImageStream(image.imageUrl)
+        : storage.bucket().file(image.storagePath).createReadStream();
       const jpegStream = source.pipe(sharp({ limitInputPixels: 40_000_000 }).jpeg({ quality: 88 }));
       archive.append(jpegStream as Readable, {
         name: `scene-${String(image.index).padStart(3, "0")}.jpg`,

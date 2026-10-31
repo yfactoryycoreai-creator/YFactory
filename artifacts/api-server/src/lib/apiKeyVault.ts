@@ -180,7 +180,7 @@ export async function listProviderConfigs(uid: string): Promise<ProviderConfig[]
     const config = {
       id: provider.id,
       name: typeof saved?.name === "string" ? saved.name : provider.name,
-      category: (saved?.category === "storage" ? "storage" : "image") as ProviderCategory,
+      category: provider.category,
       adapter: (typeof saved?.adapter === "string" ? saved.adapter : provider.adapter) as ProviderAdapter,
       enabled: provider.id === "agnes" || provider.id === "glm"
         ? true
