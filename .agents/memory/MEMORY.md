@@ -3,3 +3,4 @@
 - [Content Factory storage model](content-factory-storage-model.md) — keep story metadata in Firestore and image bytes in Cloudinary; label quota as an estimate.
 - [Firebase database region](firebase-database-region.md) — preserve YFactory's default Firestore database in europe-west8 (Milan), Production mode.
 - [YFactory provider secrets](yfactory-provider-secrets.md) — keep Agnes/GLM credentials server-side, masked in the UI, and rotate numbered key names per provider.
+- [Archiver module loading](archiver-module-loading.md) — load Archiver v8 through its named `ZipArchive` export, not as a callable factory.

@@ -96,6 +96,21 @@ function downloadBlob(blob: Blob, filename: string): void {
   URL.revokeObjectURL(objectUrl);
 }
 
+function supportsZipFileShare(): boolean {
+  if (
+    typeof File === 'undefined' ||
+    typeof navigator.share !== 'function' ||
+    typeof navigator.canShare !== 'function'
+  ) return false;
+  try {
+    return navigator.canShare({
+      files: [new File([], 'story.zip', { type: 'application/zip' })],
+    });
+  } catch {
+    return false;
+  }
+}
+
 function waitForDelay(milliseconds: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
     if (signal.aborted) {
@@ -570,7 +585,8 @@ function StoryFactory({
     setDownloadingZip(true);
     setError('');
     setZipProgress({ completed: 0, total: 0 });
-    const downloadWindow = window.open('about:blank', '_blank');
+    const shareFallbackAvailable = supportsZipFileShare();
+    const downloadWindow = shareFallbackAvailable ? null : window.open('about:blank', '_blank');
     const controller = makeController();
     try {
       const download = await createStoryZipDownloadToken(
@@ -581,7 +597,20 @@ function StoryFactory({
       setZipProgress({ completed: 0, total: download.imageCount });
       const destination = new URL(download.downloadUrl, window.location.href).toString();
       if (downloadWindow) downloadWindow.location.assign(destination);
-      else window.location.assign(destination);
+      else if (shareFallbackAvailable) {
+        const response = await fetch(destination, { signal: controller.signal });
+        if (!response.ok) throw new Error('zip_failed');
+        const blob = await response.blob();
+        const filename = `${selectedStory.storyName.replace(/[^a-z0-9_-]+/gi, '_').slice(0, 70) || 'story'}.zip`;
+        const file = new File([blob], filename, { type: 'application/zip' });
+        try {
+          await navigator.share({ files: [file], title: selectedStory.storyName });
+        } catch (shareError) {
+          if (!(shareError instanceof DOMException && shareError.name === 'AbortError')) {
+            downloadBlob(blob, filename);
+          }
+        }
+      } else window.location.assign(destination);
 
       const startedAt = Date.now();
       let isComplete = false;

@@ -15,10 +15,9 @@ import {
 } from "../lib/imageGeneration";
 import { logger } from "../lib/logger";
 
-const archiver = createRequire(import.meta.url)("archiver") as (
-  format: "zip",
-  options: ArchiverOptions,
-) => Archiver;
+const { ZipArchive } = createRequire(import.meta.url)("archiver") as {
+  ZipArchive: new (options: ArchiverOptions) => Archiver;
+};
 const router: IRouter = Router();
 const MAX_STORY_IMAGES = 100;
 const MAX_SCENE_CONCURRENCY = 2;
@@ -63,15 +62,18 @@ async function cloudinaryImageStream(imageUrl: string): Promise<Readable> {
   return Readable.from(response.body as AsyncIterable<Uint8Array>);
 }
 
-function storyZipFailureCode(error: unknown): string {
+function storyZipFailureCode(error: unknown, stage: string): string {
   if (!(error instanceof Error)) return "unknown";
   const cloudinaryStatus = error.message.match(/^Cloudinary image download failed \(HTTP (\d{3})\)\.$/);
-  if (cloudinaryStatus) return `cloudinary_http_${cloudinaryStatus[1]}`;
-  if (error.message === "The stored Cloudinary image URL is invalid.") return "invalid_image_url";
-  if (error.message === "The stored Cloudinary image URL is not allowed.") return "disallowed_image_url";
+  if (cloudinaryStatus?.[1] === "404") return "not_found";
+  if (cloudinaryStatus?.[1] === "401" || cloudinaryStatus?.[1] === "403") return "forbidden";
+  if (cloudinaryStatus) return "network";
+  if (error.message === "The stored Cloudinary image URL is invalid." ||
+      error.message === "The stored Cloudinary image URL is not allowed.") return "bad_url";
   if (error.message === "ZIP token reference is unavailable.") return "missing_progress_reference";
   if (error.message === "ZIP stream closed early.") return "stream_closed_early";
-  if (error.name === "TimeoutError" || error.name === "AbortError") return "image_fetch_timeout";
+  if (error.name === "TimeoutError" || error.name === "AbortError") return "timeout";
+  if (error.name === "TypeError" && stage === "fetch_asset") return "network";
   if (/input buffer|unsupported image format/i.test(error.message)) return "image_decode_failed";
   return error.name.toLowerCase().replace(/[^a-z0-9_]/g, "_").slice(0, 40) || "unknown";
 }
@@ -609,7 +611,7 @@ router.get("/images/stories/:storyId/download.zip", async (req, res): Promise<vo
   const tokenRefPath = digest;
   let tokenRef: FirebaseFirestore.DocumentReference | null = null;
   const uid = tokenOwner.uid;
-  let stage = "load_download_token";
+  let stage = "auth";
   try {
     const db = getFirebaseAdmin().db;
     tokenRef = storyReference(uid, storyId).collection("downloadTokens").doc(tokenRefPath);
@@ -635,7 +637,7 @@ router.get("/images/stories/:storyId/download.zip", async (req, res): Promise<vo
       return;
     }
 
-    stage = "load_story_images";
+    stage = "list_images";
     const storyRef = storyReference(uid, storyId);
     const [storySnapshot, imagesSnapshot] = await Promise.all([
       storyRef.get(),
@@ -678,7 +680,9 @@ router.get("/images/stories/:storyId/download.zip", async (req, res): Promise<vo
     res.setHeader("Content-Disposition", `attachment; filename="${filename}.zip"`);
     res.setHeader("Cache-Control", "private, no-store");
 
-    const archive = archiver("zip", { zlib: { level: 1 } });
+    stage = "init_zip_stream";
+    stage = "stream_zip";
+    const archive = new ZipArchive({ zlib: { level: 1 } });
     const { storage } = getFirebaseAdmin();
     let completedCount = 0;
     const progressRef = tokenRef;
@@ -694,7 +698,7 @@ router.get("/images/stories/:storyId/download.zip", async (req, res): Promise<vo
     });
     const streamError = (streamError: Error) => {
       logger.warn(
-        { storyId, stage: "archive_stream", reason: storyZipFailureCode(streamError) },
+        { storyId, stage: "stream_zip", reason: storyZipFailureCode(streamError, "stream_zip") },
         "Story ZIP streaming failed.",
       );
       if (!res.headersSent) res.status(502);
@@ -704,7 +708,7 @@ router.get("/images/stories/:storyId/download.zip", async (req, res): Promise<vo
     archive.pipe(res);
     const sceneNumberWidth = images.length > 99 ? 3 : 2;
     for (const image of images) {
-      stage = `load_scene_${image.index}`;
+      stage = "fetch_asset";
       const source = image.publicId
         ? await cloudinaryImageStream(image.imageUrl)
         : storage.bucket().file(image.storagePath).createReadStream();
@@ -713,7 +717,7 @@ router.get("/images/stories/:storyId/download.zip", async (req, res): Promise<vo
         name: `scene_${String(image.index).padStart(sceneNumberWidth, "0")}.jpg`,
       });
     }
-    stage = "finalize_archive";
+    stage = "stream_zip";
     await archive.finalize();
     stage = "wait_for_response";
     await new Promise<void>((resolve, reject) => {
@@ -740,7 +744,7 @@ router.get("/images/stories/:storyId/download.zip", async (req, res): Promise<vo
       await failedRef.update({ status: "failed" }).catch(() => undefined);
     }
     logger.warn(
-      { storyId, stage, reason: storyZipFailureCode(error) },
+      { storyId, stage, reason: storyZipFailureCode(error, stage) },
       "Could not complete story ZIP download.",
     );
     if (!res.headersSent) {
