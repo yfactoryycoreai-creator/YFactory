@@ -19,6 +19,9 @@ import { firestore } from '@/lib/firebase';
 export const MAX_STORY_IMAGES = 100;
 export const STORY_PAGE_SIZE = 50;
 
+export type StoryAspectRatio = '16:9' | '9:16' | '1:1';
+export type StorySceneTextSource = 'glm' | 'template' | 'edited';
+
 export type StoryRecord = {
   id: string;
   storyName: string;
@@ -27,6 +30,11 @@ export type StoryRecord = {
   imageCount: number;
   storageBytes: number;
   targetCount: number;
+  aspectRatio: StoryAspectRatio;
+  characterTraits: string[];
+  keepOneProvider: boolean;
+  lockedProvider?: string;
+  providerSwitchPending: boolean;
 };
 
 export type StoryImageRecord = {
@@ -49,6 +57,12 @@ export type StoryImageRecord = {
   legacyGrid: boolean;
   batchId?: string;
   batchTotal?: number;
+  motionPrompt: string;
+  narration: string;
+  negativeText: string;
+  motionPromptSource?: StorySceneTextSource;
+  narrationSource?: StorySceneTextSource;
+  suggestedProvider?: string;
 };
 
 export type SceneGenerationResponse = {
@@ -101,6 +115,9 @@ function storyImagesCollection(uid: string, storyId: string) {
 }
 
 function normalizeStory(id: string, data: DocumentData): StoryRecord {
+  const aspectRatio = data.aspectRatio === '16:9' || data.aspectRatio === '9:16'
+    ? data.aspectRatio
+    : '1:1';
   return {
     id,
     storyName: typeof data.storyName === 'string' ? data.storyName : '',
@@ -120,6 +137,13 @@ function normalizeStory(id: string, data: DocumentData): StoryRecord {
       data.targetCount <= MAX_STORY_IMAGES
         ? data.targetCount
         : 10,
+    aspectRatio,
+    characterTraits: Array.isArray(data.characterTraits)
+      ? data.characterTraits.filter((trait: unknown): trait is string => typeof trait === 'string').slice(0, 3)
+      : [],
+    keepOneProvider: data.keepOneProvider === true,
+    ...(typeof data.lockedProvider === 'string' ? { lockedProvider: data.lockedProvider } : {}),
+    providerSwitchPending: data.providerSwitchPending === true,
   };
 }
 
@@ -165,6 +189,20 @@ function normalizeImage(id: string, data: DocumentData): StoryImageRecord {
     legacyGrid: isLegacyGrid,
     batchId: typeof data.batchId === 'string' ? data.batchId : undefined,
     batchTotal: typeof data.batchTotal === 'number' ? data.batchTotal : undefined,
+    motionPrompt: typeof data.motionPrompt === 'string' ? data.motionPrompt : '',
+    narration: typeof data.narration === 'string' ? data.narration : '',
+    negativeText: typeof data.negativeText === 'string' ? data.negativeText : '',
+    motionPromptSource:
+      data.motionPromptSource === 'glm' || data.motionPromptSource === 'template' ||
+      data.motionPromptSource === 'edited'
+        ? data.motionPromptSource
+        : undefined,
+    narrationSource:
+      data.narrationSource === 'glm' || data.narrationSource === 'template' ||
+      data.narrationSource === 'edited'
+        ? data.narrationSource
+        : undefined,
+    suggestedProvider: typeof data.suggestedProvider === 'string' ? data.suggestedProvider : undefined,
   };
 }
 
@@ -281,6 +319,10 @@ export async function createStory(uid: string, storyName: string): Promise<strin
     imageCount: 0,
     storageBytes: 0,
     targetCount: 10,
+    aspectRatio: '1:1',
+    characterTraits: [],
+    keepOneProvider: false,
+    providerSwitchPending: false,
   });
   return storyRef.id;
 }
@@ -291,6 +333,126 @@ export async function updateStoryScript(
   script: string,
 ): Promise<void> {
   await updateDoc(storyDocument(uid, storyId), { script });
+}
+
+export async function updateStorySettings(
+  storyId: string,
+  settings: {
+    aspectRatio: StoryAspectRatio;
+    characterTraits: string[];
+    keepOneProvider: boolean;
+  },
+  idToken: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  const response = await fetch(
+    `/api/images/stories/${encodeURIComponent(storyId)}/settings`,
+    {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${idToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(settings),
+      signal,
+    },
+  );
+  if (!response.ok) {
+    throw new Error(await readApiError(response, 'Story settings could not be saved.'));
+  }
+}
+
+export async function updateStorySceneText(
+  storyId: string,
+  imageId: string,
+  text: { motionPrompt: string; narration: string; negativeText: string },
+  idToken: string,
+  signal?: AbortSignal,
+): Promise<{ motionPrompt: string; narration: string; negativeText: string }> {
+  const response = await fetch(
+    `/api/images/stories/${encodeURIComponent(storyId)}/scenes/${encodeURIComponent(imageId)}/text`,
+    {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${idToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(text),
+      signal,
+    },
+  );
+  const payload: unknown = await response.json().catch(() => null);
+  if (!response.ok || !payload || typeof payload !== 'object') {
+    throw new Error(
+      payload && typeof payload === 'object' && typeof (payload as Record<string, unknown>).error === 'string'
+        ? String((payload as Record<string, unknown>).error)
+        : 'Scene text could not be saved.',
+    );
+  }
+  const record = payload as Record<string, unknown>;
+  if (
+    typeof record.motionPrompt !== 'string' ||
+    typeof record.narration !== 'string' ||
+    typeof record.negativeText !== 'string'
+  ) throw new Error('The scene text response was invalid.');
+  return {
+    motionPrompt: record.motionPrompt,
+    narration: record.narration,
+    negativeText: record.negativeText,
+  };
+}
+
+export async function regenerateStorySceneText(
+  storyId: string,
+  imageId: string,
+  idToken: string,
+  signal?: AbortSignal,
+): Promise<Pick<StoryImageRecord, 'motionPrompt' | 'narration' | 'motionPromptSource' | 'narrationSource'>> {
+  const response = await fetch(
+    `/api/images/stories/${encodeURIComponent(storyId)}/scenes/${encodeURIComponent(imageId)}/text/regenerate`,
+    {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${idToken}` },
+      signal,
+    },
+  );
+  const payload: unknown = await response.json().catch(() => null);
+  if (!response.ok || !payload || typeof payload !== 'object') {
+    throw new Error(
+      payload && typeof payload === 'object' && typeof (payload as Record<string, unknown>).error === 'string'
+        ? String((payload as Record<string, unknown>).error)
+        : 'Scene text could not be regenerated.',
+    );
+  }
+  const record = payload as Record<string, unknown>;
+  if (typeof record.motionPrompt !== 'string' || typeof record.narration !== 'string') {
+    throw new Error('The scene text response was invalid.');
+  }
+  return {
+    motionPrompt: record.motionPrompt,
+    narration: record.narration,
+    motionPromptSource: record.motionPromptSource === 'template' ? 'template' : 'glm',
+    narrationSource: record.narrationSource === 'template' ? 'template' : 'glm',
+  };
+}
+
+export async function confirmStoryProviderSwitch(
+  storyId: string,
+  imageId: string,
+  idToken: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  const response = await fetch(
+    `/api/images/stories/${encodeURIComponent(storyId)}/scenes/${encodeURIComponent(imageId)}/provider-switch/confirm`,
+    {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${idToken}` },
+      signal,
+    },
+  );
+  if (!response.ok) {
+    throw new Error(await readApiError(response, 'The provider change could not be approved.'));
+  }
 }
 
 export async function saveImageToStory(
@@ -335,6 +497,9 @@ export async function saveImageToStory(
     ...(typeof record.folder === 'string' ? { folder: record.folder } : {}),
     ...(typeof record.sequence === 'number' ? { sequence: record.sequence } : {}),
     ...(typeof record.index === 'number' ? { index: record.index } : {}),
+    motionPrompt: '',
+    narration: '',
+    negativeText: '',
     status: 'done',
     legacyGrid: false,
   };

@@ -13,7 +13,17 @@ import {
   type GeneratedImageAsset,
   type SceneFailureCode,
 } from "../lib/imageGeneration";
+import { keyPool, type KeyPoolProvider } from "../lib/keyPool";
 import { logger } from "../lib/logger";
+import { createStoryPackTextFiles, storySceneFilename } from "../lib/storyPack";
+import {
+  generateStorySceneCopy,
+  isKeyPoolProvider,
+  normalizeStoryMotionPrompt,
+  normalizeStoryNarration,
+  templateSceneCopy,
+  type SceneCopyInput,
+} from "../lib/storyTextGeneration";
 
 const { ZipArchive } = createRequire(import.meta.url)("archiver") as {
   ZipArchive: new (options: ArchiverOptions) => Archiver;
@@ -30,6 +40,7 @@ type SceneJob = {
   id: string;
   index: number;
   scenePrompt: string;
+  negativeText: string;
   batchId: string;
   batchTotal: number;
   status: "pending" | "generating" | "done" | "failed";
@@ -37,6 +48,44 @@ type SceneJob = {
 
 class StoryNotFoundError extends Error {}
 class StoryLimitReachedError extends Error {}
+class ProviderSwitchApprovalRequired extends Error {
+  constructor(public readonly provider: KeyPoolProvider) {
+    super("A different image provider needs approval.");
+  }
+}
+
+type StoryAspectRatio = "16:9" | "9:16" | "1:1";
+const STORY_ASPECT_RATIOS = new Set<StoryAspectRatio>(["16:9", "9:16", "1:1"]);
+const STORY_IMAGE_PROVIDERS = new Set<KeyPoolProvider>([
+  "agnes",
+  "cloudflare",
+  "glm",
+  "pollinations",
+]);
+
+function createStoryLockedPool(
+  lockedProvider: KeyPoolProvider,
+): Pick<typeof keyPool, "run"> {
+  let lockedProviderAttempted = false;
+  return {
+    run: (...args) => {
+      const [provider] = args;
+      if (provider === lockedProvider) {
+        lockedProviderAttempted = true;
+        return keyPool.run(...args);
+      }
+      if (!lockedProviderAttempted) {
+        return Promise.resolve({
+          ok: false,
+          code: "no_credentials",
+          message: "The story provider is locked.",
+          attempts: [],
+        });
+      }
+      throw new ProviderSwitchApprovalRequired(provider);
+    },
+  };
+}
 
 function storyReference(uid: string, storyId: string) {
   return getFirebaseAdmin().db.collection("users").doc(uid).collection("stories").doc(storyId);
@@ -107,7 +156,11 @@ function isValidTargetCount(value: unknown): value is number {
     value <= MAX_STORY_IMAGES;
 }
 
-function splitScenarioIntoMoments(scenario: string, count: number): string[] {
+function splitScenarioIntoMoments(
+  scenario: string,
+  count: number,
+  characterTraits: string[] = [],
+): string[] {
   const storyText = scenario.trim();
   const clauses = storyText
     .split(/(?:\r?\n+|(?<=[.!?؟。])\s+)/u)
@@ -146,6 +199,9 @@ function splitScenarioIntoMoments(scenario: string, count: number): string[] {
   ].join(" ");
   const imageRestriction =
     "single image, one scene only, no grid, no collage, no panels, no text overlay";
+  const characterTraitPrefix = characterTraits.length
+    ? `Character traits to keep consistent: ${characterTraits.join("; ")}.\n`
+    : "";
 
   return moments.map((moment, index) => {
     const focus = count === 1
@@ -155,7 +211,7 @@ function splitScenarioIntoMoments(scenario: string, count: number): string[] {
           ? "Choose the most important opening moment from the first part of the story."
           : "Choose the most important climax or resolution moment from the final part of the story."
         : "Choose one important moment from this chronological portion of the full story.";
-    return `${styleAndCharacterBible}\nScene ${index + 1} of ${count}: ${focus} Depict one frozen visual moment from this story segment: ${moment}. ` +
+    return `${characterTraitPrefix}${styleAndCharacterBible}\nScene ${index + 1} of ${count}: ${focus} Depict one frozen visual moment from this story segment: ${moment}. ` +
       `Keep the progression from beginning to end and show no other time or event. ${imageRestriction}.`;
   });
 }
@@ -187,8 +243,14 @@ async function processSceneJob(
   const storyRef = storyReference(uid, storyId);
   const imageRef = storyRef.collection("images").doc(imageId);
   const claimed = await db.runTransaction(async (transaction) => {
-    const imageSnapshot = await transaction.get(imageRef);
-    if (!imageSnapshot.exists || imageSnapshot.data()?.status !== "pending") return null;
+    const [storySnapshot, imageSnapshot] = await Promise.all([
+      transaction.get(storyRef),
+      transaction.get(imageRef),
+    ]);
+    if (!storySnapshot.exists || !imageSnapshot.exists ||
+        imageSnapshot.data()?.status !== "pending") return null;
+    const storyData = storySnapshot.data() ?? {};
+    if (storyData.providerSwitchPending === true) return null;
     const data = imageSnapshot.data() ?? {};
     transaction.update(imageRef, {
       status: "generating",
@@ -199,7 +261,13 @@ async function processSceneJob(
     return {
       index: Number(data.index) || 0,
       scenePrompt: typeof data.scenePrompt === "string" ? data.scenePrompt : "",
-    } satisfies Pick<SceneJob, "index" | "scenePrompt">;
+      negativeText: typeof data.negativeText === "string" ? data.negativeText : "",
+      keepOneProvider: storyData.keepOneProvider === true,
+      lockedProvider: isKeyPoolProvider(storyData.lockedProvider) &&
+          STORY_IMAGE_PROVIDERS.has(storyData.lockedProvider)
+        ? storyData.lockedProvider
+        : null,
+    };
   });
   if (!claimed?.scenePrompt || claimed.index < 1 || claimed.index > MAX_STORY_IMAGES) return;
 
@@ -208,10 +276,19 @@ async function processSceneJob(
   let uploadedImage: Awaited<ReturnType<typeof storyImageStorage.upload>> | null = null;
   let failureCode: SceneFailureCode = "save_failed";
   try {
+    const lockedPool = claimed.keepOneProvider && claimed.lockedProvider
+      ? createStoryLockedPool(claimed.lockedProvider)
+      : undefined;
     const asset: GeneratedImageAsset = await generateImageWithFallback(
-      claimed.scenePrompt,
+      [
+        claimed.scenePrompt,
+        claimed.negativeText
+          ? `Negative instructions (exclude these elements): ${claimed.negativeText}`
+          : "",
+      ].filter(Boolean).join("\n"),
       fetch,
       controller.signal,
+      lockedPool,
     );
     const bytes = Buffer.from(asset.base64, "base64");
     const uploaded = await storyImageStorage.upload(
@@ -231,7 +308,16 @@ async function processSceneJob(
       if (!storySnapshot.exists || !imageSnapshot.exists) return false;
       const imageData = imageSnapshot.data() ?? {};
       if (imageData.status !== "generating") return false;
-      const imageCount = Math.max(0, Math.floor(Number(storySnapshot.data()?.imageCount) || 0));
+      const storyData = storySnapshot.data() ?? {};
+      if (storyData.keepOneProvider === true &&
+          isKeyPoolProvider(storyData.lockedProvider) &&
+          STORY_IMAGE_PROVIDERS.has(storyData.lockedProvider) &&
+          isKeyPoolProvider(asset.provider) &&
+          STORY_IMAGE_PROVIDERS.has(asset.provider) &&
+          asset.provider !== storyData.lockedProvider) {
+        throw new ProviderSwitchApprovalRequired(asset.provider);
+      }
+      const imageCount = Math.max(0, Math.floor(Number(storyData.imageCount) || 0));
       if (imageCount >= MAX_STORY_IMAGES) {
         transaction.update(imageRef, {
           status: "failed",
@@ -259,6 +345,11 @@ async function processSceneJob(
       transaction.update(storyRef, {
         imageCount: FieldValue.increment(1),
         storageBytes: FieldValue.increment(uploaded.sizeBytes),
+        ...(storyData.keepOneProvider === true &&
+          !(isKeyPoolProvider(storyData.lockedProvider) &&
+            STORY_IMAGE_PROVIDERS.has(storyData.lockedProvider))
+          ? { lockedProvider: asset.provider }
+          : {}),
       });
       return true;
     });
@@ -267,8 +358,27 @@ async function processSceneJob(
     if (uploadedImage) {
       await storyImageStorage.delete(uid, uploadedImage).catch(() => undefined);
     }
-    failureCode =
-      error instanceof ImageGenerationFailure ? error.code : "save_failed";
+    if (error instanceof ProviderSwitchApprovalRequired) {
+      await Promise.all([
+        imageRef.update({
+          status: "failed",
+          error: "provider_switch_pending",
+          suggestedProvider: error.provider,
+          generationStartedAt: FieldValue.delete(),
+          updatedAt: FieldValue.serverTimestamp(),
+        }),
+        storyRef.update({
+          providerSwitchPending: true,
+          updatedAt: FieldValue.serverTimestamp(),
+        }),
+      ]).catch(() => undefined);
+      logger.info(
+        { storyId, imageId, suggestedProvider: error.provider },
+        "Story scene paused for provider approval.",
+      );
+      return;
+    }
+    failureCode = error instanceof ImageGenerationFailure ? error.code : "save_failed";
     await markSceneFailed(uid, storyId, imageId, failureCode);
     logger.warn({ storyId, imageId, reason: failureCode }, "A story scene job failed.");
   } finally {
@@ -281,10 +391,21 @@ async function processSceneQueue(uid: string, storyId: string, imageIds: string[
   if (!jobs.length) return;
   for (const imageId of jobs) activeSceneJobs.add(imageId);
   try {
+    const storyRef = storyReference(uid, storyId);
+    const storySnapshot = await storyRef.get();
+    const storyData = storySnapshot.data() ?? {};
+    if (storyData.providerSwitchPending === true) return;
     let cursor = 0;
-    const workerCount = Math.min(MAX_SCENE_CONCURRENCY, jobs.length);
+    const workerCount = Math.min(
+      storyData.keepOneProvider === true ? 1 : MAX_SCENE_CONCURRENCY,
+      jobs.length,
+    );
     await Promise.all(Array.from({ length: workerCount }, async () => {
       while (cursor < jobs.length) {
+        if (workerCount === 1) {
+          const currentStory = await storyRef.get();
+          if (currentStory.data()?.providerSwitchPending === true) break;
+        }
         const imageId = jobs[cursor];
         cursor += 1;
         if (!imageId) continue;
@@ -308,6 +429,185 @@ function launchSceneQueue(uid: string, storyId: string, imageIds: string[]): voi
     logger.warn({ storyId }, "A story scene queue stopped unexpectedly.");
   });
 }
+
+router.patch("/images/stories/:storyId/settings", async (req, res): Promise<void> => {
+  const uid = await authenticatedUid(req, res);
+  if (!uid) return;
+  const storyId = String(req.params.storyId ?? "");
+  const aspectRatio = req.body?.aspectRatio;
+  const keepOneProvider = req.body?.keepOneProvider;
+  const rawTraits = req.body?.characterTraits;
+  const characterTraits = Array.isArray(rawTraits)
+    ? rawTraits.map((trait: unknown) => typeof trait === "string" ? trait.trim() : "")
+      .filter(Boolean)
+    : null;
+  if (!validStoryId(storyId) ||
+      typeof aspectRatio !== "string" ||
+      !STORY_ASPECT_RATIOS.has(aspectRatio as StoryAspectRatio) ||
+      typeof keepOneProvider !== "boolean" ||
+      !characterTraits ||
+      characterTraits.length > 3 ||
+      characterTraits.some((trait: string) => trait.length > 80)) {
+    res.status(400).json({
+      error: "Choose a supported aspect ratio, up to three character traits, and a provider-lock setting.",
+      code: "invalid_story_settings",
+    });
+    return;
+  }
+
+  try {
+    const storyRef = storyReference(uid, storyId);
+    const storySnapshot = await storyRef.get();
+    if (!storySnapshot.exists) {
+      res.status(404).json({ error: "This story could not be found.", code: "story_not_found" });
+      return;
+    }
+    const current = storySnapshot.data() ?? {};
+    let lockedProvider: KeyPoolProvider | null = null;
+    if (keepOneProvider) {
+      if (isKeyPoolProvider(current.lockedProvider) &&
+          STORY_IMAGE_PROVIDERS.has(current.lockedProvider)) {
+        lockedProvider = current.lockedProvider;
+      } else {
+        const imageSnapshot = await storyRef.collection("images").limit(MAX_STORY_IMAGES).get();
+        const firstProviderImage = imageSnapshot.docs
+          .map((document) => document.data())
+          .filter((image) =>
+            image.status === "done" &&
+            Number.isInteger(image.index) &&
+            isKeyPoolProvider(image.provider) &&
+            STORY_IMAGE_PROVIDERS.has(image.provider),
+          )
+          .sort((left, right) => Number(left.index) - Number(right.index))[0];
+        if (firstProviderImage && isKeyPoolProvider(firstProviderImage.provider)) {
+          lockedProvider = firstProviderImage.provider;
+        }
+      }
+    }
+    await storyRef.update({
+      aspectRatio,
+      characterTraits,
+      keepOneProvider,
+      lockedProvider: keepOneProvider && lockedProvider
+        ? lockedProvider
+        : FieldValue.delete(),
+      providerSwitchPending: keepOneProvider
+        ? current.providerSwitchPending === true
+        : false,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    if (!keepOneProvider && current.providerSwitchPending === true) {
+      const failedScenes = await storyRef.collection("images")
+        .where("status", "==", "failed")
+        .limit(MAX_STORY_IMAGES)
+        .get();
+      const switchScenes = failedScenes.docs.filter(
+        (document) => document.data().error === "provider_switch_pending",
+      );
+      await Promise.all(switchScenes.map((document) => document.ref.update({
+        status: "pending",
+        error: "",
+        suggestedProvider: FieldValue.delete(),
+        updatedAt: FieldValue.serverTimestamp(),
+      })));
+      const pendingScenes = await storyRef.collection("images")
+        .where("status", "==", "pending")
+        .limit(MAX_STORY_IMAGES)
+        .get();
+      const imageIds = pendingScenes.docs
+        .filter((document) =>
+          Number(document.data().index ?? document.data().sequence) <=
+          (isValidTargetCount(current.targetCount) ? current.targetCount : 10),
+        )
+        .sort((left, right) =>
+          Number(left.data().index ?? left.data().sequence) -
+          Number(right.data().index ?? right.data().sequence),
+        )
+        .map((document) => document.id);
+      launchSceneQueue(uid, storyId, imageIds);
+    }
+    res.json({ aspectRatio, characterTraits, keepOneProvider, lockedProvider });
+  } catch {
+    logger.warn({ storyId }, "Could not save story settings.");
+    res.status(500).json({ error: "Story settings could not be saved.", code: "story_settings_save_failed" });
+  }
+});
+
+router.patch("/images/stories/:storyId/scenes/:imageId/text", async (req, res): Promise<void> => {
+  const uid = await authenticatedUid(req, res);
+  if (!uid) return;
+  const storyId = String(req.params.storyId ?? "");
+  const imageId = String(req.params.imageId ?? "");
+  const motionPrompt = typeof req.body?.motionPrompt === "string"
+    ? normalizeStoryMotionPrompt(req.body.motionPrompt)
+    : null;
+  const narration = typeof req.body?.narration === "string"
+    ? normalizeStoryNarration(req.body.narration)
+    : null;
+  const negativeText = typeof req.body?.negativeText === "string"
+    ? req.body.negativeText.trim()
+    : null;
+  if (!validStoryId(storyId) || !validStoryId(imageId) ||
+      !motionPrompt || !narration || negativeText === null || negativeText.length > 200) {
+    res.status(400).json({ error: "Check the motion, narration, and negative text limits.", code: "invalid_scene_text" });
+    return;
+  }
+  try {
+    const imageRef = storyReference(uid, storyId).collection("images").doc(imageId);
+    const imageSnapshot = await imageRef.get();
+    if (!imageSnapshot.exists || imageSnapshot.data()?.legacyGrid === true) {
+      res.status(404).json({ error: "This scene could not be found.", code: "scene_not_found" });
+      return;
+    }
+    await imageRef.update({
+      motionPrompt,
+      narration,
+      negativeText,
+      motionPromptSource: "edited",
+      narrationSource: "edited",
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    res.json({ motionPrompt, narration, negativeText });
+  } catch {
+    logger.warn({ storyId, imageId }, "Could not save story scene text.");
+    res.status(500).json({ error: "Scene text could not be saved.", code: "scene_text_save_failed" });
+  }
+});
+
+router.post("/images/stories/:storyId/scenes/:imageId/text/regenerate", async (req, res): Promise<void> => {
+  const uid = await authenticatedUid(req, res);
+  if (!uid) return;
+  const storyId = String(req.params.storyId ?? "");
+  const imageId = String(req.params.imageId ?? "");
+  if (!validStoryId(storyId) || !validStoryId(imageId)) {
+    res.status(400).json({ error: "The scene reference is invalid.", code: "invalid_request" });
+    return;
+  }
+  try {
+    const imageRef = storyReference(uid, storyId).collection("images").doc(imageId);
+    const imageSnapshot = await imageRef.get();
+    const imageData = imageSnapshot.data() ?? {};
+    const index = Number(imageData.index);
+    const scenePrompt = typeof imageData.scenePrompt === "string" ? imageData.scenePrompt : "";
+    if (!imageSnapshot.exists || !scenePrompt || !Number.isInteger(index)) {
+      res.status(404).json({ error: "This scene could not be found.", code: "scene_not_found" });
+      return;
+    }
+    const [copy] = await generateStorySceneCopy([{ index, scenePrompt }]);
+    if (!copy) throw new Error("Scene text could not be generated.");
+    await imageRef.update({
+      motionPrompt: copy.motionPrompt,
+      narration: copy.narration,
+      motionPromptSource: copy.motionPromptSource,
+      narrationSource: copy.narrationSource,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    res.json(copy);
+  } catch {
+    logger.warn({ storyId, imageId }, "Could not regenerate scene text.");
+    res.status(500).json({ error: "Scene text could not be regenerated.", code: "scene_text_regenerate_failed" });
+  }
+});
 
 router.patch("/images/stories/:storyId/target-count", async (req, res): Promise<void> => {
   const uid = await authenticatedUid(req, res);
@@ -368,6 +668,43 @@ router.post("/images/stories/:storyId/scenes", async (req, res): Promise<void> =
   try {
     const storyRef = storyReference(uid, storyId);
     const db = getFirebaseAdmin().db;
+    const [preflightStory, preflightImages] = await Promise.all([
+      storyRef.get(),
+      storyRef.collection("images").limit(MAX_STORY_IMAGES).get(),
+    ]);
+    if (!preflightStory.exists) throw new StoryNotFoundError();
+    const storyData = preflightStory.data() ?? {};
+    const currentCount = Math.max(0, Math.floor(Number(storyData.imageCount) || 0));
+    const traits = Array.isArray(storyData.characterTraits)
+      ? storyData.characterTraits.filter((trait): trait is string => typeof trait === "string").slice(0, 3)
+      : [];
+    const occupiedIndexes = new Set<number>();
+    for (const document of preflightImages.docs) {
+      const data = document.data();
+      const index = Number(data.index ?? data.sequence);
+      if ((data.status === "pending" || data.status === "failed") &&
+          Number.isInteger(index) && index > requestedCount) continue;
+      if (Number.isInteger(index) && index >= 1 && index <= MAX_STORY_IMAGES) {
+        occupiedIndexes.add(index);
+      }
+    }
+    const candidateIndexes = Array.from(
+      { length: requestedCount },
+      (_, index) => index + 1,
+    ).filter((index) => !occupiedIndexes.has(index));
+    const plannedCount = Math.max(
+      0,
+      Math.min(candidateIndexes.length, requestedCount - currentCount, MAX_STORY_IMAGES - currentCount),
+    );
+    const plannedIndexes = candidateIndexes.slice(0, plannedCount);
+    const prompts = splitScenarioIntoMoments(prompt, requestedCount, traits);
+    const textInputs: SceneCopyInput[] = plannedIndexes.map((index) => ({
+      index,
+      scenePrompt: prompts[index - 1] ?? prompts.at(-1) ?? prompt,
+    }));
+    const copyByIndex = new Map(
+      (await generateStorySceneCopy(textInputs)).map((copy) => [copy.index, copy]),
+    );
     const batchId = randomBytes(16).toString("hex");
     const result = await db.runTransaction(async (transaction) => {
       const [storySnapshot, imagesSnapshot] = await Promise.all([
@@ -403,16 +740,22 @@ router.post("/images/stories/:storyId/scenes", async (req, res): Promise<void> =
         ),
       );
       const sceneIndexes = availableIndexes.slice(0, available);
-      const prompts = splitScenarioIntoMoments(prompt, requestedCount);
       const batchTotal = sceneIndexes.length;
       const jobs: SceneJob[] = [];
       for (const sceneIndex of sceneIndexes) {
         const imageRef = storyRef.collection("images").doc();
         const scenePrompt = prompts[sceneIndex - 1] ?? prompts.at(-1) ?? prompt;
+        const sceneCopy = copyByIndex.get(sceneIndex) ??
+          templateSceneCopy({ index: sceneIndex, scenePrompt });
         transaction.create(imageRef, {
           index: sceneIndex,
           scenePrompt,
           prompt: scenePrompt,
+          motionPrompt: sceneCopy.motionPrompt,
+          narration: sceneCopy.narration,
+          motionPromptSource: sceneCopy.motionPromptSource,
+          narrationSource: sceneCopy.narrationSource,
+          negativeText: "",
           imageUrl: "",
           url: "",
           storagePath: "",
@@ -424,7 +767,15 @@ router.post("/images/stories/:storyId/scenes", async (req, res): Promise<void> =
           createdAt: FieldValue.serverTimestamp(),
           updatedAt: FieldValue.serverTimestamp(),
         });
-        jobs.push({ id: imageRef.id, index: sceneIndex, scenePrompt, batchId, batchTotal, status: "pending" });
+        jobs.push({
+          id: imageRef.id,
+          index: sceneIndex,
+          scenePrompt,
+          negativeText: "",
+          batchId,
+          batchTotal,
+          status: "pending",
+        });
       }
       transaction.update(storyRef, {
         targetCount: requestedCount,
@@ -477,6 +828,13 @@ router.post("/images/stories/:storyId/scenes/resume", async (req, res): Promise<
       return;
     }
     const storyData = storySnapshot.data() ?? {};
+    if (storyData.providerSwitchPending === true) {
+      res.status(409).json({
+        error: "Approve a provider change before resuming this story.",
+        code: "provider_switch_pending",
+      });
+      return;
+    }
     const targetCount = isValidTargetCount(storyData.targetCount) ? storyData.targetCount : 10;
     const snapshot = await storyRef.collection("images").limit(MAX_STORY_IMAGES).get();
     const now = Date.now();
@@ -503,6 +861,10 @@ router.post("/images/stories/:storyId/scenes/resume", async (req, res): Promise<
         const data = document.data();
         return Number(data.index ?? data.sequence) <= targetCount;
       })
+      .sort((left, right) =>
+        Number(left.data().index ?? left.data().sequence) -
+        Number(right.data().index ?? right.data().sequence),
+      )
       .map((document) => document.id);
     launchSceneQueue(uid, storyId, imageIds);
     res.json({ resumedCount: imageIds.length });
@@ -532,6 +894,9 @@ router.post("/images/stories/:storyId/images/:imageId/retry", async (req, res): 
       if (!storySnapshot.exists || !imageSnapshot.exists) throw new StoryNotFoundError();
       if (imageSnapshot.data()?.status !== "failed") throw new Error("Scene is not retryable.");
       const storyData = storySnapshot.data() ?? {};
+      if (storyData.providerSwitchPending === true) {
+        throw new Error("Provider switch approval is required.");
+      }
       const targetCount = isValidTargetCount(storyData.targetCount) ? storyData.targetCount : 10;
       const imageIndex = Number(imageSnapshot.data()?.index ?? imageSnapshot.data()?.sequence);
       if (!Number.isInteger(imageIndex) || imageIndex < 1 || imageIndex > targetCount) {
@@ -559,6 +924,75 @@ router.post("/images/stories/:storyId/images/:imageId/retry", async (req, res): 
     res.status(409).json({ error: "Only failed scenes can be retried.", code: "scene_not_retryable" });
   }
 });
+
+router.post(
+  "/images/stories/:storyId/scenes/:imageId/provider-switch/confirm",
+  async (req, res): Promise<void> => {
+    const uid = await authenticatedUid(req, res);
+    if (!uid) return;
+    const storyId = String(req.params.storyId ?? "");
+    const imageId = String(req.params.imageId ?? "");
+    if (!validStoryId(storyId) || !validStoryId(imageId)) {
+      res.status(400).json({ error: "The scene reference is invalid.", code: "invalid_request" });
+      return;
+    }
+    try {
+      const storyRef = storyReference(uid, storyId);
+      const imageRef = storyRef.collection("images").doc(imageId);
+      const provider = await getFirebaseAdmin().db.runTransaction(async (transaction) => {
+        const [storySnapshot, imageSnapshot] = await Promise.all([
+          transaction.get(storyRef),
+          transaction.get(imageRef),
+        ]);
+        const storyData = storySnapshot.data() ?? {};
+        const imageData = imageSnapshot.data() ?? {};
+        const suggestedProvider = imageData.suggestedProvider;
+        if (!storySnapshot.exists || !imageSnapshot.exists ||
+            storyData.keepOneProvider !== true ||
+            imageData.error !== "provider_switch_pending" ||
+            !isKeyPoolProvider(suggestedProvider) ||
+            !STORY_IMAGE_PROVIDERS.has(suggestedProvider)) {
+          throw new Error("No provider switch is awaiting approval.");
+        }
+        transaction.update(storyRef, {
+          lockedProvider: suggestedProvider,
+          providerSwitchPending: false,
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+        transaction.update(imageRef, {
+          status: "pending",
+          error: "",
+          suggestedProvider: FieldValue.delete(),
+          generationStartedAt: FieldValue.delete(),
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+        return suggestedProvider;
+      });
+      const pending = await storyRef.collection("images")
+        .where("status", "==", "pending")
+        .limit(MAX_STORY_IMAGES)
+        .get();
+      const targetCount = await storyRef.get().then((snapshot) => {
+        const value = snapshot.data()?.targetCount;
+        return isValidTargetCount(value) ? value : 10;
+      });
+      const imageIds = pending.docs
+        .filter((document) => Number(document.data().index ?? document.data().sequence) <= targetCount)
+        .sort((left, right) =>
+          Number(left.data().index ?? left.data().sequence) -
+          Number(right.data().index ?? right.data().sequence),
+        )
+        .map((document) => document.id);
+      launchSceneQueue(uid, storyId, imageIds);
+      res.status(202).json({ queued: imageIds.length, provider });
+    } catch {
+      res.status(409).json({
+        error: "There is no pending provider change to approve.",
+        code: "provider_switch_not_pending",
+      });
+    }
+  },
+);
 
 function tokenDigest(token: string): string {
   return createHash("sha256").update(token).digest("hex");
@@ -730,6 +1164,8 @@ router.get("/images/stories/:storyId/download.zip", async (req, res): Promise<vo
       res.status(404).json({ error: "This story could not be found.", code: "story_not_found" });
       return;
     }
+    const storyData = storySnapshot.data() ?? {};
+    const targetCount = isValidTargetCount(storyData.targetCount) ? storyData.targetCount : 10;
     const images = imagesSnapshot.docs.flatMap((document) => {
       const data = document.data();
       const publicId = typeof data.publicId === "string" ? data.publicId : "";
@@ -748,6 +1184,8 @@ router.get("/images/stories/:storyId/download.zip", async (req, res): Promise<vo
         imageUrl: typeof data.imageUrl === "string"
           ? data.imageUrl
           : typeof data.url === "string" ? data.url : "",
+        motionPrompt: typeof data.motionPrompt === "string" ? data.motionPrompt : "",
+        narration: typeof data.narration === "string" ? data.narration : "",
       }];
     }).sort((left, right) => left.index - right.index).slice(0, MAX_STORY_IMAGES);
     if (!images.length) {
@@ -755,8 +1193,8 @@ router.get("/images/stories/:storyId/download.zip", async (req, res): Promise<vo
       return;
     }
 
-    const storyName = typeof storySnapshot.data()?.storyName === "string"
-      ? storySnapshot.data()?.storyName as string
+    const storyName = typeof storyData.storyName === "string"
+      ? storyData.storyName
       : "story";
     const filename = storyName.replace(/[^a-z0-9_-]+/gi, "_").slice(0, 70) || "story";
     res.setHeader("Content-Type", "application/zip");
@@ -771,7 +1209,8 @@ router.get("/images/stories/:storyId/download.zip", async (req, res): Promise<vo
     const progressRef = tokenRef;
     if (!progressRef) throw new Error("ZIP token reference is unavailable.");
     let progressUpdates: Promise<void> = Promise.resolve();
-    archive.on("entry", () => {
+    archive.on("entry", (entry) => {
+      if (!/^scene_\d+\.jpg$/u.test(entry.name)) return;
       completedCount += 1;
       const nextCount = completedCount;
       progressUpdates = progressUpdates.then(async () => {
@@ -789,7 +1228,7 @@ router.get("/images/stories/:storyId/download.zip", async (req, res): Promise<vo
     };
     archive.on("error", streamError);
     archive.pipe(res);
-    const sceneNumberWidth = images.length > 99 ? 3 : 2;
+    const sceneNumberWidth = targetCount > 99 || images.some((image) => image.index > 99) ? 3 : 2;
     for (const image of images) {
       stage = "fetch_asset";
       const source = image.publicId
@@ -797,8 +1236,18 @@ router.get("/images/stories/:storyId/download.zip", async (req, res): Promise<vo
         : storage.bucket().file(image.storagePath).createReadStream();
       const jpegStream = source.pipe(sharp({ limitInputPixels: 40_000_000 }).jpeg({ quality: 88 }));
       archive.append(jpegStream as Readable, {
-        name: `scene_${String(image.index).padStart(sceneNumberWidth, "0")}.jpg`,
+        name: storySceneFilename(image.index, sceneNumberWidth),
       });
+    }
+    for (const file of createStoryPackTextFiles(
+      images.map((image) => ({
+        index: image.index,
+        motionPrompt: image.motionPrompt,
+        narration: image.narration,
+      })),
+      targetCount,
+    )) {
+      archive.append(file.data, { name: file.name });
     }
     stage = "stream_zip";
     await archive.finalize();

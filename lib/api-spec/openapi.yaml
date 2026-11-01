@@ -147,6 +147,156 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
+  /images/stories/{storyId}/settings:
+    patch:
+      operationId: updateStorySettings
+      tags: [images]
+      summary: Save story-level generation settings
+      security:
+        - FirebaseBearerAuth: []
+      parameters:
+        - name: storyId
+          in: path
+          required: true
+          schema:
+            type: string
+            maxLength: 200
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StorySettingsUpdate"
+      responses:
+        "200":
+          description: Story settings saved.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StorySettings"
+        "400":
+          description: Invalid story settings.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: Missing or invalid Firebase ID token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /images/stories/{storyId}/scenes/{imageId}/text:
+    patch:
+      operationId: updateStorySceneText
+      tags: [images]
+      summary: Edit prompts and narration for one scene
+      security:
+        - FirebaseBearerAuth: []
+      parameters:
+        - name: storyId
+          in: path
+          required: true
+          schema:
+            type: string
+            maxLength: 200
+        - name: imageId
+          in: path
+          required: true
+          schema:
+            type: string
+            maxLength: 200
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StorySceneTextUpdate"
+      responses:
+        "200":
+          description: Scene text saved.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StorySceneText"
+        "400":
+          description: Scene text violates word or length limits.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: Missing or invalid Firebase ID token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /images/stories/{storyId}/scenes/{imageId}/text/regenerate:
+    post:
+      operationId: regenerateStorySceneText
+      tags: [images]
+      summary: Regenerate motion prompt and narration
+      security:
+        - FirebaseBearerAuth: []
+      parameters:
+        - name: storyId
+          in: path
+          required: true
+          schema:
+            type: string
+            maxLength: 200
+        - name: imageId
+          in: path
+          required: true
+          schema:
+            type: string
+            maxLength: 200
+      responses:
+        "200":
+          description: Generated or template scene text.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StorySceneText"
+        "401":
+          description: Missing or invalid Firebase ID token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /images/stories/{storyId}/scenes/{imageId}/provider-switch/confirm:
+    post:
+      operationId: confirmStoryProviderSwitch
+      tags: [images]
+      summary: Approve a paused story provider change
+      security:
+        - FirebaseBearerAuth: []
+      parameters:
+        - name: storyId
+          in: path
+          required: true
+          schema:
+            type: string
+            maxLength: 200
+        - name: imageId
+          in: path
+          required: true
+          schema:
+            type: string
+            maxLength: 200
+      responses:
+        "202":
+          description: Provider change approved and pending scenes resumed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProviderSwitchResult"
+        "409":
+          description: No provider change is awaiting approval.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
   /images/stories/{storyId}/target-count:
     patch:
       operationId: updateStoryTargetCount
@@ -516,6 +666,76 @@ components:
           maximum: 100
           description: Desired total number of scenes for the story.
       required: [prompt, count]
+    StorySettingsUpdate:
+      type: object
+      properties:
+        aspectRatio:
+          type: string
+          enum: ["16:9", "9:16", "1:1"]
+        characterTraits:
+          type: array
+          maxItems: 3
+          items:
+            type: string
+            maxLength: 80
+        keepOneProvider:
+          type: boolean
+      required: [aspectRatio, characterTraits, keepOneProvider]
+    StorySettings:
+      type: object
+      properties:
+        aspectRatio:
+          type: string
+          enum: ["16:9", "9:16", "1:1"]
+        characterTraits:
+          type: array
+          items:
+            type: string
+        keepOneProvider:
+          type: boolean
+        lockedProvider:
+          type: ["string", "null"]
+      required: [aspectRatio, characterTraits, keepOneProvider, lockedProvider]
+    StorySceneTextUpdate:
+      type: object
+      properties:
+        motionPrompt:
+          type: string
+          maxLength: 500
+        narration:
+          type: string
+          maxLength: 300
+        negativeText:
+          type: string
+          maxLength: 200
+      required: [motionPrompt, narration, negativeText]
+    StorySceneText:
+      type: object
+      properties:
+        index:
+          type: integer
+        motionPrompt:
+          type: string
+        narration:
+          type: string
+        negativeText:
+          type: string
+        motionPromptSource:
+          type: string
+          enum: [glm, template, edited]
+        narrationSource:
+          type: string
+          enum: [glm, template, edited]
+      required: [motionPrompt, narration]
+    ProviderSwitchResult:
+      type: object
+      properties:
+        queued:
+          type: integer
+          minimum: 0
+        provider:
+          type: string
+      required: [queued, provider]
     StoryTargetCountInput:
       type: object
       properties:

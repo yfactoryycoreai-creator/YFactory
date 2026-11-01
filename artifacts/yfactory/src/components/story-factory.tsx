@@ -14,6 +14,8 @@ import {
 import { useTranslation } from 'react-i18next';
 import ConfirmActionDialog from '@/components/confirm-action-dialog';
 import StoryImageLightbox from '@/components/story-image-lightbox';
+import StorySceneText from '@/components/story-scene-text';
+import StorySettingsPanel from '@/components/story-settings-panel';
 import {
   createStory,
   createStoryZipDownloadToken,
@@ -159,6 +161,7 @@ const sceneFailureCodes = new Set([
   'timeout',
   'bad_prompt',
   'save_failed',
+  'provider_switch_pending',
 ]);
 
 function sceneFailureKey(error: string | undefined): string {
@@ -260,7 +263,7 @@ function StoryFactory({
     100,
     (totalStorageBytes / STORAGE_QUOTA_BYTES) * 100,
   );
-  const resumableScenes = images.some(
+  const resumableScenes = !selectedStory?.providerSwitchPending && images.some(
     (image) => image.status === 'pending' || image.status === 'generating',
   );
   const latestBatch = images.reduce<StoryImageRecord | null>((latest, image) => {
@@ -415,6 +418,10 @@ function StoryFactory({
         imageCount: 0,
         storageBytes: 0,
         targetCount: 10,
+        aspectRatio: '1:1',
+        characterTraits: [],
+        keepOneProvider: false,
+        providerSwitchPending: false,
       });
     } catch {
       setError(t('stories.createFailed'));
@@ -672,7 +679,8 @@ function StoryFactory({
     setDownloadingZip(true);
     setError('');
     setZipProgress({ completed: 0, total: 0 });
-    const shareFallbackAvailable = supportsZipFileShare();
+    const isMobileBrowser = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    const shareFallbackAvailable = supportsZipFileShare() && !isMobileBrowser;
     const downloadWindow = shareFallbackAvailable ? null : window.open('about:blank', '_blank');
     const controller = makeController();
     try {
@@ -1005,6 +1013,8 @@ function StoryFactory({
             </small>
           </label>
 
+          <StorySettingsPanel story={selectedStory} getIdToken={getIdToken} />
+
           <div className="story-images-heading">
             <div>
               <h2>{t('stories.generatedImages')}</h2>
@@ -1072,7 +1082,8 @@ function StoryFactory({
                       )}
                     </div>
                     <div className="story-image-actions">
-                      {image.status === 'failed' && !image.legacyGrid && (
+                      {image.status === 'failed' && !image.legacyGrid &&
+                        image.error !== 'provider_switch_pending' && (
                         <button
                           className="story-icon-button"
                           type="button"
@@ -1125,6 +1136,13 @@ function StoryFactory({
                       ><Trash2 size={15} /></button>
                     </div>
                   </div>
+                  {!image.legacyGrid && image.index && (
+                    <StorySceneText
+                      storyId={selectedStory.id}
+                      image={image}
+                      getIdToken={getIdToken}
+                    />
+                  )}
                 </article>
               ))}
               </div>

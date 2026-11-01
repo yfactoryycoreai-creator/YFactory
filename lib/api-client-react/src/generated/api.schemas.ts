@@ -38,6 +38,84 @@ export interface SceneGenerationInput {
   count: number;
 }
 
+export type StorySettingsUpdateAspectRatio = typeof StorySettingsUpdateAspectRatio[keyof typeof StorySettingsUpdateAspectRatio];
+
+
+export const StorySettingsUpdateAspectRatio = {
+  '16:9': '16:9',
+  '9:16': '9:16',
+  '1:1': '1:1',
+} as const;
+
+export interface StorySettingsUpdate {
+  aspectRatio: StorySettingsUpdateAspectRatio;
+  /**
+     * @maxItems 3
+     * @items.maxLength 80
+     */
+  characterTraits: string[];
+  keepOneProvider: boolean;
+}
+
+export type StorySettingsAspectRatio = typeof StorySettingsAspectRatio[keyof typeof StorySettingsAspectRatio];
+
+
+export const StorySettingsAspectRatio = {
+  '16:9': '16:9',
+  '9:16': '9:16',
+  '1:1': '1:1',
+} as const;
+
+export interface StorySettings {
+  aspectRatio: StorySettingsAspectRatio;
+  characterTraits: string[];
+  keepOneProvider: boolean;
+  /** @nullable */
+  lockedProvider: string | null;
+}
+
+export interface StorySceneTextUpdate {
+  /** @maxLength 500 */
+  motionPrompt: string;
+  /** @maxLength 300 */
+  narration: string;
+  /** @maxLength 200 */
+  negativeText: string;
+}
+
+export type StorySceneTextMotionPromptSource = typeof StorySceneTextMotionPromptSource[keyof typeof StorySceneTextMotionPromptSource];
+
+
+export const StorySceneTextMotionPromptSource = {
+  glm: 'glm',
+  template: 'template',
+  edited: 'edited',
+} as const;
+
+export type StorySceneTextNarrationSource = typeof StorySceneTextNarrationSource[keyof typeof StorySceneTextNarrationSource];
+
+
+export const StorySceneTextNarrationSource = {
+  glm: 'glm',
+  template: 'template',
+  edited: 'edited',
+} as const;
+
+export interface StorySceneText {
+  index?: number;
+  motionPrompt: string;
+  narration: string;
+  negativeText?: string;
+  motionPromptSource?: StorySceneTextMotionPromptSource;
+  narrationSource?: StorySceneTextNarrationSource;
+}
+
+export interface ProviderSwitchResult {
+  /** @minimum 0 */
+  queued: number;
+  provider: string;
+}
+
 export interface StoryTargetCountInput {
   /**
      * @minimum 1

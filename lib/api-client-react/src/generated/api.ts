@@ -29,6 +29,7 @@ import type {
   ImageGenerationResult,
   ProviderId,
   ProviderList,
+  ProviderSwitchResult,
   ReplaceVaultKeyValueInput,
   SaveStoryImageInput,
   SceneGenerationAccepted,
@@ -37,6 +38,10 @@ import type {
   SceneRetryResult,
   StorageUsage,
   StoryImage,
+  StorySceneText,
+  StorySceneTextUpdate,
+  StorySettings,
+  StorySettingsUpdate,
   StoryTargetCountInput,
   StoryTargetCountResult,
   StoryZipDownloadToken,
@@ -492,6 +497,338 @@ export const useStartStorySceneGeneration = <TError = ErrorType<ApiError>,
         TContext
       > => {
       return useMutation(getStartStorySceneGenerationMutationOptions(options));
+    }
+
+export const getUpdateStorySettingsUrl = (storyId: string,) => {
+
+
+
+
+  return `/api/images/stories/${storyId}/settings`
+}
+
+/**
+ * @summary Save story-level generation settings
+ */
+export const updateStorySettings = async (storyId: string,
+    storySettingsUpdate: StorySettingsUpdate, options?: Parameters<typeof customFetch>[1]): Promise<StorySettings> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<StorySettings>(getUpdateStorySettingsUrl(storyId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(storySettingsUpdate)
+  }
+);}
+
+
+
+
+
+export const getUpdateStorySettingsMutationKey = () => ['updateStorySettings'] as const;
+
+export const getUpdateStorySettingsMutationOptions = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateStorySettings>>, TError,UpdateStorySettingsMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateStorySettings>>, TError,UpdateStorySettingsMutationVariables, TContext> => {
+
+const mutationKey = getUpdateStorySettingsMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateStorySettings>>, UpdateStorySettingsMutationVariables> = (props) => {
+          const {storyId,data} = props ?? {};
+
+          return  updateStorySettings(storyId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateStorySettingsMutationResult = NonNullable<Awaited<ReturnType<typeof updateStorySettings>>>
+    export type UpdateStorySettingsMutationBody = BodyType<StorySettingsUpdate>
+    export type UpdateStorySettingsMutationError = ErrorType<ApiError>
+    export type UpdateStorySettingsMutationVariables = {storyId: string;data: BodyType<StorySettingsUpdate>}
+
+    /**
+ * @summary Save story-level generation settings
+ */
+export const useUpdateStorySettings = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateStorySettings>>, TError,UpdateStorySettingsMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateStorySettings>>,
+        TError,
+        UpdateStorySettingsMutationVariables,
+        TContext
+      > => {
+      return useMutation(getUpdateStorySettingsMutationOptions(options));
+    }
+
+export const getUpdateStorySceneTextUrl = (storyId: string,
+    imageId: string,) => {
+
+
+
+
+  return `/api/images/stories/${storyId}/scenes/${imageId}/text`
+}
+
+/**
+ * @summary Edit prompts and narration for one scene
+ */
+export const updateStorySceneText = async (storyId: string,
+    imageId: string,
+    storySceneTextUpdate: StorySceneTextUpdate, options?: Parameters<typeof customFetch>[1]): Promise<StorySceneText> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<StorySceneText>(getUpdateStorySceneTextUrl(storyId,imageId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(storySceneTextUpdate)
+  }
+);}
+
+
+
+
+
+export const getUpdateStorySceneTextMutationKey = () => ['updateStorySceneText'] as const;
+
+export const getUpdateStorySceneTextMutationOptions = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateStorySceneText>>, TError,UpdateStorySceneTextMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateStorySceneText>>, TError,UpdateStorySceneTextMutationVariables, TContext> => {
+
+const mutationKey = getUpdateStorySceneTextMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateStorySceneText>>, UpdateStorySceneTextMutationVariables> = (props) => {
+          const {storyId,imageId,data} = props ?? {};
+
+          return  updateStorySceneText(storyId,imageId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateStorySceneTextMutationResult = NonNullable<Awaited<ReturnType<typeof updateStorySceneText>>>
+    export type UpdateStorySceneTextMutationBody = BodyType<StorySceneTextUpdate>
+    export type UpdateStorySceneTextMutationError = ErrorType<ApiError>
+    export type UpdateStorySceneTextMutationVariables = {storyId: string;imageId: string;data: BodyType<StorySceneTextUpdate>}
+
+    /**
+ * @summary Edit prompts and narration for one scene
+ */
+export const useUpdateStorySceneText = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateStorySceneText>>, TError,UpdateStorySceneTextMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateStorySceneText>>,
+        TError,
+        UpdateStorySceneTextMutationVariables,
+        TContext
+      > => {
+      return useMutation(getUpdateStorySceneTextMutationOptions(options));
+    }
+
+export const getRegenerateStorySceneTextUrl = (storyId: string,
+    imageId: string,) => {
+
+
+
+
+  return `/api/images/stories/${storyId}/scenes/${imageId}/text/regenerate`
+}
+
+/**
+ * @summary Regenerate motion prompt and narration
+ */
+export const regenerateStorySceneText = async (storyId: string,
+    imageId: string, options?: Parameters<typeof customFetch>[1]): Promise<StorySceneText> => {
+
+  return customFetch<StorySceneText>(getRegenerateStorySceneTextUrl(storyId,imageId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getRegenerateStorySceneTextMutationKey = () => ['regenerateStorySceneText'] as const;
+
+export const getRegenerateStorySceneTextMutationOptions = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof regenerateStorySceneText>>, TError,RegenerateStorySceneTextMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof regenerateStorySceneText>>, TError,RegenerateStorySceneTextMutationVariables, TContext> => {
+
+const mutationKey = getRegenerateStorySceneTextMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof regenerateStorySceneText>>, RegenerateStorySceneTextMutationVariables> = (props) => {
+          const {storyId,imageId} = props ?? {};
+
+          return  regenerateStorySceneText(storyId,imageId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RegenerateStorySceneTextMutationResult = NonNullable<Awaited<ReturnType<typeof regenerateStorySceneText>>>
+
+    export type RegenerateStorySceneTextMutationError = ErrorType<ApiError>
+    export type RegenerateStorySceneTextMutationVariables = {storyId: string;imageId: string}
+
+    /**
+ * @summary Regenerate motion prompt and narration
+ */
+export const useRegenerateStorySceneText = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof regenerateStorySceneText>>, TError,RegenerateStorySceneTextMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof regenerateStorySceneText>>,
+        TError,
+        RegenerateStorySceneTextMutationVariables,
+        TContext
+      > => {
+      return useMutation(getRegenerateStorySceneTextMutationOptions(options));
+    }
+
+export const getConfirmStoryProviderSwitchUrl = (storyId: string,
+    imageId: string,) => {
+
+
+
+
+  return `/api/images/stories/${storyId}/scenes/${imageId}/provider-switch/confirm`
+}
+
+/**
+ * @summary Approve a paused story provider change
+ */
+export const confirmStoryProviderSwitch = async (storyId: string,
+    imageId: string, options?: Parameters<typeof customFetch>[1]): Promise<ProviderSwitchResult> => {
+
+  return customFetch<ProviderSwitchResult>(getConfirmStoryProviderSwitchUrl(storyId,imageId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getConfirmStoryProviderSwitchMutationKey = () => ['confirmStoryProviderSwitch'] as const;
+
+export const getConfirmStoryProviderSwitchMutationOptions = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof confirmStoryProviderSwitch>>, TError,ConfirmStoryProviderSwitchMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof confirmStoryProviderSwitch>>, TError,ConfirmStoryProviderSwitchMutationVariables, TContext> => {
+
+const mutationKey = getConfirmStoryProviderSwitchMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof confirmStoryProviderSwitch>>, ConfirmStoryProviderSwitchMutationVariables> = (props) => {
+          const {storyId,imageId} = props ?? {};
+
+          return  confirmStoryProviderSwitch(storyId,imageId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ConfirmStoryProviderSwitchMutationResult = NonNullable<Awaited<ReturnType<typeof confirmStoryProviderSwitch>>>
+
+    export type ConfirmStoryProviderSwitchMutationError = ErrorType<ApiError>
+    export type ConfirmStoryProviderSwitchMutationVariables = {storyId: string;imageId: string}
+
+    /**
+ * @summary Approve a paused story provider change
+ */
+export const useConfirmStoryProviderSwitch = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof confirmStoryProviderSwitch>>, TError,ConfirmStoryProviderSwitchMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof confirmStoryProviderSwitch>>,
+        TError,
+        ConfirmStoryProviderSwitchMutationVariables,
+        TContext
+      > => {
+      return useMutation(getConfirmStoryProviderSwitchMutationOptions(options));
     }
 
 export const getUpdateStoryTargetCountUrl = (storyId: string,) => {

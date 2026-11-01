@@ -140,6 +140,123 @@ export const StartStorySceneGenerationResponse = zod.object({
 
 
 /**
+ * @summary Save story-level generation settings
+ */
+export const updateStorySettingsPathStoryIdMax = 200;
+
+
+
+export const UpdateStorySettingsParams = zod.object({
+  "storyId": zod.coerce.string().max(updateStorySettingsPathStoryIdMax)
+})
+
+export const updateStorySettingsBodyCharacterTraitsItemMax = 80;
+
+export const updateStorySettingsBodyCharacterTraitsMax = 3;
+
+
+
+export const UpdateStorySettingsBody = zod.object({
+  "aspectRatio": zod.enum(['16:9', '9:16', '1:1']),
+  "characterTraits": zod.array(zod.string().max(updateStorySettingsBodyCharacterTraitsItemMax)).max(updateStorySettingsBodyCharacterTraitsMax),
+  "keepOneProvider": zod.boolean()
+})
+
+export const UpdateStorySettingsResponse = zod.object({
+  "aspectRatio": zod.enum(['16:9', '9:16', '1:1']),
+  "characterTraits": zod.array(zod.string()),
+  "keepOneProvider": zod.boolean(),
+  "lockedProvider": zod.string().nullable()
+})
+
+
+/**
+ * @summary Edit prompts and narration for one scene
+ */
+export const updateStorySceneTextPathStoryIdMax = 200;
+
+export const updateStorySceneTextPathImageIdMax = 200;
+
+
+
+export const UpdateStorySceneTextParams = zod.object({
+  "storyId": zod.coerce.string().max(updateStorySceneTextPathStoryIdMax),
+  "imageId": zod.coerce.string().max(updateStorySceneTextPathImageIdMax)
+})
+
+export const updateStorySceneTextBodyMotionPromptMax = 500;
+
+export const updateStorySceneTextBodyNarrationMax = 300;
+
+export const updateStorySceneTextBodyNegativeTextMax = 200;
+
+
+
+export const UpdateStorySceneTextBody = zod.object({
+  "motionPrompt": zod.string().max(updateStorySceneTextBodyMotionPromptMax),
+  "narration": zod.string().max(updateStorySceneTextBodyNarrationMax),
+  "negativeText": zod.string().max(updateStorySceneTextBodyNegativeTextMax)
+})
+
+export const UpdateStorySceneTextResponse = zod.object({
+  "index": zod.number().int().optional(),
+  "motionPrompt": zod.string(),
+  "narration": zod.string(),
+  "negativeText": zod.string().optional(),
+  "motionPromptSource": zod.enum(['glm', 'template', 'edited']).optional(),
+  "narrationSource": zod.enum(['glm', 'template', 'edited']).optional()
+})
+
+
+/**
+ * @summary Regenerate motion prompt and narration
+ */
+export const regenerateStorySceneTextPathStoryIdMax = 200;
+
+export const regenerateStorySceneTextPathImageIdMax = 200;
+
+
+
+export const RegenerateStorySceneTextParams = zod.object({
+  "storyId": zod.coerce.string().max(regenerateStorySceneTextPathStoryIdMax),
+  "imageId": zod.coerce.string().max(regenerateStorySceneTextPathImageIdMax)
+})
+
+export const RegenerateStorySceneTextResponse = zod.object({
+  "index": zod.number().int().optional(),
+  "motionPrompt": zod.string(),
+  "narration": zod.string(),
+  "negativeText": zod.string().optional(),
+  "motionPromptSource": zod.enum(['glm', 'template', 'edited']).optional(),
+  "narrationSource": zod.enum(['glm', 'template', 'edited']).optional()
+})
+
+
+/**
+ * @summary Approve a paused story provider change
+ */
+export const confirmStoryProviderSwitchPathStoryIdMax = 200;
+
+export const confirmStoryProviderSwitchPathImageIdMax = 200;
+
+
+
+export const ConfirmStoryProviderSwitchParams = zod.object({
+  "storyId": zod.coerce.string().max(confirmStoryProviderSwitchPathStoryIdMax),
+  "imageId": zod.coerce.string().max(confirmStoryProviderSwitchPathImageIdMax)
+})
+
+export const confirmStoryProviderSwitchResponseQueuedMin = 0;
+
+
+
+export const ConfirmStoryProviderSwitchResponse = zod.object({
+  "queued": zod.number().int().min(confirmStoryProviderSwitchResponseQueuedMin),
+  "provider": zod.string()
+})
+
+
+/**
  * Sets a target from 1 to 100 and removes only pending or failed scenes above it.
  * @summary Update a story's target image count
  */

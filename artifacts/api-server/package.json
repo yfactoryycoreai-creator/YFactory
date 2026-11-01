@@ -8,7 +8,8 @@
     "build": "node ./build.mjs",
     "start": "node --enable-source-maps ./dist/index.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test:key-pool": "esbuild src/lib/keyPool.test.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/keyPool.test.mjs && node --test dist/keyPool.test.mjs"
+    "test:key-pool": "esbuild src/lib/keyPool.test.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/keyPool.test.mjs && node --test dist/keyPool.test.mjs",
+    "test:story-pack": "esbuild src/lib/storyTextGeneration.test.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/storyTextGeneration.test.mjs && node --test dist/storyTextGeneration.test.mjs"
   },
   "dependencies": {
     "@workspace/api-zod": "workspace:*",
