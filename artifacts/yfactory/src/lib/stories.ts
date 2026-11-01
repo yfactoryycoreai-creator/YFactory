@@ -26,6 +26,7 @@ export type StoryRecord = {
   createdAt: unknown;
   imageCount: number;
   storageBytes: number;
+  targetCount: number;
 };
 
 export type StoryImageRecord = {
@@ -113,6 +114,12 @@ function normalizeStory(id: string, data: DocumentData): StoryRecord {
       typeof data.storageBytes === 'number'
         ? Math.max(0, data.storageBytes)
         : 0,
+    targetCount:
+      Number.isInteger(data.targetCount) &&
+      data.targetCount >= 1 &&
+      data.targetCount <= MAX_STORY_IMAGES
+        ? data.targetCount
+        : 10,
   };
 }
 
@@ -273,6 +280,7 @@ export async function createStory(uid: string, storyName: string): Promise<strin
     createdAt: serverTimestamp(),
     imageCount: 0,
     storageBytes: 0,
+    targetCount: 10,
   });
   return storyRef.id;
 }
@@ -339,6 +347,29 @@ async function readApiError(response: Response, fallback: string): Promise<strin
     return String((payload as Record<string, unknown>).error);
   }
   return fallback;
+}
+
+export async function updateStoryTargetCount(
+  storyId: string,
+  targetCount: number,
+  idToken: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  const response = await fetch(
+    `/api/images/stories/${encodeURIComponent(storyId)}/target-count`,
+    {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${idToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ targetCount }),
+      signal,
+    },
+  );
+  if (!response.ok) {
+    throw new Error(await readApiError(response, 'The image target could not be saved.'));
+  }
 }
 
 export async function startStorySceneGeneration(

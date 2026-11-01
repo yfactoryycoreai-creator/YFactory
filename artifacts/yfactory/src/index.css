@@ -677,6 +677,17 @@ button:not(:disabled):hover { filter:brightness(1.12); }
 .story-workspace-toolbar { justify-content:space-between; gap:14px; }
 .story-image-meter { width:min(260px,55%); color:#a9b8d5; font:10px 'DM Mono',monospace; }
 .story-image-progress { height:5px; margin-top:7px; }
+.story-target-control { display:flex; width:min(300px,100%); flex-direction:column; gap:7px; color:#bdc9df; font-size:10px; }
+.story-target-heading { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.story-target-heading label { color:#dbe4f7; font-size:11px; font-weight:700; }
+.story-target-heading span,.story-target-control > small { color:#8391aa; font-size:9px; }
+.story-target-inputs { display:flex; align-items:center; gap:10px; }
+.story-target-number { width:60px; height:32px; border:1px solid #2a3853; border-radius:8px; color:#e7eaf4; background:#0d1526; font:12px 'DM Mono',monospace; text-align:center; }
+.story-target-slider { flex:1; min-width:0; accent-color:#6b8de0; }
+.story-target-presets { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:5px; }
+.story-target-preset { min-height:27px; border:1px solid #2a3853; border-radius:7px; color:#aebbd3; background:#0d1526; font:10px 'DM Mono',monospace; cursor:pointer; }
+.story-target-preset:hover,.story-target-preset.is-active { border-color:#526fae; color:#e7efff; background:#172541; }
+.story-target-preset:focus-visible,.story-target-number:focus-visible { outline:2px solid #7798e8; outline-offset:2px; }
 .story-script-field,.story-name-field { display:flex; flex-direction:column; gap:8px; color:#bdc9df; font-size:12px; }
 .story-script-field { margin-top:21px; }
 .story-script-field textarea,.story-name-field input {
@@ -759,6 +770,7 @@ button:not(:disabled):hover { filter:brightness(1.12); }
   .factory-pending-image > div { min-width:calc(100% - 70px); }
   .factory-pending-image .factory-quiet-button { margin-inline-start:66px; }
   .story-workspace-toolbar { align-items:stretch; flex-direction:column; }
+  .story-target-control { width:100%; }
   .story-image-meter { width:100%; }
   .story-workspace-toolbar .factory-primary-button { width:100%; }
   .story-images-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:9px; }

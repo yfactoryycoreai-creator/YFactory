@@ -37,6 +37,8 @@ import type {
   SceneRetryResult,
   StorageUsage,
   StoryImage,
+  StoryTargetCountInput,
+  StoryTargetCountResult,
   StoryZipDownloadToken,
   StoryZipProgress,
   VaultKey,
@@ -490,6 +492,96 @@ export const useStartStorySceneGeneration = <TError = ErrorType<ApiError>,
         TContext
       > => {
       return useMutation(getStartStorySceneGenerationMutationOptions(options));
+    }
+
+export const getUpdateStoryTargetCountUrl = (storyId: string,) => {
+
+
+
+
+  return `/api/images/stories/${storyId}/target-count`
+}
+
+/**
+ * Sets a target from 1 to 100 and removes only pending or failed scenes above it.
+ * @summary Update a story's target image count
+ */
+export const updateStoryTargetCount = async (storyId: string,
+    storyTargetCountInput: StoryTargetCountInput, options?: Parameters<typeof customFetch>[1]): Promise<StoryTargetCountResult> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<StoryTargetCountResult>(getUpdateStoryTargetCountUrl(storyId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(storyTargetCountInput)
+  }
+);}
+
+
+
+
+
+export const getUpdateStoryTargetCountMutationKey = () => ['updateStoryTargetCount'] as const;
+
+export const getUpdateStoryTargetCountMutationOptions = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateStoryTargetCount>>, TError,UpdateStoryTargetCountMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateStoryTargetCount>>, TError,UpdateStoryTargetCountMutationVariables, TContext> => {
+
+const mutationKey = getUpdateStoryTargetCountMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateStoryTargetCount>>, UpdateStoryTargetCountMutationVariables> = (props) => {
+          const {storyId,data} = props ?? {};
+
+          return  updateStoryTargetCount(storyId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateStoryTargetCountMutationResult = NonNullable<Awaited<ReturnType<typeof updateStoryTargetCount>>>
+    export type UpdateStoryTargetCountMutationBody = BodyType<StoryTargetCountInput>
+    export type UpdateStoryTargetCountMutationError = ErrorType<ApiError>
+    export type UpdateStoryTargetCountMutationVariables = {storyId: string;data: BodyType<StoryTargetCountInput>}
+
+    /**
+ * @summary Update a story's target image count
+ */
+export const useUpdateStoryTargetCount = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateStoryTargetCount>>, TError,UpdateStoryTargetCountMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateStoryTargetCount>>,
+        TError,
+        UpdateStoryTargetCountMutationVariables,
+        TContext
+      > => {
+      return useMutation(getUpdateStoryTargetCountMutationOptions(options));
     }
 
 export const getResumeStorySceneGenerationUrl = (storyId: string,) => {

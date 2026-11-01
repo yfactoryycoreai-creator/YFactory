@@ -801,7 +801,6 @@ function Home() {
               <StoryFactory
                 uid={user.uid}
                 getIdToken={getUserIdToken}
-                requestedImageCount={Number(generatorSettings.imageCount)}
                 visible={storiesOpen}
                 selectedStoryId={activeStory?.id ?? null}
                 pendingImage={pendingStorySave}

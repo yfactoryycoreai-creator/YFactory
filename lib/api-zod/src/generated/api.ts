@@ -129,13 +129,43 @@ export const startStorySceneGenerationBodyCountMax = 100;
 
 export const StartStorySceneGenerationBody = zod.object({
   "prompt": zod.string().min(1).max(startStorySceneGenerationBodyPromptMax),
-  "count": zod.number().int().min(1).max(startStorySceneGenerationBodyCountMax)
+  "count": zod.number().int().min(1).max(startStorySceneGenerationBodyCountMax).describe('Desired total number of scenes for the story.')
 })
 
 export const StartStorySceneGenerationResponse = zod.object({
   "batchId": zod.string(),
   "sceneCount": zod.number().int(),
   "skippedCount": zod.number().int()
+})
+
+
+/**
+ * Sets a target from 1 to 100 and removes only pending or failed scenes above it.
+ * @summary Update a story's target image count
+ */
+export const updateStoryTargetCountPathStoryIdMax = 200;
+
+
+
+export const UpdateStoryTargetCountParams = zod.object({
+  "storyId": zod.coerce.string().max(updateStoryTargetCountPathStoryIdMax)
+})
+
+export const updateStoryTargetCountBodyTargetCountMax = 100;
+
+
+
+export const UpdateStoryTargetCountBody = zod.object({
+  "targetCount": zod.number().int().min(1).max(updateStoryTargetCountBodyTargetCountMax)
+})
+
+export const updateStoryTargetCountResponseRemovedCountMin = 0;
+
+
+
+export const UpdateStoryTargetCountResponse = zod.object({
+  "targetCount": zod.number().int(),
+  "removedCount": zod.number().int().min(updateStoryTargetCountResponseRemovedCountMin)
 })
 
 

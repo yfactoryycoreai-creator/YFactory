@@ -13,6 +13,7 @@ export interface SceneGenerationInput {
      */
   prompt: string;
   /**
+     * Desired total number of scenes for the story.
      * @minimum 1
      * @maximum 100
      */

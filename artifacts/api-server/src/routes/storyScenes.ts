@@ -100,31 +100,32 @@ function validStoryId(storyId: string): boolean {
   return /^[A-Za-z0-9_-]{1,200}$/.test(storyId);
 }
 
+function isValidTargetCount(value: unknown): value is number {
+  return typeof value === "number" &&
+    Number.isInteger(value) &&
+    value >= 1 &&
+    value <= MAX_STORY_IMAGES;
+}
+
 function splitScenarioIntoMoments(scenario: string, count: number): string[] {
-  const clauses = scenario
-    .split(/(?:\r?\n+|(?<=[.!?؟。])\s+|(?<=[,،;؛])\s+)/u)
+  const storyText = scenario.trim();
+  const clauses = storyText
+    .split(/(?:\r?\n+|(?<=[.!?؟。])\s+)/u)
     .map((part) => part.trim())
     .filter(Boolean);
   const words = scenario.match(/\S+/gu) ?? [];
-  const moments: string[] = [];
-
-  if (clauses.length >= count) {
-    for (let index = 0; index < count; index += 1) {
-      const clauseIndex = Math.floor((index * clauses.length) / count);
-      moments.push(clauses[clauseIndex] ?? clauses.at(-1) ?? scenario.trim());
-    }
-  } else if (words.length >= count) {
-    for (let index = 0; index < count; index += 1) {
-      const start = Math.floor((index * words.length) / count);
-      const end = Math.max(start + 1, Math.floor(((index + 1) * words.length) / count));
-      moments.push(words.slice(start, end).join(" "));
-    }
-  } else {
-    const source = clauses.length ? clauses : [scenario.trim()];
-    for (let index = 0; index < count; index += 1) {
-      moments.push(source[index % source.length] ?? scenario.trim());
-    }
-  }
+  const source = clauses.length >= count
+    ? clauses
+    : words.length >= count
+      ? words
+      : clauses.length ? clauses : [storyText];
+  const moments = Array.from({ length: count }, (_, index) => {
+    if (count === 1) return storyText;
+    if (source.length < count) return source[index % source.length] ?? storyText;
+    const start = Math.floor((index * source.length) / count);
+    const end = Math.max(start + 1, Math.floor(((index + 1) * source.length) / count));
+    return source.slice(start, end).join(clauses.length >= count ? " " : " ");
+  });
 
   const characterDetails = scenario
     .split(/(?:\r?\n+|(?<=[.!?؟。])\s+|(?<=[,،;؛])\s+)/u)
@@ -146,10 +147,17 @@ function splitScenarioIntoMoments(scenario: string, count: number): string[] {
   const imageRestriction =
     "single image, one scene only, no grid, no collage, no panels, no text overlay";
 
-  return moments.map((moment, index) =>
-    `${styleAndCharacterBible}\nScene ${index + 1} of ${count}: depict exactly one frozen visual moment based only on this scene detail: ${moment}. ` +
-    `Show no other time or event. ${imageRestriction}.`,
-  );
+  return moments.map((moment, index) => {
+    const focus = count === 1
+      ? "Choose the single defining moment that best represents the complete story."
+      : count === 2
+        ? index === 0
+          ? "Choose the most important opening moment from the first part of the story."
+          : "Choose the most important climax or resolution moment from the final part of the story."
+        : "Choose one important moment from this chronological portion of the full story.";
+    return `${styleAndCharacterBible}\nScene ${index + 1} of ${count}: ${focus} Depict one frozen visual moment from this story segment: ${moment}. ` +
+      `Keep the progression from beginning to end and show no other time or event. ${imageRestriction}.`;
+  });
 }
 
 async function markSceneFailed(
@@ -301,14 +309,58 @@ function launchSceneQueue(uid: string, storyId: string, imageIds: string[]): voi
   });
 }
 
+router.patch("/images/stories/:storyId/target-count", async (req, res): Promise<void> => {
+  const uid = await authenticatedUid(req, res);
+  if (!uid) return;
+  const storyId = String(req.params.storyId ?? "");
+  const targetCount = req.body?.targetCount;
+  if (!validStoryId(storyId) || !isValidTargetCount(targetCount)) {
+    res.status(400).json({ error: "Target count must be an integer from 1 to 100.", code: "invalid_target_count" });
+    return;
+  }
+
+  try {
+    const db = getFirebaseAdmin().db;
+    const storyRef = storyReference(uid, storyId);
+    const removedCount = await db.runTransaction(async (transaction) => {
+      const [storySnapshot, imagesSnapshot] = await Promise.all([
+        transaction.get(storyRef),
+        transaction.get(storyRef.collection("images")),
+      ]);
+      if (!storySnapshot.exists) throw new StoryNotFoundError();
+      const removable = imagesSnapshot.docs.filter((document) => {
+        const data = document.data();
+        const index = Number(data.index ?? data.sequence);
+        return (data.status === "pending" || data.status === "failed") &&
+          Number.isInteger(index) &&
+          index > targetCount;
+      });
+      transaction.update(storyRef, {
+        targetCount,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      for (const document of removable) transaction.delete(document.ref);
+      return removable.length;
+    });
+    res.json({ targetCount, removedCount });
+  } catch (error) {
+    if (error instanceof StoryNotFoundError) {
+      res.status(404).json({ error: "This story could not be found.", code: "story_not_found" });
+      return;
+    }
+    logger.warn({ storyId }, "Could not update story image target.");
+    res.status(500).json({ error: "The image target could not be saved.", code: "target_count_save_failed" });
+  }
+});
+
 router.post("/images/stories/:storyId/scenes", async (req, res): Promise<void> => {
   const uid = await authenticatedUid(req, res);
   if (!uid) return;
   const storyId = String(req.params.storyId ?? "");
   const prompt = typeof req.body?.prompt === "string" ? req.body.prompt.trim() : "";
-  const requestedCount = Number(req.body?.count);
+  const requestedCount = req.body?.count;
   if (!validStoryId(storyId) || !prompt || prompt.length > 20_000 ||
-      !Number.isInteger(requestedCount) || requestedCount < 1 || requestedCount > MAX_STORY_IMAGES) {
+      !isValidTargetCount(requestedCount)) {
     res.status(400).json({ error: "Provide a valid story, script, and scene count from 1 to 100.", code: "invalid_request" });
     return;
   }
@@ -317,7 +369,7 @@ router.post("/images/stories/:storyId/scenes", async (req, res): Promise<void> =
     const storyRef = storyReference(uid, storyId);
     const db = getFirebaseAdmin().db;
     const batchId = randomBytes(16).toString("hex");
-    const sceneJobs = await db.runTransaction(async (transaction) => {
+    const result = await db.runTransaction(async (transaction) => {
       const [storySnapshot, imagesSnapshot] = await Promise.all([
         transaction.get(storyRef),
         transaction.get(storyRef.collection("images")),
@@ -329,25 +381,34 @@ router.post("/images/stories/:storyId/scenes", async (req, res): Promise<void> =
       for (const document of imagesSnapshot.docs) {
         const data = document.data();
         const index = Number(data.index ?? data.sequence);
+        if ((data.status === "pending" || data.status === "failed") &&
+            Number.isInteger(index) && index > requestedCount) {
+          transaction.delete(document.ref);
+          continue;
+        }
         if (Number.isInteger(index) && index >= 1 && index <= MAX_STORY_IMAGES) {
           usedIndexes.add(index);
         }
       }
       const availableIndexes = Array.from(
-        { length: MAX_STORY_IMAGES },
+        { length: requestedCount },
         (_, index) => index + 1,
       ).filter((index) => !usedIndexes.has(index));
-      const available = Math.max(0, Math.min(availableIndexes.length, MAX_STORY_IMAGES - currentCount));
-      const count = Math.min(requestedCount, available);
-      if (!count) throw new StoryLimitReachedError();
-
-      const prompts = splitScenarioIntoMoments(prompt, count);
+      const available = Math.max(
+        0,
+        Math.min(
+          availableIndexes.length,
+          requestedCount - currentCount,
+          MAX_STORY_IMAGES - currentCount,
+        ),
+      );
+      const sceneIndexes = availableIndexes.slice(0, available);
+      const prompts = splitScenarioIntoMoments(prompt, requestedCount);
+      const batchTotal = sceneIndexes.length;
       const jobs: SceneJob[] = [];
-      for (let index = 0; index < count; index += 1) {
-        const sceneIndex = availableIndexes[index];
-        if (sceneIndex === undefined) break;
+      for (const sceneIndex of sceneIndexes) {
         const imageRef = storyRef.collection("images").doc();
-        const scenePrompt = prompts[index] ?? prompts.at(-1) ?? prompt;
+        const scenePrompt = prompts[sceneIndex - 1] ?? prompts.at(-1) ?? prompt;
         transaction.create(imageRef, {
           index: sceneIndex,
           scenePrompt,
@@ -359,26 +420,32 @@ router.post("/images/stories/:storyId/scenes", async (req, res): Promise<void> =
           status: "pending",
           error: "",
           batchId,
-          batchTotal: count,
+          batchTotal,
           createdAt: FieldValue.serverTimestamp(),
           updatedAt: FieldValue.serverTimestamp(),
         });
-        jobs.push({ id: imageRef.id, index: sceneIndex, scenePrompt, batchId, batchTotal: count, status: "pending" });
+        jobs.push({ id: imageRef.id, index: sceneIndex, scenePrompt, batchId, batchTotal, status: "pending" });
       }
       transaction.update(storyRef, {
+        targetCount: requestedCount,
         imageSequence: Math.max(
           Math.floor(Number(storyData.imageSequence) || 0),
-          ...availableIndexes.slice(0, count),
+          ...sceneIndexes,
         ),
       });
-      return jobs;
+      return {
+        jobs,
+        skippedCount: currentCount < requestedCount
+          ? Math.max(0, availableIndexes.length - sceneIndexes.length)
+          : 0,
+      };
     });
 
-    launchSceneQueue(uid, storyId, sceneJobs.map((job) => job.id));
+    if (result.jobs.length) launchSceneQueue(uid, storyId, result.jobs.map((job) => job.id));
     res.status(202).json({
       batchId,
-      sceneCount: sceneJobs.length,
-      skippedCount: requestedCount - sceneJobs.length,
+      sceneCount: result.jobs.length,
+      skippedCount: result.skippedCount,
     });
   } catch (error) {
     if (error instanceof StoryNotFoundError) {
@@ -404,14 +471,19 @@ router.post("/images/stories/:storyId/scenes/resume", async (req, res): Promise<
   }
   try {
     const storyRef = storyReference(uid, storyId);
-    const snapshot = await storyRef.collection("images").limit(MAX_STORY_IMAGES).get();
-    if (snapshot.empty && !(await storyRef.get()).exists) {
+    const storySnapshot = await storyRef.get();
+    if (!storySnapshot.exists) {
       res.status(404).json({ error: "This story could not be found.", code: "story_not_found" });
       return;
     }
+    const storyData = storySnapshot.data() ?? {};
+    const targetCount = isValidTargetCount(storyData.targetCount) ? storyData.targetCount : 10;
+    const snapshot = await storyRef.collection("images").limit(MAX_STORY_IMAGES).get();
     const now = Date.now();
     for (const document of snapshot.docs) {
       const data = document.data();
+      const index = Number(data.index ?? data.sequence);
+      if (!Number.isInteger(index) || index > targetCount) continue;
       if (data.status !== "generating") continue;
       const startedAt = data.generationStartedAt instanceof Timestamp
         ? data.generationStartedAt.toMillis()
@@ -426,7 +498,12 @@ router.post("/images/stories/:storyId/scenes/resume", async (req, res): Promise<
       }
     }
     const pending = await storyRef.collection("images").where("status", "==", "pending").limit(MAX_STORY_IMAGES).get();
-    const imageIds = pending.docs.map((document) => document.id);
+    const imageIds = pending.docs
+      .filter((document) => {
+        const data = document.data();
+        return Number(data.index ?? data.sequence) <= targetCount;
+      })
+      .map((document) => document.id);
     launchSceneQueue(uid, storyId, imageIds);
     res.json({ resumedCount: imageIds.length });
   } catch {
@@ -454,7 +531,13 @@ router.post("/images/stories/:storyId/images/:imageId/retry", async (req, res): 
       ]);
       if (!storySnapshot.exists || !imageSnapshot.exists) throw new StoryNotFoundError();
       if (imageSnapshot.data()?.status !== "failed") throw new Error("Scene is not retryable.");
-      const imageCount = Math.max(0, Math.floor(Number(storySnapshot.data()?.imageCount) || 0));
+      const storyData = storySnapshot.data() ?? {};
+      const targetCount = isValidTargetCount(storyData.targetCount) ? storyData.targetCount : 10;
+      const imageIndex = Number(imageSnapshot.data()?.index ?? imageSnapshot.data()?.sequence);
+      if (!Number.isInteger(imageIndex) || imageIndex < 1 || imageIndex > targetCount) {
+        throw new Error("Scene is outside the story target.");
+      }
+      const imageCount = Math.max(0, Math.floor(Number(storyData.imageCount) || 0));
       if (imageCount >= MAX_STORY_IMAGES) throw new StoryLimitReachedError();
       transaction.update(imageRef, {
         status: "pending",

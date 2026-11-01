@@ -147,6 +147,52 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
+  /images/stories/{storyId}/target-count:
+    patch:
+      operationId: updateStoryTargetCount
+      tags: [images]
+      summary: Update a story's target image count
+      description: Sets a target from 1 to 100 and removes only pending or failed scenes above it.
+      security:
+        - FirebaseBearerAuth: []
+      parameters:
+        - name: storyId
+          in: path
+          required: true
+          schema:
+            type: string
+            maxLength: 200
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StoryTargetCountInput"
+      responses:
+        "200":
+          description: Target count updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StoryTargetCountResult"
+        "400":
+          description: Invalid target count.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: Missing or invalid Firebase ID token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Story not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
   /images/stories/{storyId}/scenes/resume:
     post:
       operationId: resumeStorySceneGeneration
@@ -468,7 +514,25 @@ components:
           type: integer
           minimum: 1
           maximum: 100
+          description: Desired total number of scenes for the story.
       required: [prompt, count]
+    StoryTargetCountInput:
+      type: object
+      properties:
+        targetCount:
+          type: integer
+          minimum: 1
+          maximum: 100
+      required: [targetCount]
+    StoryTargetCountResult:
+      type: object
+      properties:
+        targetCount:
+          type: integer
+        removedCount:
+          type: integer
+          minimum: 0
+      required: [targetCount, removedCount]
     SceneGenerationAccepted:
       type: object
       properties:

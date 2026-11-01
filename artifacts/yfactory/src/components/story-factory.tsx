@@ -28,6 +28,7 @@ import {
   startStorySceneGeneration,
   subscribeToStories,
   subscribeToStoryImages,
+  updateStoryTargetCount,
   updateStoryScript,
   type StoryImageRecord,
   type StoryRecord,
@@ -38,7 +39,6 @@ import { useToast } from '@/hooks/use-toast';
 type StoryFactoryProps = {
   uid: string;
   getIdToken: () => Promise<string>;
-  requestedImageCount: number;
   visible: boolean;
   selectedStoryId: string | null;
   pendingImage: GeneratedImageHistoryItem | null;
@@ -52,6 +52,7 @@ type StoryFactoryProps = {
 };
 
 const STORAGE_QUOTA_BYTES = 20 * 1024 * 1024 * 1024;
+const STORY_TARGET_PRESETS = [5, 10, 25, 50, 100];
 
 function imageSequenceLabel(image: StoryImageRecord, index: number): string {
   const publicIdTail = image.publicId?.split('/').at(-1);
@@ -167,7 +168,6 @@ function sceneFailureKey(error: string | undefined): string {
 function StoryFactory({
   uid,
   getIdToken,
-  requestedImageCount,
   visible,
   selectedStoryId,
   pendingImage,
@@ -192,6 +192,16 @@ function StoryFactory({
   const [script, setScript] = useState('');
   const [scriptSaving, setScriptSaving] = useState(false);
   const scriptSavePromise = useRef<Promise<boolean> | null>(null);
+  const [targetCount, setTargetCount] = useState(10);
+  const [targetCountInput, setTargetCountInput] = useState('10');
+  const [targetCountSaving, setTargetCountSaving] = useState(false);
+  const [targetCountDirty, setTargetCountDirty] = useState(false);
+  const targetCountRef = useRef(10);
+  const savedTargetCountRef = useRef(10);
+  const targetCountStoryIdRef = useRef<string | null>(null);
+  const targetCountDirtyRef = useRef(false);
+  const targetCountSaveQueue = useRef<Promise<void>>(Promise.resolve());
+  const targetCountSavePending = useRef(0);
   const [savingImageForStory, setSavingImageForStory] = useState<string | null>(
     null,
   );
@@ -212,6 +222,28 @@ function StoryFactory({
     () => stories.find((story) => story.id === selectedStoryId) ?? null,
     [stories, selectedStoryId],
   );
+  useEffect(() => {
+    if (!selectedStory) return;
+    const count = selectedStory.targetCount;
+    targetCountStoryIdRef.current = selectedStory.id;
+    targetCountRef.current = count;
+    savedTargetCountRef.current = count;
+    setTargetCount(count);
+    setTargetCountInput(String(count));
+    setTargetCountDirty(false);
+    targetCountDirtyRef.current = false;
+  }, [selectedStory?.id]);
+  useEffect(() => {
+    if (!selectedStory || targetCountDirtyRef.current) return;
+    const count = selectedStory.targetCount;
+    if (count === savedTargetCountRef.current) return;
+    targetCountRef.current = count;
+    savedTargetCountRef.current = count;
+    setTargetCount(count);
+    setTargetCountInput(String(count));
+    targetCountDirtyRef.current = false;
+    setTargetCountDirty(false);
+  }, [selectedStory?.targetCount, selectedStory?.id]);
   useEffect(() => {
     setLightboxImageId(null);
     setVisibleImageCount(24);
@@ -382,6 +414,7 @@ function StoryFactory({
         createdAt: new Date(),
         imageCount: 0,
         storageBytes: 0,
+        targetCount: 10,
       });
     } catch {
       setError(t('stories.createFailed'));
@@ -469,6 +502,62 @@ function StoryFactory({
     }
   };
 
+  const handleTargetCountChange = (value: number) => {
+    const count = Math.max(1, Math.min(MAX_STORY_IMAGES, Math.round(value)));
+    targetCountRef.current = count;
+    setTargetCount(count);
+    setTargetCountInput(String(count));
+    const dirty = count !== savedTargetCountRef.current;
+    targetCountDirtyRef.current = dirty;
+    setTargetCountDirty(dirty);
+    setError('');
+  };
+
+  const saveTargetCountValue = async (
+    storyId: string,
+    count: number,
+  ): Promise<boolean> => {
+    if (!Number.isInteger(count) || count < 1 || count > MAX_STORY_IMAGES) return false;
+    const save = targetCountSaveQueue.current
+      .catch(() => undefined)
+      .then(async () => {
+        if (
+          targetCountStoryIdRef.current === storyId &&
+          savedTargetCountRef.current === count
+        ) return;
+        await updateStoryTargetCount(storyId, count, await getIdToken());
+        if (targetCountStoryIdRef.current === storyId) {
+          savedTargetCountRef.current = count;
+        }
+      });
+    targetCountSaveQueue.current = save;
+    targetCountSavePending.current += 1;
+    setTargetCountSaving(true);
+    try {
+      await save;
+      if (targetCountStoryIdRef.current === storyId && targetCountRef.current === count) {
+        targetCountDirtyRef.current = false;
+        setTargetCountDirty(false);
+        setError('');
+      }
+      return true;
+    } catch {
+      if (targetCountStoryIdRef.current === storyId && targetCountRef.current === count) {
+        const saved = savedTargetCountRef.current;
+        targetCountRef.current = saved;
+        setTargetCount(saved);
+        setTargetCountInput(String(saved));
+        targetCountDirtyRef.current = false;
+        setTargetCountDirty(false);
+        setError(t('stories.targetCountSaveFailed'));
+      }
+      return false;
+    } finally {
+      targetCountSavePending.current = Math.max(0, targetCountSavePending.current - 1);
+      setTargetCountSaving(targetCountSavePending.current > 0);
+    }
+  };
+
   const handleGenerateStoryImages = async () => {
     if (!selectedStory || generatingStoryImages) return;
     const prompt = script.trim();
@@ -485,10 +574,8 @@ function StoryFactory({
     const controller = makeController();
     try {
       if (!(await handleSaveScript())) return;
-      const count = Math.min(
-        Math.max(1, Math.min(MAX_STORY_IMAGES, requestedImageCount)),
-        MAX_STORY_IMAGES - selectedStory.imageCount,
-      );
+      const count = targetCountRef.current;
+      if (!(await saveTargetCountValue(selectedStory.id, count))) return;
       const result = await startStorySceneGeneration(
         selectedStory.id,
         prompt,
@@ -705,11 +792,95 @@ function StoryFactory({
       {selectedStory ? (
         <div className="story-workspace">
           <div className="story-workspace-toolbar">
+            <div className="story-target-control" data-testid="story-target-control">
+              <div className="story-target-heading">
+                <label htmlFor="story-target-count">{t('stories.imageCountLabel')}</label>
+                <span>{t('stories.maximumImages')}</span>
+              </div>
+              <div className="story-target-inputs">
+                <input
+                  id="story-target-count"
+                  className="story-target-number"
+                  type="number"
+                  min={1}
+                  max={MAX_STORY_IMAGES}
+                  step={1}
+                  value={targetCountInput}
+                  onChange={(event) => {
+                    const rawValue = event.currentTarget.value;
+                    setTargetCountInput(rawValue);
+                    const value = Number(rawValue);
+                    if (
+                      rawValue !== '' &&
+                      Number.isInteger(value) &&
+                      value >= 1 &&
+                      value <= MAX_STORY_IMAGES
+                    ) handleTargetCountChange(value);
+                  }}
+                  onBlur={() => {
+                    if (!selectedStory) return;
+                    const value = Number(targetCountInput);
+                    const count = Number.isInteger(value) && value >= 1 && value <= MAX_STORY_IMAGES
+                      ? value
+                      : targetCountRef.current;
+                    handleTargetCountChange(count);
+                    void saveTargetCountValue(selectedStory.id, count);
+                  }}
+                  aria-label={t('stories.imageCountLabel')}
+                  data-testid="input-story-target-count"
+                />
+                <input
+                  className="story-target-slider"
+                  type="range"
+                  min={1}
+                  max={MAX_STORY_IMAGES}
+                  step={1}
+                  value={targetCount}
+                  onChange={(event) => handleTargetCountChange(Number(event.currentTarget.value))}
+                  onPointerUp={() => {
+                    if (selectedStory) {
+                      void saveTargetCountValue(selectedStory.id, targetCountRef.current);
+                    }
+                  }}
+                  onKeyUp={() => {
+                    if (selectedStory) {
+                      void saveTargetCountValue(selectedStory.id, targetCountRef.current);
+                    }
+                  }}
+                  aria-label={t('stories.imageCountLabel')}
+                  data-testid="input-story-target-slider"
+                />
+              </div>
+              <div className="story-target-presets" aria-label={t('stories.imageCountPresets')}>
+                {STORY_TARGET_PRESETS.map((count) => (
+                  <button
+                    className={targetCount === count ? 'story-target-preset is-active' : 'story-target-preset'}
+                    type="button"
+                    key={count}
+                    onClick={() => {
+                      handleTargetCountChange(count);
+                      if (selectedStory) void saveTargetCountValue(selectedStory.id, count);
+                    }}
+                    aria-pressed={targetCount === count}
+                    data-testid={`button-target-count-${count}`}
+                  >
+                    {count}
+                  </button>
+                ))}
+              </div>
+              <small role="status" aria-live="polite" data-testid="status-story-target-count">
+                {targetCountSaving
+                  ? t('stories.savingTargetCount')
+                  : targetCountDirty
+                    ? t('stories.unsavedTargetCount')
+                    : t('stories.maximumImages')}
+              </small>
+            </div>
             <div className="story-image-meter">
               <span>
                 {t('stories.imageCounter', {
                   count: selectedStory.imageCount,
-                  max: MAX_STORY_IMAGES,
+                  max: targetCount,
                 })}
               </span>
               {latestBatch && (
@@ -723,7 +894,7 @@ function StoryFactory({
               <div className="story-image-progress">
                 <span
                   style={{
-                    width: `${(selectedStory.imageCount / MAX_STORY_IMAGES) * 100}%`,
+                    width: `${Math.min(100, (selectedStory.imageCount / targetCount) * 100)}%`,
                   }}
                 />
               </div>
@@ -772,6 +943,12 @@ function StoryFactory({
                   : t('stories.downloadZip')}
             </button>
           </div>
+
+          {selectedStory.imageCount > targetCount && (
+            <div className="factory-warning" role="status" data-testid="status-story-target-lowered">
+              {t('stories.targetBelowFinished', { count: selectedStory.imageCount })}
+            </div>
+          )}
 
           {selectedStory.imageCount >= MAX_STORY_IMAGES && (
             <div className="factory-warning" role="status">
@@ -1034,7 +1211,7 @@ function StoryFactory({
                       <small>
                         {t('stories.imageCounter', {
                           count: story.imageCount,
-                          max: MAX_STORY_IMAGES,
+                          max: story.targetCount,
                         })}
                         {formatStoryDate(story.createdAt, locale) &&
                           ` · ${formatStoryDate(story.createdAt, locale)}`}

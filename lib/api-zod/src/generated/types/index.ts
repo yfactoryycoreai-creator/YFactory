@@ -32,6 +32,8 @@ export * from './sceneRetryResult';
 export * from './storageUsage';
 export * from './storyImage';
 export * from './storyImageStatus';
+export * from './storyTargetCountInput';
+export * from './storyTargetCountResult';
 export * from './storyZipDownloadToken';
 export * from './storyZipProgress';
 export * from './storyZipProgressStatus';
