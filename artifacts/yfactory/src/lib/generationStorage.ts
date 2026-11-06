@@ -1,11 +1,5 @@
 export type GeneratorSettings = {
   imageCount: '1' | '2' | '4';
-  videoDuration: '5' | '10' | '15';
-  videoRatio: '16:9' | '9:16' | '1:1';
-  videoQuality: '720p' | '1080p' | '2160p';
-  audioVoice: 'default' | 'warm' | 'bright';
-  audioDuration: '30' | '60' | '90';
-  audioStyle: 'natural' | 'cinematic' | 'energetic';
 };
 
 export type GeneratedImageHistoryItem = {
@@ -19,12 +13,6 @@ export type GeneratedImageHistoryItem = {
 
 export const DEFAULT_GENERATOR_SETTINGS: GeneratorSettings = {
   imageCount: '1',
-  videoDuration: '5',
-  videoRatio: '16:9',
-  videoQuality: '720p',
-  audioVoice: 'default',
-  audioDuration: '30',
-  audioStyle: 'natural',
 };
 
 const SETTINGS_STORAGE_KEY = 'yfactory.generator-settings.v1';
@@ -35,12 +23,6 @@ const allowedValues: {
   [Key in keyof GeneratorSettings]: readonly GeneratorSettings[Key][];
 } = {
   imageCount: ['1', '2', '4'],
-  videoDuration: ['5', '10', '15'],
-  videoRatio: ['16:9', '9:16', '1:1'],
-  videoQuality: ['720p', '1080p', '2160p'],
-  audioVoice: ['default', 'warm', 'bright'],
-  audioDuration: ['30', '60', '90'],
-  audioStyle: ['natural', 'cinematic', 'energetic'],
 };
 
 function isAllowedSetting<Key extends keyof GeneratorSettings>(

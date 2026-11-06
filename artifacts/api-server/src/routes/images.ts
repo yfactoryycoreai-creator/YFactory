@@ -18,7 +18,6 @@ router.use(storyScenesRouter);
 const MAX_STORY_IMAGES = 100;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_IMAGE_CONCURRENCY = 2;
-const MAX_VIDEO_REFERENCE_IMAGES = 10;
 
 class StoryNotFoundError extends Error {}
 class StoryLimitReachedError extends Error {}
@@ -244,41 +243,6 @@ router.get("/images/storage-usage", async (req, res): Promise<void> => {
     req.log.warn({ reason: error instanceof Error ? error.message : "unknown" }, "Could not read Cloudinary usage.");
     res.status(502).json({ error: "Cloudinary usage could not be loaded.", code: "cloudinary_usage_failed" });
   }
-});
-
-router.post("/video/references/validate", async (req, res): Promise<void> => {
-  const uid = await authenticatedUid(req, res);
-  if (!uid) return;
-  const references: unknown = req.body?.references;
-  if (!Array.isArray(references) || references.length < 1) {
-    res.status(400).json({ error: "Choose at least one reference image.", code: "invalid_references" });
-    return;
-  }
-  if (references.length > MAX_VIDEO_REFERENCE_IMAGES) {
-    res.status(400).json({
-      error: "A video can use up to 10 reference images.",
-      code: "too_many_references",
-    });
-    return;
-  }
-  const valid = references.every((reference) => {
-    if (typeof reference !== "object" || reference === null) return false;
-    const record = reference as Record<string, unknown>;
-    return typeof record.type === "string" &&
-      record.type.startsWith("image/") &&
-      typeof record.size === "number" &&
-      Number.isFinite(record.size) &&
-      record.size > 0 &&
-      record.size <= MAX_IMAGE_BYTES;
-  });
-  if (!valid) {
-    res.status(400).json({
-      error: "Reference images must be valid image files under 10 MB each.",
-      code: "invalid_references",
-    });
-    return;
-  }
-  res.json({ acceptedCount: references.length });
 });
 
 router.post("/images/stories/:storyId/images", async (req, res): Promise<void> => {

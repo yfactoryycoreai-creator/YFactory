@@ -26,50 +26,6 @@ export class ImageEditError extends Error {
   }
 }
 
-export class VideoReferenceValidationError extends Error {
-  constructor(
-    message: string,
-    public readonly code: string,
-  ) {
-    super(message);
-    this.name = 'VideoReferenceValidationError';
-  }
-}
-
-export async function validateVideoReferences(
-  idToken: string,
-  references: File[],
-): Promise<void> {
-  let response: Response;
-  try {
-    response = await fetch('/api/video/references/validate', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${idToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        references: references.map(({ type, size }) => ({ type, size })),
-      }),
-    });
-  } catch {
-    throw new VideoReferenceValidationError(
-      'Video reference validation could not be reached.',
-      'network_error',
-    );
-  }
-  const payload: unknown = await response.json().catch(() => null);
-  const result = typeof payload === 'object' && payload !== null
-    ? payload as Record<string, unknown>
-    : {};
-  if (!response.ok) {
-    throw new VideoReferenceValidationError(
-      typeof result.error === 'string' ? result.error : 'The reference images are invalid.',
-      typeof result.code === 'string' ? result.code : 'invalid_references',
-    );
-  }
-}
-
 export async function prepareImageReference(file: File): Promise<string> {
   const extension = file.name.split('.').pop()?.toLowerCase();
   const allowedTypes = new Set(['image/jpeg', 'image/png', 'image/webp']);

@@ -9,27 +9,18 @@ import {
 } from 'react';
 import { deleteUser } from 'firebase/auth';
 import {
-  AudioLines,
   BookOpen,
-  Clock3,
   Download,
   Globe2,
   Image as ImageIcon,
   ImagePlus,
   LoaderCircle,
   LogOut,
-  Mic,
-  Music2,
-  Play,
   Save,
   Settings,
   Sparkles,
-  SquarePlay,
   Trash2,
-  UploadCloud,
   UserRound,
-  Video,
-  X,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -51,11 +42,9 @@ import {
   generateImages,
   editImageFromReference,
   prepareImageReference,
-  validateVideoReferences,
   ImageEditError,
   ImageGenerationError,
   MAX_IMAGE_REFERENCE_FILE_BYTES,
-  VideoReferenceValidationError,
 } from '@/lib/imageApi';
 import {
   MAX_PERSISTED_IMAGES,
@@ -96,20 +85,6 @@ import {
 
 const queryClient = new QueryClient();
 
-type Mode = 'image' | 'video' | 'audio';
-const sampleAudioUrl = 'https://samplelib.com/lib/preview/mp3/sample-3s.mp3';
-const maxVideoReferenceImages = 10;
-const settingBySelectId = {
-  'image-count': 'imageCount',
-  'video-duration': 'videoDuration',
-  'video-ratio': 'videoRatio',
-  'video-quality': 'videoQuality',
-  'audio-voice': 'audioVoice',
-  'audio-duration': 'audioDuration',
-  'audio-style': 'audioStyle',
-} as const;
-type GeneratorSelectId = keyof typeof settingBySelectId;
-
 const StoryFactory = lazy(() => import('@/components/story-factory'));
 
 function StoryTabFallback({ resetError }: ErrorFallbackProps) {
@@ -146,12 +121,7 @@ function Home() {
   const { user } = useAuth();
   const [, setLocation] = useLocation();
   const locale = i18n.resolvedLanguage ?? i18n.language;
-  const [mode, setMode] = useState<Mode>('image');
-  const [prompts, setPrompts] = useState<Record<Mode, string>>({
-    image: '',
-    video: '',
-    audio: '',
-  });
+  const [prompt, setPrompt] = useState('');
   const [generatorSettings, setGeneratorSettings] =
     useState<GeneratorSettings>(readGeneratorSettings);
   const [noticeKey, setNoticeKey] = useState('');
@@ -161,9 +131,6 @@ function Home() {
   const [activeStory, setActiveStory] = useState<StoryRecord | null>(null);
   const [pendingStorySave, setPendingStorySave] =
     useState<GeneratedImageHistoryItem | null>(null);
-  const [videoImages, setVideoImages] = useState<File[]>([]);
-  const [imagePreviewUrls, setImagePreviewUrls] = useState<string[]>([]);
-  const [isDraggingImage, setIsDraggingImage] = useState(false);
   const [generatedImages, setGeneratedImages] =
     useState<GeneratedImageHistoryItem[]>(readGeneratedImageHistory);
   const [isImageGenerating, setIsImageGenerating] = useState(false);
@@ -177,27 +144,13 @@ function Home() {
   const [imageError, setImageError] = useState('');
   const [historyWarning, setHistoryWarning] = useState('');
   const [downloadingImageIndex, setDownloadingImageIndex] = useState<number | null>(null);
-  const [isAudioGenerating, setIsAudioGenerating] = useState(false);
-  const [audioGenerated, setAudioGenerated] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const imageEditInputRef = useRef<HTMLInputElement>(null);
-  const audioTimeoutRef = useRef<number | null>(null);
   const imageGenerationAbortRef = useRef<AbortController | null>(null);
   const profileMenuRef = useRef<HTMLDivElement>(null);
   const isRtl = locale === 'ar';
-  const prompt = prompts[mode];
-  const characterLimit = mode === 'image' ? 20000 : mode === 'audio' ? 5000 : 1000;
-  const isCurrentAudioGenerating = mode === 'audio' && isAudioGenerating;
-  const isCurrentImageGenerating = mode === 'image' && isImageGenerating;
-  const isCurrentGenerateLoading =
-    isCurrentAudioGenerating || isCurrentImageGenerating ||
-    (mode === 'image' && isImageEditing);
-  const statusMessage =
-    mode === 'audio' && audioGenerated
-      ? t('status.audioReady')
-      : noticeKey
-        ? t(noticeKey)
-        : '';
+  const characterLimit = 20_000;
+  const isCurrentGenerateLoading = isImageGenerating || isImageEditing;
+  const statusMessage = noticeKey ? t(noticeKey) : '';
 
   useEffect(() => {
     document.documentElement.lang = locale;
@@ -225,12 +178,6 @@ function Home() {
       setHistoryWarning(t('status.historySaveFailed'));
     }
   }, [generatedImages, t]);
-
-  useEffect(() => {
-    const previewUrls = videoImages.map((file) => URL.createObjectURL(file));
-    setImagePreviewUrls(previewUrls);
-    return () => previewUrls.forEach((url) => URL.revokeObjectURL(url));
-  }, [videoImages]);
 
   useEffect(() => {
     if (!imageEditFile) {
@@ -263,15 +210,11 @@ function Home() {
   useEffect(
     () => () => {
       imageGenerationAbortRef.current?.abort();
-      if (audioTimeoutRef.current !== null) {
-        window.clearTimeout(audioTimeoutRef.current);
-      }
     },
     [],
   );
 
-  const chooseMode = (next: Mode) => {
-    setMode(next);
+  const chooseImageTab = () => {
     setStoriesOpen(false);
     setNoticeKey('');
     setImageError('');
@@ -310,45 +253,6 @@ function Home() {
     }
   }, [imageEditResult]);
 
-  const handleImageFiles = async (files: FileList | File[] | null) => {
-    if (!files?.length) return;
-    const receivedFiles = Array.from(files);
-    const validFiles = receivedFiles.filter((file) =>
-      file.type.startsWith('image/'),
-    );
-    if (validFiles.length === 0) {
-      setNoticeKey('status.invalidImage');
-      return;
-    }
-    if (!user) {
-      setNoticeKey('status.authRequired');
-      return;
-    }
-    const candidate = [...videoImages, ...validFiles];
-    const capped = candidate.slice(0, maxVideoReferenceImages);
-    try {
-      await validateVideoReferences(
-        await user.getIdToken(),
-        candidate,
-      );
-      setVideoImages(capped);
-      setNoticeKey(candidate.length > maxVideoReferenceImages ? 'status.maxReferenceImages' : '');
-    } catch (error) {
-      if (error instanceof VideoReferenceValidationError &&
-          error.code === 'too_many_references') {
-        setVideoImages(capped);
-        setNoticeKey('status.maxReferenceImages');
-      } else {
-        setNoticeKey(
-          error instanceof VideoReferenceValidationError &&
-            error.code === 'invalid_references'
-            ? 'status.invalidImage'
-            : 'status.referenceValidationFailed',
-        );
-      }
-    }
-  };
-
   const handleImageEditFile = (file: File | undefined) => {
     setImageEditError('');
     setImageEditResult(null);
@@ -372,202 +276,106 @@ function Home() {
     setImageEditFile(file);
   };
 
-  const updateGeneratorSetting = (
-    id: GeneratorSelectId,
-    value: string,
-  ) => {
-    const key = settingBySelectId[id];
-    setGeneratorSettings((current) => ({
-      ...current,
-      [key]: value,
-    }) as GeneratorSettings);
-  };
-
-  const selectField = (
-    label: string,
-    icon: ReactNode,
-    options: readonly { value: string; label: string }[],
-    id: GeneratorSelectId,
-  ) => (
-    <div className="control-group" key={id}>
-      <label className="control-label" htmlFor={id}>
-        {icon}
-        {label}
-      </label>
-      <Select
-        dir={isRtl ? 'rtl' : 'ltr'}
-        value={generatorSettings[settingBySelectId[id]]}
-        onValueChange={(value) => updateGeneratorSetting(id, value)}
-      >
-        <SelectTrigger
-          className="control-select"
-          id={id}
-          data-testid={`select-${id}`}
-          aria-label={label}
-        >
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent className="custom-select-content">
-          {options.map((option) => (
-            <SelectItem
-              key={option.value}
-              value={option.value}
-              className="custom-select-item"
-            >
-              {option.label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </div>
-  );
-
   const imageCountOptions = [
     { value: '1', label: t('options.imageCountOne') },
     { value: '2', label: t('options.imageCountTwo') },
     { value: '4', label: t('options.imageCountFour') },
   ];
-  const videoDurationOptions = [
-    { value: '5', label: t('options.video5') },
-    { value: '10', label: t('options.video10') },
-    { value: '15', label: t('options.video15') },
-  ];
-  const audioDurationOptions = [
-    { value: '30', label: t('options.audio30') },
-    { value: '60', label: t('options.audio60') },
-    { value: '90', label: t('options.audio90') },
-  ];
-  const aspectRatioOptions = [
-    { value: '16:9', label: t('options.landscape') },
-    { value: '9:16', label: t('options.portrait') },
-    { value: '1:1', label: t('options.square') },
-  ];
-  const qualityOptions = [
-    { value: '720p', label: t('options.hd') },
-    { value: '1080p', label: t('options.fullHd') },
-    { value: '2160p', label: t('options.uhd') },
-  ];
-  const voiceOptions = [
-    { value: 'default', label: t('options.defaultVoice') },
-    { value: 'warm', label: t('options.warmVoice') },
-    { value: 'bright', label: t('options.brightVoice') },
-  ];
-  const styleOptions = [
-    { value: 'natural', label: t('options.natural') },
-    { value: 'cinematic', label: t('options.cinematic') },
-    { value: 'energetic', label: t('options.energetic') },
-  ];
 
   const handleGenerate = async () => {
     setNoticeKey('');
     setImageError('');
-    if (mode === 'image') {
-      const promptToGenerate = prompts.image.trim();
-      if (!promptToGenerate) {
-        setImageError(t('status.imagePromptRequired'));
-        return;
-      }
-      if (!user) {
-        setImageError(t('status.authRequired'));
-        return;
-      }
+    const promptToGenerate = prompt.trim();
+    if (!promptToGenerate) {
+      setImageError(t('status.imagePromptRequired'));
+      return;
+    }
+    if (!user) {
+      setImageError(t('status.authRequired'));
+      return;
+    }
 
-      if (activeStory && activeStory.imageCount >= MAX_STORY_IMAGES) {
-        setImageError(t('stories.limitReached'));
-        return;
-      }
-      const requestedImages = Number(generatorSettings.imageCount);
-      const totalImages = activeStory
-        ? Math.min(
-            requestedImages,
-            MAX_STORY_IMAGES - activeStory.imageCount,
-          )
-        : requestedImages;
-      setIsImageGenerating(true);
-      imageGenerationAbortRef.current?.abort();
-      const controller = new AbortController();
-      imageGenerationAbortRef.current = controller;
-      try {
-        const idToken = await user.getIdToken();
-        if (activeStory) {
-          const started = await startStorySceneGeneration(
-            activeStory.id,
-            promptToGenerate,
-            totalImages,
-            idToken,
-            controller.signal,
-          );
-          if (started.skippedCount > 0) {
-            setImageError(
-              t('status.partialImageFailure', {
-                failed: started.skippedCount,
-                total: requestedImages,
-              }),
-            );
-          }
-          setStoriesOpen(true);
-          return;
-        }
-        const result = await generateImages(
-          idToken,
-          null,
+    if (activeStory && activeStory.imageCount >= MAX_STORY_IMAGES) {
+      setImageError(t('stories.limitReached'));
+      return;
+    }
+    const requestedImages = Number(generatorSettings.imageCount);
+    const totalImages = activeStory
+      ? Math.min(
+          requestedImages,
+          MAX_STORY_IMAGES - activeStory.imageCount,
+        )
+      : requestedImages;
+    setIsImageGenerating(true);
+    imageGenerationAbortRef.current?.abort();
+    const controller = new AbortController();
+    imageGenerationAbortRef.current = controller;
+    try {
+      const idToken = await user.getIdToken();
+      if (activeStory) {
+        const started = await startStorySceneGeneration(
+          activeStory.id,
           promptToGenerate,
           totalImages,
+          idToken,
           controller.signal,
         );
-        const batch: GeneratedImageHistoryItem[] = result.images.map((image) => ({
-          id: crypto.randomUUID(),
-          prompt: promptToGenerate,
-          createdAt: Date.now(),
-          imageData: image.imageData,
-          provider: image.provider,
-          ...(image.savedToFactory ? { savedToFactory: true } : {}),
-        }));
-
-        setGeneratedImages((current) =>
-          [...batch, ...current].slice(0, MAX_PERSISTED_IMAGES),
-        );
-        if (result.failedCount > 0 || result.skippedCount > 0) {
+        if (started.skippedCount > 0) {
           setImageError(
             t('status.partialImageFailure', {
-              failed: result.failedCount + result.skippedCount,
+              failed: started.skippedCount,
               total: requestedImages,
             }),
           );
-        } else {
-          setNoticeKey('status.imageBatchReady');
         }
-      } catch (generationError) {
-        if (!controller.signal.aborted) {
-          setImageError(
-            generationError instanceof StoryLimitReachedError ||
-              (generationError instanceof ImageGenerationError &&
-                generationError.code === 'story_limit')
-              ? t('stories.limitReached')
-              : t('status.imageGenerateFailed'),
-          );
-        }
-      } finally {
-        if (imageGenerationAbortRef.current === controller) {
-          imageGenerationAbortRef.current = null;
-        }
-        setIsImageGenerating(false);
+        setStoriesOpen(true);
+        return;
       }
-      return;
+      const result = await generateImages(
+        idToken,
+        null,
+        promptToGenerate,
+        totalImages,
+        controller.signal,
+      );
+      const batch: GeneratedImageHistoryItem[] = result.images.map((image) => ({
+        id: crypto.randomUUID(),
+        prompt: promptToGenerate,
+        createdAt: Date.now(),
+        imageData: image.imageData,
+        provider: image.provider,
+        ...(image.savedToFactory ? { savedToFactory: true } : {}),
+      }));
+
+      setGeneratedImages((current) =>
+        [...batch, ...current].slice(0, MAX_PERSISTED_IMAGES),
+      );
+      if (result.failedCount > 0 || result.skippedCount > 0) {
+        setImageError(
+          t('status.partialImageFailure', {
+            failed: result.failedCount + result.skippedCount,
+            total: requestedImages,
+          }),
+        );
+      } else {
+        setNoticeKey('status.imageBatchReady');
+      }
+    } catch (generationError) {
+      if (!controller.signal.aborted) {
+        setImageError(
+          generationError instanceof StoryLimitReachedError ||
+            (generationError instanceof ImageGenerationError &&
+              generationError.code === 'story_limit')
+            ? t('stories.limitReached')
+            : t('status.imageGenerateFailed'),
+        );
+      }
+    } finally {
+      if (imageGenerationAbortRef.current === controller) {
+        imageGenerationAbortRef.current = null;
+      }
+      setIsImageGenerating(false);
     }
-    if (mode !== 'audio') {
-      setNoticeKey('status.video');
-      return;
-    }
-    if (audioTimeoutRef.current !== null) {
-      window.clearTimeout(audioTimeoutRef.current);
-    }
-    setAudioGenerated(false);
-    setIsAudioGenerating(true);
-    audioTimeoutRef.current = window.setTimeout(() => {
-      setIsAudioGenerating(false);
-      setAudioGenerated(true);
-    }, 900);
   };
 
   const handleImageEdit = async () => {
@@ -647,7 +455,7 @@ function Home() {
     if (isSigningOut) return;
     setIsSigningOut(true);
     setGeneratedImages([]);
-    setPrompts({ image: '', video: '', audio: '' });
+    setPrompt('');
     setActiveStory(null);
     setPendingStorySave(null);
     try {
@@ -764,20 +572,17 @@ function Home() {
 
       <main className="main">
         <nav className="tabs" role="tablist" aria-label={t('labels.tabs')} data-testid="media-tabs">
-          {(['image', 'video', 'audio'] as const).map((tab) => (
-            <button
-              key={tab}
-              type="button"
-              role="tab"
-              aria-selected={!storiesOpen && mode === tab}
-              className={`tab${!storiesOpen && mode === tab ? ' active' : ''}`}
-              onClick={() => chooseMode(tab)}
-              data-testid={`tab-${tab}`}
-            >
-              {tab === 'image' ? <ImageIcon size={20} /> : tab === 'video' ? <SquarePlay size={20} /> : <AudioLines size={20} />}
-              <span>{t(`tabs.${tab}`)}</span>
-            </button>
-          ))}
+          <button
+            type="button"
+            role="tab"
+            aria-selected={!storiesOpen}
+            className={`tab${!storiesOpen ? ' active' : ''}`}
+            onClick={chooseImageTab}
+            data-testid="tab-image"
+          >
+            <ImageIcon size={20} />
+            <span>{t('tabs.image')}</span>
+          </button>
           <button
             type="button"
             role="tab"
@@ -813,109 +618,23 @@ function Home() {
         )}
 
         {!storiesOpen && (
-          <ErrorBoundary resetKey={mode} FallbackComponent={MediaTabFallback}>
+          <ErrorBoundary FallbackComponent={MediaTabFallback}>
           <>
-        {mode === 'video' && (
-          <div className="video-upload">
-            <input
-              ref={fileInputRef}
-              className="visually-hidden"
-              id="video-source-image"
-              type="file"
-              accept="image/*"
-              multiple
-              aria-label={t('labels.upload')}
-              data-testid="input-video-source-image"
-              onChange={(event) => {
-                void handleImageFiles(event.currentTarget.files);
-                event.currentTarget.value = '';
-              }}
-            />
-            <button
-              type="button"
-              className={`upload-drop${isDraggingImage ? ' is-dragging' : ''}${videoImages.length ? ' has-preview' : ''}`}
-              aria-label={
-                videoImages.length
-                  ? t('upload.selectedCount', { count: videoImages.length })
-                  : t('upload.title')
-              }
-              data-testid="button-upload-video-image"
-              onClick={() => fileInputRef.current?.click()}
-              onDragOver={(event) => {
-                event.preventDefault();
-                setIsDraggingImage(true);
-              }}
-              onDragLeave={() => setIsDraggingImage(false)}
-              onDrop={(event) => {
-                event.preventDefault();
-                setIsDraggingImage(false);
-                void handleImageFiles(event.dataTransfer.files);
-              }}
-            >
-              <UploadCloud size={22} aria-hidden="true" />
-              <span className="upload-copy">
-                <strong>{t('upload.title')}</strong>
-                <span>
-                  {videoImages.length
-                    ? t('upload.selectedCount', { count: videoImages.length })
-                    : t('upload.helper')}
-                </span>
-              </span>
-              <span className="upload-limit">
-                {videoImages.length}/{maxVideoReferenceImages}
-              </span>
-            </button>
-            {videoImages.length > 0 && (
-              <div className="upload-preview-list" aria-label={t('upload.selectedImages')}>
-                {videoImages.map((file, index) => (
-                  <div className="upload-preview-item" key={`${file.name}-${index}`}>
-                    <img
-                      className="upload-thumbnail"
-                      src={imagePreviewUrls[index]}
-                      alt={file.name}
-                      loading="lazy"
-                      data-testid={`img-video-reference-${index + 1}`}
-                    />
-                    <button
-                      type="button"
-                      className="remove-upload"
-                      aria-label={t('upload.removeImage', { name: file.name })}
-                      onClick={() =>
-                        setVideoImages((current) =>
-                          current.filter((_, currentIndex) => currentIndex !== index),
-                        )
-                      }
-                      data-testid={`button-remove-video-reference-${index + 1}`}
-                    >
-                      <X size={13} aria-hidden="true" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
         <section className="composer" aria-label={t('labels.prompt')}>
           <div className="prompt-icon" aria-hidden="true">
-            {mode === 'image' ? <Sparkles size={19} /> : mode === 'video' ? <Video size={19} /> : <AudioLines size={19} />}
+            <Sparkles size={19} />
           </div>
           <textarea
             className="prompt-box"
             value={prompt}
             maxLength={characterLimit}
-            disabled={isCurrentAudioGenerating}
             onChange={(event) => {
               const value = event.currentTarget?.value ?? '';
-              setPrompts((current) => ({
-                ...current,
-                [mode]: value,
-              }));
+              setPrompt(value);
               setNoticeKey('');
               setImageError('');
-              if (mode === 'audio') setAudioGenerated(false);
             }}
-            placeholder={t(`prompt.${mode}`)}
+            placeholder={t('prompt.image')}
             aria-label={t('labels.prompt')}
             data-testid="input-generation-prompt"
           />
@@ -924,49 +643,44 @@ function Home() {
           </div>
         </section>
 
-        {mode === 'image' && (
-          <section
-            className="controls image-controls"
-            aria-label={t('labels.imageCount')}
-            data-testid="image-controls"
-          >
-            {selectField(
-              t('labels.imageCount'),
-              <ImageIcon size={16} />,
-              imageCountOptions,
-              'image-count',
-            )}
-          </section>
-        )}
+        <section
+          className="controls image-controls"
+          aria-label={t('labels.imageCount')}
+          data-testid="image-controls"
+        >
+          <div className="control-group">
+            <label className="control-label" htmlFor="image-count">
+              <ImageIcon size={16} />
+              {t('labels.imageCount')}
+            </label>
+            <Select
+              dir={isRtl ? 'rtl' : 'ltr'}
+              value={generatorSettings.imageCount}
+              onValueChange={(value) => setGeneratorSettings((current) => ({
+                ...current,
+                imageCount: value as GeneratorSettings['imageCount'],
+              }))}
+            >
+              <SelectTrigger
+                className="control-select"
+                id="image-count"
+                data-testid="select-image-count"
+                aria-label={t('labels.imageCount')}
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="custom-select-content">
+                {imageCountOptions.map((option) => (
+                  <SelectItem key={option.value} value={option.value} className="custom-select-item">
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </section>
 
-        {mode !== 'image' && (
-          <section
-            className="controls"
-            aria-label={
-              mode === 'video'
-                ? `${t('labels.duration')}, ${t('labels.aspectRatio')}, ${t('labels.quality')}`
-                : `${t('labels.voice')}, ${t('labels.duration')}, ${t('labels.style')}`
-            }
-            data-testid={`${mode}-controls`}
-          >
-            {mode === 'video' ? (
-              <>
-                {selectField(t('labels.duration'), <Clock3 size={16} />, videoDurationOptions, 'video-duration')}
-                {selectField(t('labels.aspectRatio'), <ImageIcon size={16} />, aspectRatioOptions, 'video-ratio')}
-                {selectField(t('labels.quality'), <Sparkles size={16} />, qualityOptions, 'video-quality')}
-              </>
-            ) : (
-              <>
-                {selectField(t('labels.voice'), <Mic size={16} />, voiceOptions, 'audio-voice')}
-                {selectField(t('labels.duration'), <Clock3 size={16} />, audioDurationOptions, 'audio-duration')}
-                {selectField(t('labels.style'), <Music2 size={17} />, styleOptions, 'audio-style')}
-              </>
-            )}
-          </section>
-        )}
-
-        {mode === 'image' && (
-          <section className="image-edit-panel" aria-labelledby="image-edit-title" data-testid="image-edit-panel">
+        <section className="image-edit-panel" aria-labelledby="image-edit-title" data-testid="image-edit-panel">
             <div className="image-edit-heading">
               <div>
                 <h2 id="image-edit-title">{t('imageEdit.title')}</h2>
@@ -1066,8 +780,7 @@ function Home() {
                 </figure>
               </div>
             )}
-          </section>
-        )}
+        </section>
 
         <button
           type="button"
@@ -1079,20 +792,14 @@ function Home() {
         >
           {isCurrentGenerateLoading ? (
             <LoaderCircle className="loading-spinner" size={19} />
-          ) : mode === 'image' ? (
-            <Sparkles size={19} />
-          ) : mode === 'video' ? (
-            <Play size={19} />
           ) : (
-            <AudioLines size={20} />
+            <Sparkles size={19} />
           )}
           <span>
-            {isCurrentImageGenerating
+            {isImageGenerating
               ? t('generate.imageLoading')
-              : isCurrentAudioGenerating
-                ? t('generate.loading')
-                : isImageEditing
-                  ? t('imageEdit.loading')
+              : isImageEditing
+                ? t('imageEdit.loading')
                 : t('generate.button')}
           </span>
         </button>
@@ -1112,26 +819,24 @@ function Home() {
           </div>
         )}
 
-        {mode === 'image' && (
-          <div className="results-heading">
-            <h2>{t('labels.recentGenerations')}</h2>
-            <span>{generatedImages.length}</span>
-          </div>
-        )}
+        <div className="results-heading">
+          <h2>{t('labels.recentGenerations')}</h2>
+          <span>{generatedImages.length}</span>
+        </div>
         <section
           className="results"
-          aria-label={`${t(`tabs.${mode}`)} — ${t('labels.results')}`}
+          aria-label={`${t('tabs.image')} — ${t('labels.results')}`}
           data-testid="results-grid"
         >
           {Array.from(
-            { length: mode === 'image' ? Math.max(4, generatedImages.length) : 4 },
+            { length: Math.max(4, generatedImages.length) },
             (_, index) => (
             <div
-              className={`result-tile${mode === 'audio' ? ' audio-tile' : ''}${mode === 'image' && generatedImages[index] ? ' image-tile' : ''}`}
-              key={`${mode}-${index}`}
-              data-testid={`result-tile-${mode}-${index + 1}`}
+              className={`result-tile${generatedImages[index] ? ' image-tile' : ''}`}
+              key={`image-${index}`}
+              data-testid={`result-tile-image-${index + 1}`}
             >
-              {mode === 'image' && generatedImages[index] ? (
+              {generatedImages[index] ? (
                 <div className="generated-image-wrap">
                   <img
                     className="generated-image"
@@ -1209,41 +914,11 @@ function Home() {
                 </div>
               ) : (
                 <div
-                  className={`result-inner${mode === 'audio' ? ' audio-inner' : ''}`}
-                  aria-label={
-                    mode === 'image'
-                      ? t('tabs.image')
-                      : mode === 'video'
-                        ? t('empty.video')
-                        : t('empty.audio')
-                  }
+                  className="result-inner"
+                  aria-label={t('tabs.image')}
                 >
-                  {mode === 'image' ? (
-                    <ImagePlus size={36} strokeWidth={1.5} />
-                  ) : mode === 'video' ? (
-                    <>
-                      <SquarePlay size={34} strokeWidth={1.5} />
-                      <span className="result-message">{t('empty.video')}</span>
-                    </>
-                  ) : (
-                    <>
-                      <Music2 size={34} strokeWidth={1.7} />
-                      <span className="result-message">{t('empty.audio')}</span>
-                    </>
-                  )}
+                  <ImagePlus size={36} strokeWidth={1.5} />
                 </div>
-              )}
-              {mode === 'audio' && (
-                <audio
-                  className="native-audio-player"
-                  controls
-                  preload="none"
-                  src={audioGenerated ? sampleAudioUrl : undefined}
-                  aria-label={t('audio.samplePlayer')}
-                  data-testid={`audio-player-${index + 1}`}
-                >
-                  {t('audio.unsupported')}
-                </audio>
               )}
             </div>
             ),
