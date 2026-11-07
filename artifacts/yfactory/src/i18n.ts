@@ -154,7 +154,6 @@ void i18n.use(initReactI18next).init({
           startingGeneration: 'Starting…',
           generationProgress: '{{done}} / {{total}} scenes completed',
           sceneLimitPartial: 'Started {{count}} scenes. The story limit prevented the rest.',
-          generationStartFailed: 'Scenes could not be started. Please try again.',
           sceneStartError: {
             planning_failed: 'The story could not be divided into scenes. Try a shorter script.',
             missing_key: 'No image-provider key is available. Check provider setup, then retry.',
@@ -162,6 +161,7 @@ void i18n.use(initReactI18next).init({
             bad_script: 'Check the script and keep it under 20,000 characters.',
             validation_failed: 'Check the story and scene count, then try again.',
             save_failed: 'The scenes could not be saved. Please retry.',
+            service_unavailable: 'The story service could not be reached. Check the connection and retry.',
           },
           promptRequired: 'Add a script to this story before generating images.',
           resumeScenes: 'Resume scenes',
@@ -487,7 +487,6 @@ void i18n.use(initReactI18next).init({
           startingGeneration: 'Démarrage…',
           generationProgress: '{{done}} / {{total}} scènes terminées',
           sceneLimitPartial: '{{count}} scènes démarrées. La limite de l’histoire a bloqué les autres.',
-          generationStartFailed: 'Impossible de démarrer les scènes. Veuillez réessayer.',
           sceneStartError: {
             planning_failed: 'Impossible de découper l’histoire en scènes. Réessayez avec un script plus court.',
             missing_key: 'Aucune clé de fournisseur d’image n’est disponible. Vérifiez la configuration.',
@@ -495,6 +494,7 @@ void i18n.use(initReactI18next).init({
             bad_script: 'Vérifiez le script et limitez-le à 20 000 caractères.',
             validation_failed: 'Vérifiez l’histoire et le nombre de scènes.',
             save_failed: 'Impossible d’enregistrer les scènes. Réessayez.',
+            service_unavailable: 'Le service des histoires est inaccessible. Vérifiez la connexion puis réessayez.',
           },
           promptRequired: 'Ajoutez un script à cette histoire avant de générer des images.',
           resumeScenes: 'Reprendre les scènes',
@@ -820,7 +820,6 @@ void i18n.use(initReactI18next).init({
           startingGeneration: 'جارٍ البدء…',
           generationProgress: 'اكتمل {{done}} من {{total}} مشهدًا',
           sceneLimitPartial: 'بدأ إنشاء {{count}} مشاهد. منع حد القصة إنشاء البقية.',
-          generationStartFailed: 'تعذّر بدء إنشاء المشاهد. حاول مرة أخرى.',
           promptRequired: 'أضف نصًا إلى القصة قبل إنشاء الصور.',
           resumeScenes: 'استئناف المشاهد',
           resumingScenes: 'جارٍ الاستئناف…',
@@ -835,6 +834,7 @@ void i18n.use(initReactI18next).init({
             bad_script: 'تحقّق من النص واجعله أقل من ٢٠٬٠٠٠ حرف.',
             validation_failed: 'تحقّق من القصة وعدد المشاهد ثم أعد المحاولة.',
             save_failed: 'تعذر حفظ المشاهد. أعد المحاولة.',
+            service_unavailable: 'تعذّر الوصول إلى خدمة القصص. تحقق من الاتصال ثم أعد المحاولة.',
           },
           sceneFailure: {
             planning_failed: 'تعذر تقسيم القصة إلى مشاهد.',

@@ -27,7 +27,8 @@ export type StorySceneStartFailureCode =
   | 'rate_limited'
   | 'bad_script'
   | 'validation_failed'
-  | 'save_failed';
+  | 'save_failed'
+  | 'service_unavailable';
 
 const storySceneStartFailureCodes = new Set<StorySceneStartFailureCode>([
   'planning_failed',
@@ -36,6 +37,7 @@ const storySceneStartFailureCodes = new Set<StorySceneStartFailureCode>([
   'bad_script',
   'validation_failed',
   'save_failed',
+  'service_unavailable',
 ]);
 
 export class StorySceneStartError extends Error {
@@ -616,18 +618,24 @@ export async function startStorySceneGeneration(
   idToken: string,
   signal?: AbortSignal,
 ): Promise<SceneGenerationResponse> {
-  const response = await fetch(
-    `/api/images/stories/${encodeURIComponent(storyId)}/scenes`,
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${idToken}`,
-        'Content-Type': 'application/json',
+  let response: Response;
+  try {
+    response = await fetch(
+      `/api/images/stories/${encodeURIComponent(storyId)}/scenes`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${idToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ prompt, count }),
+        signal,
       },
-      body: JSON.stringify({ prompt, count }),
-      signal,
-    },
-  );
+    );
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    throw new StorySceneStartError('service_unavailable');
+  }
   if (response.status === 409) throw new StoryLimitReachedError();
   if (!response.ok) {
     const payload: unknown = await response.json().catch(() => null);
@@ -639,6 +647,7 @@ export async function startStorySceneGeneration(
       ? serverCode as StorySceneStartFailureCode
       : response.status === 429 ? 'rate_limited'
         : response.status === 400 ? 'validation_failed'
+          : response.status === 502 || response.status === 503 ? 'service_unavailable'
           : 'save_failed';
     throw new StorySceneStartError(code);
   }

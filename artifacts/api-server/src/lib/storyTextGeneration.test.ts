@@ -61,6 +61,35 @@ test("invalid model JSON also falls back for every supplied scene", async () => 
   assert.deepEqual(copy.map((scene) => scene.narrationSource), ["template", "template"]);
 });
 
+test("missing credentials, timeouts, and rate limits use deterministic templates", async () => {
+  const failures: Array<{ name: string; modelCall: () => Promise<string> }> = [
+    { name: "missing credentials", modelCall: async () => { throw new Error("missing key"); } },
+    {
+      name: "timeout",
+      modelCall: async () => {
+        const error = new Error("timed out");
+        error.name = "TimeoutError";
+        throw error;
+      },
+    },
+    { name: "rate limit", modelCall: async () => { throw new Error("HTTP 429"); } },
+  ];
+  for (const failure of failures) {
+    const copy = await generateStorySceneCopy(twoScenes, failure.modelCall);
+    assert.equal(copy.length, twoScenes.length, failure.name);
+    assert.deepEqual(
+      copy.map((scene) => scene.motionPromptSource),
+      ["template", "template"],
+      failure.name,
+    );
+    assert.deepEqual(
+      copy.map((scene) => scene.narrationSource),
+      ["template", "template"],
+      failure.name,
+    );
+  }
+});
+
 test("story pack manifests sort by scene index and use play order", () => {
   const files = createStoryPackTextFiles(
     [
@@ -118,6 +147,36 @@ test("story planner returns exactly 100 prompts for a short script", () => {
   const prompts = planStoryScenePrompts({ scenario: scriptWords.join(" "), count: 100 });
   assert.equal(prompts.length, 100);
   assert.ok(scriptWords.every((word) => prompts.some((prompt) => prompt.includes(word))));
+});
+
+test("story planner covers complete scripts for every supported count", () => {
+  const style = "Visual style direction: cinematic illustrated storybook with muted colors, careful lighting, soft grain, painterly shadows, dramatic framing, textured brushwork, and a consistent suspenseful mood.";
+  const scripts = [
+    [
+      style,
+      "Scene 1: Mara finds a brass key beneath the station clock.",
+      "Scene 2: She follows a blue light through the flooded platform.",
+      "Scene 3: A silent train arrives with every window glowing.",
+    ].join("\n"),
+    [
+      style,
+      "",
+      "Mara finds a brass key beneath the station clock. She follows a blue light through the flooded platform.",
+      "A silent train arrives with every window glowing. At dawn, the key opens a door to daylight.",
+    ].join("\n"),
+  ];
+  const storyTerms = ["Mara", "brass", "key", "blue", "light", "silent", "train", "dawn"];
+  for (const scenario of scripts) {
+    for (let count = 1; count <= 100; count += 1) {
+      const prompts = planStoryScenePrompts({ scenario, count });
+      assert.equal(prompts.length, count, `count ${count}`);
+      const completePlan = prompts.join("\n");
+      for (const term of storyTerms) {
+        if (scenario.includes(term)) assert.ok(completePlan.includes(term), `${term} at count ${count}`);
+      }
+      assert.ok(prompts.every((prompt) => prompt.includes("Visual style direction:")));
+    }
+  }
 });
 
 assert.equal(templateSceneCopy(twoScenes[0]!).motionPrompt.endsWith(MOTION_PROMPT_SUFFIX), true);

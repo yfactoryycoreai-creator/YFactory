@@ -44,6 +44,10 @@ function response(
   });
 }
 
+function jpegResponse(): Response {
+  return response(200, new Uint8Array([0xff, 0xd8, 0xff, 0xd9]), "image/jpeg");
+}
+
 test("image fallback rotates credentials and visits providers in order", async () => {
   const calls: string[] = [];
   const pool = createKeyPool({
@@ -149,4 +153,133 @@ test("HTTP 400 stops credential rotation and provider fallback", async () => {
       error instanceof ImageGenerationFailure && error.code === "bad_prompt",
   );
   assert.equal(calls, 1);
+});
+
+test("Agnes receives its existing native aspect-ratio parameter", async () => {
+  for (const aspectRatio of ["16:9", "9:16"] as const) {
+    let submitted: Record<string, unknown> = {};
+    const pool = createKeyPool({
+      env: { AGNES_API_KEY_1: "test-key" },
+      stateStore: new MemoryStateStore(),
+    });
+    await generateImageWithFallback(
+      "A lantern in the rain.",
+      async (_input, init) => {
+        submitted = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return jpegResponse();
+      },
+      undefined,
+      pool,
+      { aspectRatio },
+    );
+    assert.equal(submitted.ratio, aspectRatio);
+    assert.equal(submitted.size, "1K");
+  }
+});
+
+test("Pollinations receives the requested dimensions for all supported ratios", async () => {
+  const sizes = {
+    "16:9": { width: "1344", height: "756" },
+    "9:16": { width: "756", height: "1344" },
+    "1:1": { width: "1024", height: "1024" },
+  } as const;
+  for (const [aspectRatio, expected] of Object.entries(sizes)) {
+    const submitted: { url?: URL } = {};
+    const pool = createKeyPool({ env: {}, stateStore: new MemoryStateStore() });
+    await generateImageWithFallback(
+      "A lantern in the rain.",
+      async (input) => {
+        const rawUrl = typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url;
+        const url = new URL(rawUrl);
+        if (url.hostname === "image.pollinations.ai") submitted.url = url;
+        return jpegResponse();
+      },
+      undefined,
+      pool,
+      { aspectRatio: aspectRatio as "16:9" | "9:16" | "1:1" },
+    );
+    assert.equal(submitted.url?.searchParams.get("width"), expected.width);
+    assert.equal(submitted.url?.searchParams.get("height"), expected.height);
+  }
+});
+
+test("providers without native output sizing receive composition hints", async () => {
+  for (const aspectRatio of ["16:9", "9:16"] as const) {
+    const isWide = aspectRatio === "16:9";
+    let submittedPrompt = "";
+    const pool = createKeyPool({
+      env: { GLM_API_KEY_1: "test-key" },
+      stateStore: new MemoryStateStore(),
+    });
+    await generateImageWithFallback(
+      "A lantern in the rain.",
+      async (input, init) => {
+        const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
+        if (url.hostname === "image.pollinations.ai") {
+          return response(503);
+        }
+        assert.equal(url.hostname, "open.bigmodel.cn");
+        const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        submittedPrompt = String(body.prompt ?? "");
+        assert.equal(body.size, "1280x1280");
+        return response(
+          200,
+          JSON.stringify({ data: [{ b64_json: Buffer.from([0xff, 0xd8, 0xff, 0xd9]).toString("base64") }] }),
+        );
+      },
+      undefined,
+      pool,
+      { aspectRatio },
+    );
+    assert.ok(submittedPrompt.includes(
+      isWide
+        ? "wide 16:9 composition, subject centered with safe margins"
+        : "tall vertical 9:16 composition, subject centered with safe margins",
+    ));
+  }
+});
+
+test("Cloudflare receives composition hints without invented sizing fields", async () => {
+  for (const aspectRatio of ["16:9", "9:16"] as const) {
+    const isWide = aspectRatio === "16:9";
+    let submittedPrompt = "";
+    const pool = createKeyPool({
+      env: {
+        CLOUDFLARE_API_TOKEN_1: "test-token",
+        CLOUDFLARE_ACCOUNT_ID_1: "test-account",
+      },
+      stateStore: new MemoryStateStore(),
+    });
+    await generateImageWithFallback(
+      "A lantern in the rain.",
+      async (input, init) => {
+        const rawUrl = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+        const url = new URL(rawUrl);
+        if (url.hostname === "image.pollinations.ai") return response(503);
+        assert.equal(url.hostname, "api.cloudflare.com");
+        const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        submittedPrompt = String(body.prompt ?? "");
+        assert.equal("width" in body, false);
+        assert.equal("height" in body, false);
+        return response(
+          200,
+          JSON.stringify({
+            result: { image: Buffer.from([0xff, 0xd8, 0xff, 0xd9]).toString("base64") },
+          }),
+        );
+      },
+      undefined,
+      pool,
+      { aspectRatio },
+    );
+    assert.ok(submittedPrompt.includes(
+      isWide
+        ? "wide 16:9 composition, subject centered with safe margins"
+        : "tall vertical 9:16 composition, subject centered with safe margins",
+    ));
+  }
 });

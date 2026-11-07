@@ -38,7 +38,6 @@ const DOWNLOAD_TOKEN_LIFETIME_MS = 5 * 60_000;
 const activeSceneJobs = new Set<string>();
 const activeSceneJobControllers = new Map<string, AbortController>();
 const cancelledStoryJobs = new Set<string>();
-const activeSceneJobControllers = new Map<string, AbortController>();
 
 type SceneJob = {
   id: string;
