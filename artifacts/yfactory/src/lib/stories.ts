@@ -21,6 +21,29 @@ export const STORY_PAGE_SIZE = 50;
 
 export type StoryAspectRatio = '16:9' | '9:16' | '1:1';
 export type StorySceneTextSource = 'glm' | 'template' | 'edited';
+export type StorySceneStartFailureCode =
+  | 'planning_failed'
+  | 'missing_key'
+  | 'rate_limited'
+  | 'bad_script'
+  | 'validation_failed'
+  | 'save_failed';
+
+const storySceneStartFailureCodes = new Set<StorySceneStartFailureCode>([
+  'planning_failed',
+  'missing_key',
+  'rate_limited',
+  'bad_script',
+  'validation_failed',
+  'save_failed',
+]);
+
+export class StorySceneStartError extends Error {
+  constructor(public readonly code: StorySceneStartFailureCode) {
+    super(code);
+    this.name = 'StorySceneStartError';
+  }
+}
 
 export type StoryRecord = {
   id: string;
@@ -63,6 +86,8 @@ export type StoryImageRecord = {
   motionPromptSource?: StorySceneTextSource;
   narrationSource?: StorySceneTextSource;
   suggestedProvider?: string;
+  aspectRatio?: StoryAspectRatio;
+  cropped?: boolean;
 };
 
 export type SceneGenerationResponse = {
@@ -203,6 +228,10 @@ function normalizeImage(id: string, data: DocumentData): StoryImageRecord {
         ? data.narrationSource
         : undefined,
     suggestedProvider: typeof data.suggestedProvider === 'string' ? data.suggestedProvider : undefined,
+    aspectRatio: data.aspectRatio === '16:9' || data.aspectRatio === '9:16'
+      ? data.aspectRatio
+      : '1:1',
+    cropped: data.cropped === true,
   };
 }
 
@@ -333,6 +362,49 @@ export async function updateStoryScript(
   script: string,
 ): Promise<void> {
   await updateDoc(storyDocument(uid, storyId), { script });
+}
+
+export async function renameStory(
+  storyId: string,
+  storyName: string,
+  idToken: string,
+  signal?: AbortSignal,
+): Promise<string> {
+  const response = await fetch(`/api/images/stories/${encodeURIComponent(storyId)}/name`, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${idToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ storyName: storyName.trim() }),
+    signal,
+  });
+  const payload: unknown = await response.json().catch(() => null);
+  if (!response.ok || !payload || typeof payload !== 'object' ||
+      typeof (payload as Record<string, unknown>).storyName !== 'string') {
+    throw new Error('story_rename_failed');
+  }
+  return (payload as Record<string, string>).storyName;
+}
+
+export async function deleteStory(
+  storyId: string,
+  idToken: string,
+  signal?: AbortSignal,
+): Promise<{ cleanupPending: number }> {
+  const response = await fetch(`/api/images/stories/${encodeURIComponent(storyId)}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${idToken}` },
+    signal,
+  });
+  const payload: unknown = await response.json().catch(() => null);
+  if (!response.ok || !payload || typeof payload !== 'object' ||
+      typeof (payload as Record<string, unknown>).cleanupPending !== 'number') {
+    throw new Error('story_delete_failed');
+  }
+  return {
+    cleanupPending: Math.max(0, Number((payload as Record<string, unknown>).cleanupPending) || 0),
+  };
 }
 
 export async function updateStorySettings(
@@ -557,7 +629,19 @@ export async function startStorySceneGeneration(
     },
   );
   if (response.status === 409) throw new StoryLimitReachedError();
-  if (!response.ok) throw new Error(await readApiError(response, 'Scenes could not be started.'));
+  if (!response.ok) {
+    const payload: unknown = await response.json().catch(() => null);
+    const serverCode = payload && typeof payload === 'object'
+      ? (payload as Record<string, unknown>).code
+      : undefined;
+    const code = typeof serverCode === 'string' &&
+      storySceneStartFailureCodes.has(serverCode as StorySceneStartFailureCode)
+      ? serverCode as StorySceneStartFailureCode
+      : response.status === 429 ? 'rate_limited'
+        : response.status === 400 ? 'validation_failed'
+          : 'save_failed';
+    throw new StorySceneStartError(code);
+  }
   const payload: unknown = await response.json();
   if (!payload || typeof payload !== 'object') throw new Error('The scene response was invalid.');
   const record = payload as Record<string, unknown>;

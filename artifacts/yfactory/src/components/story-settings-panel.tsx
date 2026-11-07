@@ -10,6 +10,7 @@ import {
 type StorySettingsPanelProps = {
   story: StoryRecord;
   getIdToken: () => Promise<string>;
+  hasMixedAspectRatios?: boolean;
 };
 
 const ratios: StoryAspectRatio[] = ['16:9', '9:16', '1:1'];
@@ -17,6 +18,7 @@ const ratios: StoryAspectRatio[] = ['16:9', '9:16', '1:1'];
 export default function StorySettingsPanel({
   story,
   getIdToken,
+  hasMixedAspectRatios = false,
 }: StorySettingsPanelProps) {
   const { t } = useTranslation();
   const [aspectRatio, setAspectRatio] = useState<StoryAspectRatio>(story.aspectRatio);
@@ -109,7 +111,12 @@ export default function StorySettingsPanel({
             </button>
           ))}
         </div>
-        <small>{t('stories.aspectRatioNotApplied')}</small>
+        <small>{t('stories.aspectRatioNewScenes')}</small>
+        {hasMixedAspectRatios && (
+          <small className="story-settings-warning" role="status">
+            {t('stories.aspectRatioMixedWarning')}
+          </small>
+        )}
       </fieldset>
 
       <fieldset className="story-setting-fieldset">

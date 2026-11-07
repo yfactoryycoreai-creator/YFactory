@@ -584,6 +584,22 @@ button:focus-visible,select:focus-visible,textarea:focus-visible { outline:2px s
   border-radius: 11px;
   background: rgba(13,21,37,.86);
 }
+.factory-story-title { display:flex; min-width:0; align-items:center; gap:7px; }
+.factory-story-title > div { min-width:0; }
+.factory-story-title h1 { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.story-name-edit-form { display:flex; min-width:0; align-items:center; gap:6px; }
+.story-name-edit-form input {
+  min-width:0;
+  min-height:34px;
+  flex:1;
+  padding:6px 9px;
+  border:1px solid #34435f;
+  border-radius:7px;
+  color:#edf2ff;
+  background:#0b1221;
+}
+.story-name-edit-heading { flex:1; max-width:560px; }
+.story-name-edit-list { flex:1 1 100%; }
 .story-card-main {
   display: flex;
   min-width: 0;
@@ -1031,6 +1047,7 @@ button, [role="button"], [role="tab"], [role="menuitem"] {
 .story-image-preview {
   display:block;
   width:100%;
+  aspect-ratio:1;
   padding:0;
   overflow:hidden;
   border:0;
@@ -1040,7 +1057,7 @@ button, [role="button"], [role="tab"], [role="menuitem"] {
 .story-image-preview img {
   display:block;
   width:100%;
-  aspect-ratio:1;
+  height:100%;
   object-fit:cover;
 }
 .story-image-preview:focus-visible {

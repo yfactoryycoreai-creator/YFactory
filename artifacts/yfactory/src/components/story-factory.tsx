@@ -2,10 +2,12 @@ import { memo, useEffect, useMemo, useRef, useState, type FormEvent } from 'reac
 import {
   ArrowLeft,
   BookOpen,
+  Check,
   Download,
   Image as ImageIcon,
   LoaderCircle,
   Plus,
+  Pencil,
   Save,
   Share2,
   Trash2,
@@ -19,14 +21,18 @@ import StorySettingsPanel from '@/components/story-settings-panel';
 import {
   createStory,
   createStoryZipDownloadToken,
+  deleteStory,
   deleteStoryImage,
   fetchOlderStories,
   getStoryZipDownloadProgress,
   MAX_STORY_IMAGES,
   resumeStorySceneGeneration,
   retryStoryScene,
+  renameStory,
   STORY_PAGE_SIZE,
   saveImageToStory,
+  StoryLimitReachedError,
+  StorySceneStartError,
   startStorySceneGeneration,
   subscribeToStories,
   subscribeToStoryImages,
@@ -155,11 +161,14 @@ function formatStoryDate(value: unknown, locale: string): string {
 }
 
 const sceneFailureCodes = new Set([
+  'planning_failed',
   'missing_key',
   'rate_limited',
   'auth_failed',
   'timeout',
   'bad_prompt',
+  'bad_script',
+  'validation_failed',
   'save_failed',
   'provider_switch_pending',
 ]);
@@ -189,9 +198,14 @@ function StoryFactory({
   const [visibleImageCount, setVisibleImageCount] = useState(24);
   const [imagesLoading, setImagesLoading] = useState(false);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [storyName, setStoryName] = useState('');
   const [creating, setCreating] = useState(false);
+  const [editingStoryNameId, setEditingStoryNameId] = useState<string | null>(null);
+  const [storyNameDraft, setStoryNameDraft] = useState('');
+  const [renamingStoryId, setRenamingStoryId] = useState<string | null>(null);
+  const [storyToDelete, setStoryToDelete] = useState<StoryRecord | null>(null);
   const [script, setScript] = useState('');
   const [scriptSaving, setScriptSaving] = useState(false);
   const scriptSavePromise = useRef<Promise<boolean> | null>(null);
@@ -453,6 +467,48 @@ function StoryFactory({
     return savePromise;
   };
 
+  const beginRenameStory = (story: StoryRecord) => {
+    setEditingStoryNameId(story.id);
+    setStoryNameDraft(story.storyName);
+    setError('');
+    setNotice('');
+  };
+
+  const handleRenameStory = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const storyId = editingStoryNameId;
+    const name = storyNameDraft.trim();
+    if (!storyId || !name || name.length > 80 || renamingStoryId) return;
+    setRenamingStoryId(storyId);
+    setError('');
+    try {
+      const savedName = await renameStory(storyId, name, await getIdToken());
+      setStories((current) => current.map((story) =>
+        story.id === storyId ? { ...story, storyName: savedName } : story,
+      ));
+      setEditingStoryNameId(null);
+      setStoryNameDraft('');
+    } catch {
+      setError(t('stories.renameStoryFailed'));
+    } finally {
+      setRenamingStoryId(null);
+    }
+  };
+
+  const handleDeleteStory = async () => {
+    if (!storyToDelete) return;
+    const story = storyToDelete;
+    const result = await deleteStory(story.id, await getIdToken());
+    setStories((current) => current.filter((item) => item.id !== story.id));
+    if (selectedStoryId === story.id) onStorySelected(null);
+    if (editingStoryNameId === story.id) setEditingStoryNameId(null);
+    setStoryToDelete(null);
+    setError('');
+    setNotice(result.cleanupPending
+      ? t('stories.storyDeleteCleanupWarning', { count: result.cleanupPending })
+      : t('stories.storyDeleted'));
+  };
+
   const handleSaveTemporaryImage = async (story: StoryRecord) => {
     if (!pendingImage || savingImageForStory) return;
     if (story.imageCount >= MAX_STORY_IMAGES) {
@@ -593,8 +649,16 @@ function StoryFactory({
       if (result.skippedCount > 0) {
         setError(t('stories.sceneLimitPartial', { count: result.sceneCount }));
       }
-    } catch {
-      if (!controller.signal.aborted) setError(t('stories.generationStartFailed'));
+    } catch (generationError) {
+      if (controller.signal.aborted) return;
+      if (generationError instanceof StoryLimitReachedError) {
+        setError(t('stories.limitReached'));
+      } else {
+        const code = generationError instanceof StorySceneStartError
+          ? generationError.code
+          : 'save_failed';
+        setError(`${code}: ${t(`stories.sceneStartError.${code}`)}`);
+      }
     } finally {
       setGeneratingStoryImages(false);
       releaseController(controller);
@@ -762,10 +826,45 @@ function StoryFactory({
           ) : (
             <span className="factory-icon"><BookOpen size={19} /></span>
           )}
-          <div>
-            <h1>{selectedStory?.storyName ?? t('stories.title')}</h1>
-            <p>{selectedStory ? t('stories.workspaceSubtitle') : t('stories.subtitle')}</p>
-          </div>
+          {selectedStory ? (
+            editingStoryNameId === selectedStory.id ? (
+              <form className="story-name-edit-form story-name-edit-heading" onSubmit={(event) => void handleRenameStory(event)}>
+                <label className="sr-only" htmlFor="story-name-heading-input">{t('stories.storyName')}</label>
+                <input
+                  id="story-name-heading-input"
+                  autoFocus
+                  value={storyNameDraft}
+                  maxLength={80}
+                  onChange={(event) => setStoryNameDraft(event.currentTarget.value)}
+                  aria-label={t('stories.storyName')}
+                />
+                <button className="story-icon-button" type="submit" disabled={!storyNameDraft.trim() || Boolean(renamingStoryId)} aria-label={t('stories.saveStoryName')}>
+                  {renamingStoryId === selectedStory.id ? <LoaderCircle className="loading-spinner" size={15} /> : <Check size={15} />}
+                </button>
+                <button className="story-icon-button" type="button" disabled={Boolean(renamingStoryId)} aria-label={t('stories.cancel')} onClick={() => setEditingStoryNameId(null)}>
+                  <X size={15} />
+                </button>
+              </form>
+            ) : (
+              <div className="factory-story-title">
+                <div>
+                  <h1>{selectedStory.storyName}</h1>
+                  <p>{t('stories.workspaceSubtitle')}</p>
+                </div>
+                <button className="story-icon-button" type="button" aria-label={t('stories.renameStory')} title={t('stories.renameStory')} onClick={() => beginRenameStory(selectedStory)}>
+                  <Pencil size={15} />
+                </button>
+                <button className="story-icon-button delete-action" type="button" aria-label={t('stories.deleteStory')} title={t('stories.deleteStory')} onClick={() => setStoryToDelete(selectedStory)}>
+                  <Trash2 size={15} />
+                </button>
+              </div>
+            )
+          ) : (
+            <div>
+              <h1>{t('stories.title')}</h1>
+              <p>{t('stories.subtitle')}</p>
+            </div>
+          )}
         </div>
         <div className="factory-storage" data-testid="storage-usage">
           <div className="factory-storage-copy">
@@ -794,6 +893,11 @@ function StoryFactory({
       {error && (
         <div className="factory-error" role="alert" data-testid="story-error">
           {error}
+        </div>
+      )}
+      {notice && (
+        <div className="factory-warning" role="status" data-testid="story-notice">
+          {notice}
         </div>
       )}
 
@@ -1013,7 +1117,13 @@ function StoryFactory({
             </small>
           </label>
 
-          <StorySettingsPanel story={selectedStory} getIdToken={getIdToken} />
+          <StorySettingsPanel
+            story={selectedStory}
+            getIdToken={getIdToken}
+            hasMixedAspectRatios={
+              new Set(images.map((image) => image.aspectRatio).filter(Boolean)).size > 1
+            }
+          />
 
           <div className="story-images-heading">
             <div>
@@ -1039,19 +1149,25 @@ function StoryFactory({
                     <button
                       className="story-image-preview"
                       type="button"
+                      style={{ aspectRatio: image.aspectRatio?.replace(':', ' / ') ?? '1 / 1' }}
                       aria-label={t('stories.openPreview', {
                         index: imageSequenceLabel(image, index),
                       })}
                       onClick={() => setLightboxImageId(image.id)}
                       data-testid={`button-preview-image-${image.id}`}
                     >
-                      <img src={image.thumbnailUrl || image.url} alt={image.prompt || t('labels.generatedImage')} loading="lazy" />
+                      <img
+                        src={image.thumbnailUrl || image.url}
+                        alt={image.prompt || t('labels.generatedImage')}
+                        loading="lazy"
+                      />
                     </button>
                   ) : (
                     <div
                       className={`story-image-state story-image-state-${image.status}`}
                       role="status"
                       aria-label={t(`stories.sceneStatus.${image.status}`)}
+                      style={{ aspectRatio: image.aspectRatio?.replace(':', ' / ') ?? '1 / 1' }}
                     >
                       {image.status === 'failed' ? (
                         <span aria-hidden="true">!</span>
@@ -1237,6 +1353,34 @@ function StoryFactory({
                     </span>
                     <span className="story-card-count">{story.imageCount}</span>
                   </button>
+                  {editingStoryNameId === story.id ? (
+                    <form className="story-name-edit-form story-name-edit-list" onSubmit={(event) => void handleRenameStory(event)}>
+                      <label className="sr-only" htmlFor={`story-name-${story.id}`}>{t('stories.storyName')}</label>
+                      <input
+                        id={`story-name-${story.id}`}
+                        autoFocus
+                        value={storyNameDraft}
+                        maxLength={80}
+                        onChange={(event) => setStoryNameDraft(event.currentTarget.value)}
+                        aria-label={t('stories.storyName')}
+                      />
+                      <button className="story-icon-button" type="submit" disabled={!storyNameDraft.trim() || Boolean(renamingStoryId)} aria-label={t('stories.saveStoryName')}>
+                        {renamingStoryId === story.id ? <LoaderCircle className="loading-spinner" size={15} /> : <Check size={15} />}
+                      </button>
+                      <button className="story-icon-button" type="button" disabled={Boolean(renamingStoryId)} aria-label={t('stories.cancel')} onClick={() => setEditingStoryNameId(null)}>
+                        <X size={15} />
+                      </button>
+                    </form>
+                  ) : (
+                    <>
+                      <button className="story-icon-button" type="button" aria-label={t('stories.renameStory')} title={t('stories.renameStory')} onClick={() => beginRenameStory(story)}>
+                        <Pencil size={15} />
+                      </button>
+                      <button className="story-icon-button delete-action" type="button" aria-label={t('stories.deleteStory')} title={t('stories.deleteStory')} onClick={() => setStoryToDelete(story)}>
+                        <Trash2 size={15} />
+                      </button>
+                    </>
+                  )}
                   {pendingImage && (
                     <button
                       className="factory-save-button"
@@ -1371,6 +1515,25 @@ function StoryFactory({
           </form>
         </div>
       )}
+
+      <ConfirmActionDialog
+        open={Boolean(storyToDelete)}
+        onOpenChange={(open) => {
+          if (!open) setStoryToDelete(null);
+        }}
+        title={t('stories.deleteStoryTitle')}
+        description={t('stories.deleteStoryWarning', {
+          name: storyToDelete?.storyName ?? '',
+          count: storyToDelete?.imageCount ?? 0,
+        })}
+        confirmLabel={t('stories.deleteStory')}
+        busyLabel={t('stories.deletingStory')}
+        cancelLabel={t('stories.cancel')}
+        failureMessage={t('stories.storyDeleteFailed')}
+        onConfirm={handleDeleteStory}
+        dir={locale === 'ar' ? 'rtl' : 'ltr'}
+        danger
+      />
 
       <ConfirmActionDialog
         open={Boolean(imageToDelete)}

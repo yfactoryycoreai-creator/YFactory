@@ -16,6 +16,7 @@ import {
 import { keyPool, type KeyPoolProvider } from "../lib/keyPool";
 import { logger } from "../lib/logger";
 import { createStoryPackTextFiles, storySceneFilename } from "../lib/storyPack";
+import { planStoryScenePrompts } from "../lib/storyPlanner";
 import {
   generateStorySceneCopy,
   isKeyPoolProvider,
@@ -35,6 +36,9 @@ const JOB_TIMEOUT_MS = 180_000;
 const GENERATION_STALE_AFTER_MS = JOB_TIMEOUT_MS + 60_000;
 const DOWNLOAD_TOKEN_LIFETIME_MS = 5 * 60_000;
 const activeSceneJobs = new Set<string>();
+const activeSceneJobControllers = new Map<string, AbortController>();
+const cancelledStoryJobs = new Set<string>();
+const activeSceneJobControllers = new Map<string, AbortController>();
 
 type SceneJob = {
   id: string;
@@ -48,6 +52,7 @@ type SceneJob = {
 
 class StoryNotFoundError extends Error {}
 class StoryLimitReachedError extends Error {}
+class StoryPlanningError extends Error {}
 class ProviderSwitchApprovalRequired extends Error {
   constructor(public readonly provider: KeyPoolProvider) {
     super("A different image provider needs approval.");
@@ -56,6 +61,11 @@ class ProviderSwitchApprovalRequired extends Error {
 
 type StoryAspectRatio = "16:9" | "9:16" | "1:1";
 const STORY_ASPECT_RATIOS = new Set<StoryAspectRatio>(["16:9", "9:16", "1:1"]);
+const STORY_OUTPUT_SIZE: Record<StoryAspectRatio, { width: number; height: number }> = {
+  "16:9": { width: 1344, height: 756 },
+  "9:16": { width: 756, height: 1344 },
+  "1:1": { width: 1024, height: 1024 },
+};
 const STORY_IMAGE_PROVIDERS = new Set<KeyPoolProvider>([
   "agnes",
   "cloudflare",
@@ -156,64 +166,57 @@ function isValidTargetCount(value: unknown): value is number {
     value <= MAX_STORY_IMAGES;
 }
 
-function splitScenarioIntoMoments(
-  scenario: string,
-  count: number,
-  characterTraits: string[] = [],
-): string[] {
-  const storyText = scenario.trim();
-  const clauses = storyText
-    .split(/(?:\r?\n+|(?<=[.!?؟。])\s+)/u)
-    .map((part) => part.trim())
-    .filter(Boolean);
-  const words = scenario.match(/\S+/gu) ?? [];
-  const source = clauses.length >= count
-    ? clauses
-    : words.length >= count
-      ? words
-      : clauses.length ? clauses : [storyText];
-  const moments = Array.from({ length: count }, (_, index) => {
-    if (count === 1) return storyText;
-    if (source.length < count) return source[index % source.length] ?? storyText;
-    const start = Math.floor((index * source.length) / count);
-    const end = Math.max(start + 1, Math.floor(((index + 1) * source.length) / count));
-    return source.slice(start, end).join(clauses.length >= count ? " " : " ");
-  });
+function isStoryAspectRatio(value: unknown): value is StoryAspectRatio {
+  return typeof value === "string" && STORY_ASPECT_RATIOS.has(value as StoryAspectRatio);
+}
 
-  const characterDetails = scenario
-    .split(/(?:\r?\n+|(?<=[.!?؟。])\s+|(?<=[,،;؛])\s+)/u)
-    .map((part) => part.trim())
-    .filter((part) =>
-      /(?:\b(?:hair|eyes?|skin|clothes|clothing|shirt|jacket|dress|coat|uniform|beard|glasses)\b|(?:شعر|عيون|عين|ملابس|معطف|قميص|فستان|لحية|نظارة|الملابس)|(?:cheveux|yeux|vêtements|veste|robe|manteau|barbe|lunettes))/iu.test(part),
-    )
-    .slice(0, 8)
-    .map((part) => part.slice(0, 240))
-    .join("; ")
-    .slice(0, 1200);
-  const styleAndCharacterBible = [
-    "Shared style + character bible: create a cohesive illustrated storybook image with cinematic composition, " +
-      "clear subject focus, consistent rendering, lighting, color treatment, and visual language throughout this story.",
-    characterDetails
-      ? `Recurring character appearance details from the full story: ${characterDetails}.`
-      : "Keep every recurring character's face, age, hair, clothing, proportions, and distinguishing features consistent; follow the roles and appearance implied by the full story without inventing conflicting designs.",
-  ].join(" ");
-  const imageRestriction =
-    "single image, one scene only, no grid, no collage, no panels, no text overlay";
-  const characterTraitPrefix = characterTraits.length
-    ? `Character traits to keep consistent: ${characterTraits.join("; ")}.\n`
-    : "";
+async function normalizeSceneImage(
+  bytes: Buffer,
+  aspectRatio: StoryAspectRatio,
+): Promise<{ bytes: Buffer; cropped: boolean }> {
+  const source = sharp(bytes, { limitInputPixels: 40_000_000 });
+  const metadata = await source.metadata();
+  if (!metadata.width || !metadata.height) {
+    throw new Error("Generated image dimensions are unavailable.");
+  }
+  const { width: outputWidth, height: outputHeight } = STORY_OUTPUT_SIZE[aspectRatio];
+  const targetRatio = outputWidth / outputHeight;
+  const sourceRatio = metadata.width / metadata.height;
+  const cropped = Math.abs(sourceRatio - targetRatio) > 0.001;
+  if (!cropped) {
+    return {
+      bytes: await source.resize(outputWidth, outputHeight, { fit: "fill" }).jpeg({ quality: 90 }).toBuffer(),
+      cropped: false,
+    };
+  }
+  const cropWidth = sourceRatio > targetRatio
+    ? Math.max(1, Math.floor(metadata.height * targetRatio))
+    : metadata.width;
+  const cropHeight = sourceRatio > targetRatio
+    ? metadata.height
+    : Math.max(1, Math.floor(metadata.width / targetRatio));
+  const left = Math.floor((metadata.width - cropWidth) / 2);
+  const top = Math.floor((metadata.height - cropHeight) / 2);
+  return {
+    bytes: await sharp(bytes, { limitInputPixels: 40_000_000 })
+      .extract({ left, top, width: cropWidth, height: cropHeight })
+      .resize(outputWidth, outputHeight, { fit: "fill" })
+      .jpeg({ quality: 90 })
+      .toBuffer(),
+    cropped: true,
+  };
+}
 
-  return moments.map((moment, index) => {
-    const focus = count === 1
-      ? "Choose the single defining moment that best represents the complete story."
-      : count === 2
-        ? index === 0
-          ? "Choose the most important opening moment from the first part of the story."
-          : "Choose the most important climax or resolution moment from the final part of the story."
-        : "Choose one important moment from this chronological portion of the full story.";
-    return `${characterTraitPrefix}${styleAndCharacterBible}\nScene ${index + 1} of ${count}: ${focus} Depict one frozen visual moment from this story segment: ${moment}. ` +
-      `Keep the progression from beginning to end and show no other time or event. ${imageRestriction}.`;
-  });
+function safeFailureDetail(error: unknown): string {
+  if (typeof error === "object" && error !== null && "code" in error) {
+    const code = (error as { code?: unknown }).code;
+    if (typeof code === "string" && /^[A-Za-z0-9_-]{1,40}$/u.test(code)) return code;
+    if (typeof code === "number" && Number.isInteger(code)) return `status_${code}`;
+  }
+  if (error instanceof Error && /^[A-Za-z][A-Za-z0-9_-]{0,39}$/u.test(error.name)) {
+    return error.name;
+  }
+  return "unknown";
 }
 
 async function markSceneFailed(
@@ -262,6 +265,9 @@ async function processSceneJob(
       index: Number(data.index) || 0,
       scenePrompt: typeof data.scenePrompt === "string" ? data.scenePrompt : "",
       negativeText: typeof data.negativeText === "string" ? data.negativeText : "",
+      aspectRatio: isStoryAspectRatio(data.aspectRatio)
+        ? data.aspectRatio
+        : isStoryAspectRatio(storyData.aspectRatio) ? storyData.aspectRatio : "1:1",
       keepOneProvider: storyData.keepOneProvider === true,
       lockedProvider: isKeyPoolProvider(storyData.lockedProvider) &&
           STORY_IMAGE_PROVIDERS.has(storyData.lockedProvider)
@@ -272,6 +278,8 @@ async function processSceneJob(
   if (!claimed?.scenePrompt || claimed.index < 1 || claimed.index > MAX_STORY_IMAGES) return;
 
   const controller = new AbortController();
+  activeSceneJobControllers.set(imageId, controller);
+  if (cancelledStoryJobs.has(`${uid}:${storyId}`)) controller.abort();
   const timeout = setTimeout(() => controller.abort(), JOB_TIMEOUT_MS);
   let uploadedImage: Awaited<ReturnType<typeof storyImageStorage.upload>> | null = null;
   let failureCode: SceneFailureCode = "save_failed";
@@ -289,14 +297,18 @@ async function processSceneJob(
       fetch,
       controller.signal,
       lockedPool,
+      { aspectRatio: claimed.aspectRatio },
     );
-    const bytes = Buffer.from(asset.base64, "base64");
+    const normalizedImage = await normalizeSceneImage(
+      Buffer.from(asset.base64, "base64"),
+      claimed.aspectRatio,
+    );
     const uploaded = await storyImageStorage.upload(
       uid,
       storyId,
       imageId,
-      bytes,
-      asset.mimeType,
+      normalizedImage.bytes,
+      "image/jpeg",
     );
     uploadedImage = uploaded;
 
@@ -336,6 +348,8 @@ async function processSceneJob(
         format: uploaded.format,
         sizeBytes: uploaded.sizeBytes,
         provider: asset.provider,
+        aspectRatio: claimed.aspectRatio,
+        cropped: normalizedImage.cropped,
         status: "done",
         error: "",
         completedAt: FieldValue.serverTimestamp(),
@@ -383,10 +397,12 @@ async function processSceneJob(
     logger.warn({ storyId, imageId, reason: failureCode }, "A story scene job failed.");
   } finally {
     clearTimeout(timeout);
+    activeSceneJobControllers.delete(imageId);
   }
 }
 
 async function processSceneQueue(uid: string, storyId: string, imageIds: string[]): Promise<void> {
+  if (cancelledStoryJobs.has(`${uid}:${storyId}`)) return;
   const jobs = imageIds.filter((imageId) => !activeSceneJobs.has(imageId));
   if (!jobs.length) return;
   for (const imageId of jobs) activeSceneJobs.add(imageId);
@@ -402,6 +418,7 @@ async function processSceneQueue(uid: string, storyId: string, imageIds: string[
     );
     await Promise.all(Array.from({ length: workerCount }, async () => {
       while (cursor < jobs.length) {
+        if (cancelledStoryJobs.has(`${uid}:${storyId}`)) break;
         if (workerCount === 1) {
           const currentStory = await storyRef.get();
           if (currentStory.data()?.providerSwitchPending === true) break;
@@ -429,6 +446,119 @@ function launchSceneQueue(uid: string, storyId: string, imageIds: string[]): voi
     logger.warn({ storyId }, "A story scene queue stopped unexpectedly.");
   });
 }
+
+router.patch("/images/stories/:storyId/name", async (req, res): Promise<void> => {
+  const uid = await authenticatedUid(req, res);
+  if (!uid) return;
+  const storyId = String(req.params.storyId ?? "");
+  const storyName = typeof req.body?.storyName === "string" ? req.body.storyName.trim() : "";
+  if (!validStoryId(storyId) || storyName.length < 1 || storyName.length > 80) {
+    res.status(400).json({
+      error: "A story name must be between 1 and 80 characters.",
+      code: "validation_failed",
+    });
+    return;
+  }
+  try {
+    const storyRef = storyReference(uid, storyId);
+    const snapshot = await storyRef.get();
+    if (!snapshot.exists) {
+      res.status(404).json({ error: "This story could not be found.", code: "story_not_found" });
+      return;
+    }
+    await storyRef.update({ storyName, updatedAt: FieldValue.serverTimestamp() });
+    res.json({ storyName });
+  } catch (error) {
+    logger.warn(
+      { storyId, reason: safeFailureDetail(error) },
+      "Could not rename story.",
+    );
+    res.status(500).json({ error: "The story name could not be saved.", code: "save_failed" });
+  }
+});
+
+async function deleteStoryAssetWithRetry(
+  uid: string,
+  reference: { publicId?: string; storagePath?: string },
+): Promise<boolean> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      await storyImageStorage.delete(uid, reference);
+      return true;
+    } catch {
+      if (attempt < 2) {
+        await new Promise<void>((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+      }
+    }
+  }
+  return false;
+}
+
+router.delete("/images/stories/:storyId", async (req, res): Promise<void> => {
+  const uid = await authenticatedUid(req, res);
+  if (!uid) return;
+  const storyId = String(req.params.storyId ?? "");
+  if (!validStoryId(storyId)) {
+    res.status(400).json({ error: "The story reference is invalid.", code: "validation_failed" });
+    return;
+  }
+  const storyKey = `${uid}:${storyId}`;
+  const storyRef = storyReference(uid, storyId);
+  try {
+    const [storySnapshot, imagesSnapshot] = await Promise.all([
+      storyRef.get(),
+      storyRef.collection("images").limit(MAX_STORY_IMAGES).get(),
+    ]);
+    if (!storySnapshot.exists) {
+      res.status(404).json({ error: "This story could not be found.", code: "story_not_found" });
+      return;
+    }
+
+    cancelledStoryJobs.add(storyKey);
+    for (const image of imagesSnapshot.docs) {
+      activeSceneJobControllers.get(image.id)?.abort();
+    }
+
+    const assetPrefix = `users/${uid}/stories/${storyId}/images/`;
+    const assets = imagesSnapshot.docs.flatMap((document) => {
+      const data = document.data();
+      const publicId = typeof data.publicId === "string" && data.publicId.startsWith(assetPrefix)
+        ? data.publicId
+        : undefined;
+      const storagePath = typeof data.storagePath === "string" && data.storagePath.startsWith(assetPrefix)
+        ? data.storagePath
+        : undefined;
+      return publicId || storagePath ? [{ publicId, storagePath }] : [];
+    });
+    const deleteResults = await Promise.all(
+      assets.map(async (asset) => ({
+        asset,
+        deleted: await deleteStoryAssetWithRetry(uid, asset),
+      })),
+    );
+    const cleanupAssets = deleteResults.filter((result) => !result.deleted).map(({ asset }) => asset);
+    if (cleanupAssets.length) {
+      await getFirebaseAdmin().db
+        .collection("users").doc(uid).collection("storyAssetCleanup").doc(storyId)
+        .set({
+          storyId,
+          assets: cleanupAssets,
+          status: "pending",
+          attempts: 3,
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+    }
+    await getFirebaseAdmin().db.recursiveDelete(storyRef);
+    res.json({ deleted: true, cleanupPending: cleanupAssets.length });
+  } catch (error) {
+    cancelledStoryJobs.delete(storyKey);
+    logger.warn(
+      { storyId, reason: safeFailureDetail(error) },
+      "Could not delete story.",
+    );
+    res.status(500).json({ error: "The story could not be deleted. Please retry.", code: "save_failed" });
+  }
+});
 
 router.patch("/images/stories/:storyId/settings", async (req, res): Promise<void> => {
   const uid = await authenticatedUid(req, res);
@@ -657,14 +787,25 @@ router.post("/images/stories/:storyId/scenes", async (req, res): Promise<void> =
   const uid = await authenticatedUid(req, res);
   if (!uid) return;
   const storyId = String(req.params.storyId ?? "");
-  const prompt = typeof req.body?.prompt === "string" ? req.body.prompt.trim() : "";
+  const rawPrompt = typeof req.body?.prompt === "string" ? req.body.prompt : "";
+  const prompt = rawPrompt.trim();
   const requestedCount = req.body?.count;
-  if (!validStoryId(storyId) || !prompt || prompt.length > 20_000 ||
-      !isValidTargetCount(requestedCount)) {
-    res.status(400).json({ error: "Provide a valid story, script, and scene count from 1 to 100.", code: "invalid_request" });
+  if (!validStoryId(storyId) || !isValidTargetCount(requestedCount)) {
+    res.status(400).json({
+      error: "Check the story and choose between 1 and 100 scenes.",
+      code: "validation_failed",
+    });
+    return;
+  }
+  if (!prompt || prompt.length > 20_000) {
+    res.status(400).json({
+      error: "Add a script with no more than 20,000 characters.",
+      code: "bad_script",
+    });
     return;
   }
 
+  let stage = "preflight";
   try {
     const storyRef = storyReference(uid, storyId);
     const db = getFirebaseAdmin().db;
@@ -697,7 +838,15 @@ router.post("/images/stories/:storyId/scenes", async (req, res): Promise<void> =
       Math.min(candidateIndexes.length, requestedCount - currentCount, MAX_STORY_IMAGES - currentCount),
     );
     const plannedIndexes = candidateIndexes.slice(0, plannedCount);
-    const prompts = splitScenarioIntoMoments(prompt, requestedCount, traits);
+    stage = "planning";
+    const prompts = planStoryScenePrompts({
+      scenario: prompt,
+      count: requestedCount,
+      characterTraits: traits,
+    });
+    if (prompts.length !== requestedCount || prompts.some((scenePrompt) => !scenePrompt.trim())) {
+      throw new StoryPlanningError("The scene planner returned an incomplete plan.");
+    }
     const textInputs: SceneCopyInput[] = plannedIndexes.map((index) => ({
       index,
       scenePrompt: prompts[index - 1] ?? prompts.at(-1) ?? prompt,
@@ -706,6 +855,7 @@ router.post("/images/stories/:storyId/scenes", async (req, res): Promise<void> =
       (await generateStorySceneCopy(textInputs)).map((copy) => [copy.index, copy]),
     );
     const batchId = randomBytes(16).toString("hex");
+    stage = "save";
     const result = await db.runTransaction(async (transaction) => {
       const [storySnapshot, imagesSnapshot] = await Promise.all([
         transaction.get(storyRef),
@@ -749,6 +899,8 @@ router.post("/images/stories/:storyId/scenes", async (req, res): Promise<void> =
           templateSceneCopy({ index: sceneIndex, scenePrompt });
         transaction.create(imageRef, {
           index: sceneIndex,
+          aspectRatio: isStoryAspectRatio(storyData.aspectRatio) ? storyData.aspectRatio : "1:1",
+          cropped: false,
           scenePrompt,
           prompt: scenePrompt,
           motionPrompt: sceneCopy.motionPrompt,
@@ -792,6 +944,7 @@ router.post("/images/stories/:storyId/scenes", async (req, res): Promise<void> =
       };
     });
 
+    stage = "queue";
     if (result.jobs.length) launchSceneQueue(uid, storyId, result.jobs.map((job) => job.id));
     res.status(202).json({
       batchId,
@@ -807,8 +960,21 @@ router.post("/images/stories/:storyId/scenes", async (req, res): Promise<void> =
       res.status(409).json({ error: "This story has reached its 100-image limit.", code: "story_limit" });
       return;
     }
-    logger.warn({ storyId }, "Could not start story scene generation.");
-    res.status(500).json({ error: "Scenes could not be started. Please try again.", code: "scene_start_failed" });
+    const code = error instanceof StoryPlanningError
+      ? "planning_failed"
+      : stage === "save" || stage === "preflight" || stage === "queue"
+        ? "save_failed"
+        : "planning_failed";
+    logger.warn(
+      { storyId, stage, code, detail: safeFailureDetail(error) },
+      "Could not start story scene generation.",
+    );
+    res.status(500).json({
+      error: code === "planning_failed"
+        ? "Scene planning failed; try again with a shorter script."
+        : "The story could not be saved; try again.",
+      code,
+    });
   }
 });
 

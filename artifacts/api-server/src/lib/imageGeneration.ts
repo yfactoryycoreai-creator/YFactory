@@ -20,6 +20,9 @@ export type GeneratedImageAsset = {
   sourceUrl?: string;
 };
 
+export type ImageAspectRatio = "16:9" | "9:16" | "1:1";
+type ImageGenerationOptions = { aspectRatio?: ImageAspectRatio };
+
 type JsonRecord = Record<string, unknown>;
 type ImageFetch = typeof fetch;
 type ImageKeyPool = Pick<typeof keyPool, "run">;
@@ -36,6 +39,11 @@ const PROVIDER_DEADLINE_MS: Record<KeyPoolProvider, number> = {
 };
 const SINGLE_IMAGE_RESTRICTION =
   "single image, one scene only, no grid, no collage, no panels, no text overlay";
+const POLLINATIONS_SIZES: Record<ImageAspectRatio, { width: number; height: number }> = {
+  "16:9": { width: 1344, height: 756 },
+  "9:16": { width: 756, height: 1344 },
+  "1:1": { width: 1024, height: 1024 },
+};
 
 export class ProviderAttemptError extends Error {
   constructor(
@@ -254,6 +262,7 @@ async function parseProviderImage(
 async function requestAgnes(
   apiKey: string,
   prompt: string,
+  aspectRatio: ImageAspectRatio,
   fetchImage: ImageFetch,
   signal: AbortSignal,
 ): Promise<GeneratedImageAsset> {
@@ -270,7 +279,7 @@ async function requestAgnes(
         prompt,
         n: 1,
         size: "1K",
-        ratio: "1:1",
+        ratio: aspectRatio,
         extra_body: { response_format: "url" },
       }),
       signal,
@@ -420,13 +429,15 @@ async function requestCloudflare(
 
 async function requestPollinationsImage(
   prompt: string,
+  aspectRatio: ImageAspectRatio,
   fetchImage: ImageFetch,
   signal: AbortSignal,
 ): Promise<GeneratedImageAsset> {
   const seed = Math.floor(Math.random() * 2_147_483_647);
+  const { width, height } = POLLINATIONS_SIZES[aspectRatio];
   const url =
     `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}` +
-    `?width=768&height=768&seed=${seed}`;
+    `?width=${width}&height=${height}&seed=${seed}`;
   const response = await fetchImage(url, { signal });
   if (!response.ok) throw new KeyPoolHttpError(response.status);
   const mimeType = response.headers.get("content-type");
@@ -454,18 +465,31 @@ export async function generateImageWithFallback(
   fetchImage: ImageFetch = fetch,
   jobSignal?: AbortSignal,
   pool: ImageKeyPool = keyPool,
+  options: ImageGenerationOptions = {},
 ): Promise<GeneratedImageAsset> {
-  const completePrompt = prompt.includes(SINGLE_IMAGE_RESTRICTION)
+  const basePrompt = prompt.includes(SINGLE_IMAGE_RESTRICTION)
     ? prompt
     : `${prompt.trim()} ${SINGLE_IMAGE_RESTRICTION}`;
+  const aspectRatio = options.aspectRatio ?? "1:1";
+  const aspectPrompt = aspectRatio === "16:9"
+    ? "wide 16:9 composition, subject centered with safe margins"
+    : aspectRatio === "9:16"
+      ? "tall vertical 9:16 composition, subject centered with safe margins"
+      : "";
   const reasons: SceneFailureCode[] = [];
-  const providerOrder: readonly KeyPoolProvider[] = [
-    ...PROVIDER_ORDER,
-    "pollinations",
-  ];
+  const providerOrder: readonly KeyPoolProvider[] = aspectRatio === "1:1"
+    ? [...PROVIDER_ORDER, "pollinations"]
+    : ["agnes", "pollinations", "cloudflare", "glm"];
 
   for (const provider of providerOrder) {
     if (jobSignal?.aborted) throw new ImageGenerationFailure("timeout");
+    const nativeAspect = provider === "agnes" ||
+      provider === "pollinations" ||
+      (provider === "glm" && aspectRatio === "1:1");
+    const completePrompt = [
+      basePrompt,
+      !nativeAspect && aspectPrompt ? aspectPrompt : "",
+    ].filter(Boolean).join("\n");
     const result = await pool.run(
       provider,
       async (credential, poolSignal) => {
@@ -475,7 +499,13 @@ export async function generateImageWithFallback(
         try {
           if (provider === "agnes") {
             if (!credential.apiKey) throw new ProviderAttemptError("Missing provider credential.");
-            return await requestAgnes(credential.apiKey, completePrompt, fetchImage, signal);
+            return await requestAgnes(
+              credential.apiKey,
+              completePrompt,
+              aspectRatio,
+              fetchImage,
+              signal,
+            );
           }
           if (provider === "cloudflare") {
             if (!credential.apiKey || !credential.accountId) {
@@ -493,7 +523,12 @@ export async function generateImageWithFallback(
             if (!credential.apiKey) throw new ProviderAttemptError("Missing provider credential.");
             return await requestGlm(credential.apiKey, completePrompt, fetchImage, signal);
           }
-          return await requestPollinationsImage(completePrompt, fetchImage, signal);
+          return await requestPollinationsImage(
+            completePrompt,
+            aspectRatio,
+            fetchImage,
+            signal,
+          );
         } catch (error) {
           if (jobSignal?.aborted) throw new KeyPoolHttpError(400);
           throw error;
