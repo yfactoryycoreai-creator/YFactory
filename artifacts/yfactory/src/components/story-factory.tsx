@@ -6,6 +6,8 @@ import {
   Download,
   Image as ImageIcon,
   LoaderCircle,
+  Minus,
+  MoreHorizontal,
   Plus,
   Pencil,
   Save,
@@ -851,12 +853,6 @@ function StoryFactory({
                   <h1>{selectedStory.storyName}</h1>
                   <p>{t('stories.workspaceSubtitle')}</p>
                 </div>
-                <button className="story-icon-button" type="button" aria-label={t('stories.renameStory')} title={t('stories.renameStory')} onClick={() => beginRenameStory(selectedStory)}>
-                  <Pencil size={15} />
-                </button>
-                <button className="story-icon-button delete-action" type="button" aria-label={t('stories.deleteStory')} title={t('stories.deleteStory')} onClick={() => setStoryToDelete(selectedStory)}>
-                  <Trash2 size={15} />
-                </button>
               </div>
             )
           ) : (
@@ -910,6 +906,19 @@ function StoryFactory({
                 <span>{t('stories.maximumImages')}</span>
               </div>
               <div className="story-target-inputs">
+                <button
+                  className="story-step-button"
+                  type="button"
+                  aria-label={t('stories.decreaseImageCount')}
+                  disabled={targetCount <= 1 || targetCountSaving}
+                  onClick={() => {
+                    const nextCount = Math.max(1, targetCount - 1);
+                    handleTargetCountChange(nextCount);
+                    void saveTargetCountValue(selectedStory.id, nextCount);
+                  }}
+                >
+                  <Minus size={17} aria-hidden="true" />
+                </button>
                 <input
                   id="story-target-count"
                   className="story-target-number"
@@ -941,6 +950,19 @@ function StoryFactory({
                   aria-label={t('stories.imageCountLabel')}
                   data-testid="input-story-target-count"
                 />
+                <button
+                  className="story-step-button"
+                  type="button"
+                  aria-label={t('stories.increaseImageCount')}
+                  disabled={targetCount >= MAX_STORY_IMAGES || targetCountSaving}
+                  onClick={() => {
+                    const nextCount = Math.min(MAX_STORY_IMAGES, targetCount + 1);
+                    handleTargetCountChange(nextCount);
+                    void saveTargetCountValue(selectedStory.id, nextCount);
+                  }}
+                >
+                  <Plus size={17} aria-hidden="true" />
+                </button>
                 <input
                   className="story-target-slider"
                   type="range"
@@ -1022,29 +1044,19 @@ function StoryFactory({
               {generatingStoryImages ? <LoaderCircle className="loading-spinner" size={16} /> : <ImageIcon size={16} />}
               {generatingStoryImages ? t('stories.startingGeneration') : t('stories.generateScenes')}
             </button>
-            {resumableScenes && (
-              <button
-                className="factory-quiet-button"
-                type="button"
-                onClick={() => void handleResumeScenes()}
-                disabled={resumingScenes}
-                aria-busy={resumingScenes}
-                data-testid="button-resume-story-scenes"
-              >
-                {resumingScenes && <LoaderCircle className="loading-spinner" size={15} />}
-                {resumingScenes ? t('stories.resumingScenes') : t('stories.resumeScenes')}
-              </button>
-            )}
+          </div>
+
+          <div className="story-secondary-actions">
             <button
-              className="factory-quiet-button"
+              className="story-secondary-action"
               type="button"
               onClick={() => void handleDownloadStoryZip()}
               disabled={!downloadableImageCount || downloadingZip}
               aria-busy={downloadingZip}
               data-testid="button-download-story-zip"
             >
-              {downloadingZip ? <LoaderCircle className="loading-spinner" size={15} /> : <Download size={15} />}
-              {downloadingZip
+              {downloadingZip ? <LoaderCircle className="loading-spinner" size={17} /> : <Download size={17} />}
+              <span>{downloadingZip
                 ? t('stories.zipProgress', {
                     done: zipProgress?.completed ?? 0,
                     total: zipProgress?.total ?? downloadableImageCount,
@@ -1052,8 +1064,37 @@ function StoryFactory({
                 : zipProgress && zipProgress.total > 0 &&
                     zipProgress.completed >= zipProgress.total
                   ? t('stories.zipDone')
-                  : t('stories.downloadZip')}
+                  : t('stories.downloadZip')}</span>
             </button>
+            <button
+              className="story-secondary-action"
+              type="button"
+              onClick={() => beginRenameStory(selectedStory)}
+            >
+              <Pencil size={17} />
+              <span>{t('stories.renameStory')}</span>
+            </button>
+            <button
+              className="story-secondary-action story-secondary-delete"
+              type="button"
+              onClick={() => setStoryToDelete(selectedStory)}
+            >
+              <Trash2 size={17} />
+              <span>{t('stories.deleteStory')}</span>
+            </button>
+            {resumableScenes && (
+              <button
+                className="story-secondary-action"
+                type="button"
+                onClick={() => void handleResumeScenes()}
+                disabled={resumingScenes}
+                aria-busy={resumingScenes}
+                data-testid="button-resume-story-scenes"
+              >
+                {resumingScenes && <LoaderCircle className="loading-spinner" size={17} />}
+                <span>{resumingScenes ? t('stories.resumingScenes') : t('stories.resumeScenes')}</span>
+              </button>
+            )}
           </div>
 
           {selectedStory.imageCount > targetCount && (
@@ -1198,13 +1239,34 @@ function StoryFactory({
                       )}
                     </div>
                     <div className="story-image-actions">
+                      <details className="story-action-menu">
+                        <summary
+                          className="story-icon-button"
+                          aria-label={t('stories.moreActions')}
+                          title={t('stories.moreActions')}
+                        >
+                          <MoreHorizontal size={19} aria-hidden="true" />
+                        </summary>
+                        <button
+                          className="story-action-dismiss"
+                          type="button"
+                          aria-label={t('stories.cancel')}
+                          onClick={(event) => event.currentTarget.closest('details')?.removeAttribute('open')}
+                        />
+                        <div
+                          className="story-action-sheet"
+                          onClick={(event) => {
+                            if ((event.target as HTMLElement).closest('button')) {
+                              event.currentTarget.closest('details')?.removeAttribute('open');
+                            }
+                          }}
+                        >
                       {image.status === 'failed' && !image.legacyGrid &&
                         image.error !== 'provider_switch_pending' && (
                         <button
-                          className="story-icon-button"
+                          className="story-sheet-action"
                           type="button"
                           aria-label={t('stories.retryScene')}
-                          title={t('stories.retryScene')}
                           disabled={Boolean(retryingSceneId)}
                           onClick={() => void handleRetryScene(image)}
                           data-testid={`button-retry-scene-${image.index ?? image.id}`}
@@ -1212,44 +1274,52 @@ function StoryFactory({
                           {retryingSceneId === image.id
                             ? <LoaderCircle className="loading-spinner" size={15} />
                             : <ImageIcon size={15} />}
+                          <span>{t('stories.retryScene')}</span>
                         </button>
                       )}
                       {image.status === 'done' && image.url && (
                         <>
                           <button
-                            className="story-icon-button"
+                            className="story-sheet-action"
                             type="button"
                             aria-label={t('stories.downloadScene', {
-                              index: imageSequenceLabel(image, index),
-                            })}
-                            title={t('stories.downloadScene', {
                               index: imageSequenceLabel(image, index),
                             })}
                             disabled={imageAction === image.id}
                             onClick={() => void handleImageDownload(image, index, false)}
                           >
                             {imageAction === image.id ? <LoaderCircle className="loading-spinner" size={15} /> : <Download size={15} />}
+                            <span>{t('stories.downloadScene', {
+                              index: imageSequenceLabel(image, index),
+                            })}</span>
                           </button>
                           <button
-                            className="story-icon-button"
+                            className="story-sheet-action"
                             type="button"
                             aria-label={t('stories.shareScene', {
                               index: imageSequenceLabel(image, index),
                             })}
-                            title={t('stories.shareScene', {
-                              index: imageSequenceLabel(image, index),
-                            })}
                             disabled={imageAction === image.id}
                             onClick={() => void handleImageDownload(image, index, true)}
-                          ><Share2 size={15} /></button>
+                          >
+                            <Share2 size={15} />
+                            <span>{t('stories.shareScene', {
+                              index: imageSequenceLabel(image, index),
+                            })}</span>
+                          </button>
                         </>
                       )}
                       <button
-                        className="story-icon-button delete-action"
+                        className="story-sheet-action delete-action"
                         type="button"
                         aria-label={t('stories.deleteImage')}
                         onClick={() => setImageToDelete(image)}
-                      ><Trash2 size={15} /></button>
+                      >
+                        <Trash2 size={15} />
+                        <span>{t('stories.deleteImage')}</span>
+                      </button>
+                        </div>
+                      </details>
                     </div>
                   </div>
                   {!image.legacyGrid && image.index && (
@@ -1339,7 +1409,9 @@ function StoryFactory({
                     onClick={() => onStorySelected(story)}
                     data-testid={`button-open-story-${story.id}`}
                   >
-                    <span className="story-card-icon"><BookOpen size={20} /></span>
+                    <span className="story-card-icon" aria-hidden="true">
+                      {story.storyName.trim().slice(0, 1).toLocaleUpperCase(locale) || 'Y'}
+                    </span>
                     <span className="story-card-copy">
                       <strong>{story.storyName}</strong>
                       <small>

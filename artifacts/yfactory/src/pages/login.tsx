@@ -27,23 +27,9 @@ export default function LoginPage({
       <section className="login-card" aria-labelledby="login-heading">
         <div className="login-mark" aria-hidden="true">
           <svg viewBox="0 0 78 64" role="presentation">
-            <defs>
-              <linearGradient id="yfactory-left-arm" x1="0" y1="0" x2="1" y2="1">
-                <stop offset="0" stopColor="#11b9ff" />
-                <stop offset="1" stopColor="#2877ff" />
-              </linearGradient>
-              <linearGradient id="yfactory-right-arm" x1="0" y1="0" x2="1" y2="1">
-                <stop offset="0" stopColor="#2d82ff" />
-                <stop offset="1" stopColor="#7543f6" />
-              </linearGradient>
-              <linearGradient id="yfactory-stem" x1="0" y1="0" x2="1" y2="1">
-                <stop offset="0" stopColor="#167cff" />
-                <stop offset="1" stopColor="#713bf0" />
-              </linearGradient>
-            </defs>
-            <path d="M2 0h21l23 31H31z" fill="url(#yfactory-left-arm)" />
-            <path d="M43 0h33L53 31H31z" fill="url(#yfactory-right-arm)" />
-            <path d="M30 25h22v39H37z" fill="url(#yfactory-stem)" />
+            <path d="M2 0h21l23 31H31z" fill="var(--app-accent)" />
+            <path d="M43 0h33L53 31H31z" fill="var(--app-accent)" />
+            <path d="M30 25h22v39H37z" fill="var(--app-accent)" />
           </svg>
         </div>
         <div className="login-wordmark" aria-label="YFactory">
