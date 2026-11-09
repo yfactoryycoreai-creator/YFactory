@@ -16,7 +16,9 @@ import {
   X,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import ConfirmActionDialog from '@/components/confirm-action-dialog';
+import ConfirmActionDialog, {
+  type ConfirmActionDialogHandle,
+} from '@/components/confirm-action-dialog';
 import StoryImageLightbox from '@/components/story-image-lightbox';
 import StorySceneText from '@/components/story-scene-text';
 import StorySettingsPanel from '@/components/story-settings-panel';
@@ -207,7 +209,8 @@ function StoryFactory({
   const [editingStoryNameId, setEditingStoryNameId] = useState<string | null>(null);
   const [storyNameDraft, setStoryNameDraft] = useState('');
   const [renamingStoryId, setRenamingStoryId] = useState<string | null>(null);
-  const [storyToDelete, setStoryToDelete] = useState<StoryRecord | null>(null);
+  const deleteStoryDialogRef = useRef<ConfirmActionDialogHandle | null>(null);
+  const storyToDeleteRef = useRef<StoryRecord | null>(null);
   const [script, setScript] = useState('');
   const [scriptSaving, setScriptSaving] = useState(false);
   const scriptSavePromise = useRef<Promise<boolean> | null>(null);
@@ -224,10 +227,8 @@ function StoryFactory({
   const [savingImageForStory, setSavingImageForStory] = useState<string | null>(
     null,
   );
-  const [imageToDelete, setImageToDelete] = useState<StoryImageRecord | null>(
-    null,
-  );
-  const [deletingImage, setDeletingImage] = useState(false);
+  const deleteImageDialogRef = useRef<ConfirmActionDialogHandle | null>(null);
+  const imageToDeleteRef = useRef<StoryImageRecord | null>(null);
   const [generatingStoryImages, setGeneratingStoryImages] = useState(false);
   const [imageAction, setImageAction] = useState<string | null>(null);
   const [lightboxImageId, setLightboxImageId] = useState<string | null>(null);
@@ -497,14 +498,24 @@ function StoryFactory({
     }
   };
 
+  const requestDeleteStory = (story: StoryRecord) => {
+    storyToDeleteRef.current = story;
+    deleteStoryDialogRef.current?.open(
+      t('stories.deleteStoryWarning', {
+        name: story.storyName,
+        count: story.imageCount,
+      }),
+    );
+  };
+
   const handleDeleteStory = async () => {
-    if (!storyToDelete) return;
-    const story = storyToDelete;
+    const story = storyToDeleteRef.current;
+    if (!story) return;
     const result = await deleteStory(story.id, await getIdToken());
     setStories((current) => current.filter((item) => item.id !== story.id));
     if (selectedStoryId === story.id) onStorySelected(null);
     if (editingStoryNameId === story.id) setEditingStoryNameId(null);
-    setStoryToDelete(null);
+    storyToDeleteRef.current = null;
     setError('');
     setNotice(result.cleanupPending
       ? t('stories.storyDeleteCleanupWarning', { count: result.cleanupPending })
@@ -546,25 +557,28 @@ function StoryFactory({
   };
 
   const handleDeleteImage = async () => {
-    if (!selectedStory || !imageToDelete || deletingImage) return;
-    setDeletingImage(true);
-    setError('');
+    const image = imageToDeleteRef.current;
+    if (!selectedStory || !image) return;
     const controller = makeController();
     try {
       await deleteStoryImage(
         uid,
         selectedStory.id,
-        imageToDelete,
+        image,
         await getIdToken(),
         controller.signal,
       );
-      setImageToDelete(null);
+      imageToDeleteRef.current = null;
     } catch {
-      setError(t('stories.imageDeleteFailed'));
+      throw new Error(t('stories.imageDeleteFailed'));
     } finally {
-      setDeletingImage(false);
       releaseController(controller);
     }
+  };
+
+  const requestDeleteImage = (image: StoryImageRecord) => {
+    imageToDeleteRef.current = image;
+    deleteImageDialogRef.current?.open();
   };
 
   const handleTargetCountChange = (value: number) => {
@@ -1077,7 +1091,7 @@ function StoryFactory({
             <button
               className="story-secondary-action story-secondary-delete"
               type="button"
-              onClick={() => setStoryToDelete(selectedStory)}
+              onClick={() => requestDeleteStory(selectedStory)}
             >
               <Trash2 size={17} />
               <span>{t('stories.deleteStory')}</span>
@@ -1313,7 +1327,7 @@ function StoryFactory({
                         className="story-sheet-action delete-action"
                         type="button"
                         aria-label={t('stories.deleteImage')}
-                        onClick={() => setImageToDelete(image)}
+                        onClick={() => requestDeleteImage(image)}
                       >
                         <Trash2 size={15} />
                         <span>{t('stories.deleteImage')}</span>
@@ -1448,7 +1462,7 @@ function StoryFactory({
                       <button className="story-icon-button" type="button" aria-label={t('stories.renameStory')} title={t('stories.renameStory')} onClick={() => beginRenameStory(story)}>
                         <Pencil size={15} />
                       </button>
-                      <button className="story-icon-button delete-action" type="button" aria-label={t('stories.deleteStory')} title={t('stories.deleteStory')} onClick={() => setStoryToDelete(story)}>
+                      <button className="story-icon-button delete-action" type="button" aria-label={t('stories.deleteStory')} title={t('stories.deleteStory')} onClick={() => requestDeleteStory(story)}>
                         <Trash2 size={15} />
                       </button>
                     </>
@@ -1589,15 +1603,9 @@ function StoryFactory({
       )}
 
       <ConfirmActionDialog
-        open={Boolean(storyToDelete)}
-        onOpenChange={(open) => {
-          if (!open) setStoryToDelete(null);
-        }}
+        ref={deleteStoryDialogRef}
         title={t('stories.deleteStoryTitle')}
-        description={t('stories.deleteStoryWarning', {
-          name: storyToDelete?.storyName ?? '',
-          count: storyToDelete?.imageCount ?? 0,
-        })}
+        description=""
         confirmLabel={t('stories.deleteStory')}
         busyLabel={t('stories.deletingStory')}
         cancelLabel={t('stories.cancel')}
@@ -1608,10 +1616,7 @@ function StoryFactory({
       />
 
       <ConfirmActionDialog
-        open={Boolean(imageToDelete)}
-        onOpenChange={(open) => {
-          if (!open && !deletingImage) setImageToDelete(null);
-        }}
+        ref={deleteImageDialogRef}
         title={t('stories.deleteImageTitle')}
         description={t('stories.deleteImageWarning')}
         confirmLabel={t('stories.deleteImage')}

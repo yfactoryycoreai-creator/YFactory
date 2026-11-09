@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   ArrowLeft,
@@ -8,7 +8,9 @@ import {
   Trash2,
   UserRound,
 } from 'lucide-react';
-import ConfirmActionDialog from '@/components/confirm-action-dialog';
+import ConfirmActionDialog, {
+  type ConfirmActionDialogHandle,
+} from '@/components/confirm-action-dialog';
 import SecretsPanel from '@/components/secrets-panel';
 import {
   loadKeyPoolStatus,
@@ -58,9 +60,8 @@ export default function SettingsPage({
   const [keyPoolStatus, setKeyPoolStatus] = useState<KeyPoolProviderStatus[] | null>(null);
   const [keyPoolStatusError, setKeyPoolStatusError] = useState('');
   const [cloudinaryEnabled, setCloudinaryEnabled] = useState(true);
-  const [signingOut, setSigningOut] = useState(false);
-  const [logoutError, setLogoutError] = useState('');
-  const [deleteConfirmationOpen, setDeleteConfirmationOpen] = useState(false);
+  const signOutDialogRef = useRef<ConfirmActionDialogHandle | null>(null);
+  const deleteAccountDialogRef = useRef<ConfirmActionDialogHandle | null>(null);
   const displayName = user.displayName || user.email || 'YFactory creator';
   const initials = (user.displayName || user.email || 'Y')
     .split(/[\s@]+/)
@@ -121,18 +122,6 @@ export default function SettingsPage({
     };
   }, [getIdToken, t]);
 
-  const handleLogout = async () => {
-    if (signingOut) return;
-    setSigningOut(true);
-    setLogoutError('');
-    try {
-      await onLogout();
-    } catch {
-      setLogoutError(t('confirmation.logoutFailed'));
-      setSigningOut(false);
-    }
-  };
-
   return (
     <main className="auth-screen settings-screen" dir={isRtl ? 'rtl' : 'ltr'}>
       <div className="settings-shell">
@@ -148,13 +137,11 @@ export default function SettingsPage({
           <button
             className="settings-logout"
             type="button"
-            onClick={() => void handleLogout()}
-            disabled={signingOut}
-            aria-busy={signingOut}
+            onClick={() => signOutDialogRef.current?.open()}
             data-testid="button-settings-logout"
           >
             <LogOut size={16} aria-hidden="true" />
-            <span>{signingOut ? t('auth.signingOut') : t('settings.logout')}</span>
+            <span>{t('settings.logout')}</span>
           </button>
         </header>
 
@@ -169,13 +156,6 @@ export default function SettingsPage({
               <ArrowLeft size={18} />
             </button>
           </div>
-
-          {logoutError && (
-            <div className="settings-error" role="alert" data-testid="status-settings-error">
-              <span className="error-dot" />
-              {logoutError}
-            </div>
-          )}
 
           <section className="account-panel" aria-labelledby="account-title">
             <div className="section-kicker">{t('settings.account')}</div>
@@ -269,7 +249,7 @@ export default function SettingsPage({
             <button
               className="settings-delete-account"
               type="button"
-              onClick={() => setDeleteConfirmationOpen(true)}
+              onClick={() => deleteAccountDialogRef.current?.open()}
               data-testid="button-delete-account"
             >
               <Trash2 size={16} aria-hidden="true" />
@@ -284,8 +264,18 @@ export default function SettingsPage({
         </footer>
       </div>
       <ConfirmActionDialog
-        open={deleteConfirmationOpen}
-        onOpenChange={setDeleteConfirmationOpen}
+        ref={signOutDialogRef}
+        title={t('confirmation.signOutTitle')}
+        description={t('confirmation.logoutDescription')}
+        confirmLabel={t('confirmation.signOut')}
+        busyLabel={t('confirmation.loggingOut')}
+        cancelLabel={t('confirmation.cancel')}
+        failureMessage={t('confirmation.logoutFailed')}
+        onConfirm={onLogout}
+        dir={isRtl ? 'rtl' : 'ltr'}
+      />
+      <ConfirmActionDialog
+        ref={deleteAccountDialogRef}
         title={t('confirmation.deleteTitle')}
         description={t('confirmation.deleteDescription')}
         confirmLabel={t('confirmation.deleteConfirm')}
@@ -294,8 +284,9 @@ export default function SettingsPage({
         failureMessage={t('confirmation.deleteFailed')}
         recentLoginMessage={t('confirmation.recentLogin')}
         onConfirm={onDeleteAccount}
+        confirmationPhrase="DELETE"
+        confirmationPhraseLabel={t('confirmation.typeDelete')}
         dir={isRtl ? 'rtl' : 'ltr'}
-        danger
       />
     </main>
   );

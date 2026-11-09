@@ -26,6 +26,9 @@ void i18n.use(initReactI18next).init({
           error: 'Something went wrong.',
         },
         confirmation: {
+          signOutTitle: 'Sign out?',
+          signOut: 'Sign out',
+          typeDelete: 'Type DELETE to confirm.',
           logoutTitle: 'Are you sure you want to log out?',
           logoutDescription: 'You will need to sign in again to use your account.',
           deleteTitle: 'Delete your account?',
@@ -360,6 +363,9 @@ void i18n.use(initReactI18next).init({
           error: 'Une erreur est survenue.',
         },
         confirmation: {
+          signOutTitle: 'Se déconnecter ?',
+          signOut: 'Se déconnecter',
+          typeDelete: 'Saisissez DELETE pour confirmer.',
           logoutTitle: 'Voulez-vous vraiment vous déconnecter ?',
           logoutDescription: 'Vous devrez vous reconnecter pour utiliser votre compte.',
           deleteTitle: 'Supprimer votre compte ?',
@@ -696,6 +702,9 @@ void i18n.use(initReactI18next).init({
           error: 'حدث خطأ ما.',
         },
         confirmation: {
+          signOutTitle: 'تسجيل الخروج؟',
+          signOut: 'تسجيل الخروج',
+          typeDelete: 'اكتب DELETE للتأكيد.',
           logoutTitle: 'هل أنت متأكد أنك تريد تسجيل الخروج؟',
           logoutDescription: 'ستحتاج إلى تسجيل الدخول مرة أخرى لاستخدام حسابك.',
           deleteTitle: 'هل تريد حذف حسابك؟',
