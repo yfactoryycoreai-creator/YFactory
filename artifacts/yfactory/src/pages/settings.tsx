@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   ArrowLeft,
+  ChevronDown,
   HardDrive,
   LogOut,
   ShieldCheck,
@@ -99,20 +100,14 @@ export default function SettingsPage({
         }
         if (usageResult.status === 'rejected') {
           setStorageUsage(null);
-          setStorageUsageError(
-            usageResult.reason instanceof Error
-              ? usageResult.reason.message
-              : 'Cloudinary usage could not be loaded.',
-          );
+          setStorageUsageError(t('settings.storageLoadFailed'));
           return;
         }
         setStorageUsage(usageResult.value);
         setStorageUsageError('');
       } catch (loadError) {
         if (active) {
-          setStorageUsageError(
-            loadError instanceof Error ? loadError.message : 'Cloudinary usage could not be loaded.',
-          );
+          setStorageUsageError(t('settings.storageLoadFailed'));
           setKeyPoolStatusError(t('settings.keyPoolLoadFailed'));
         }
       }
@@ -176,17 +171,21 @@ export default function SettingsPage({
           </section>
 
           <SecretsPanel getIdToken={getIdToken} />
-          <section className="account-panel key-pool-status-panel" aria-labelledby="key-pool-status-title" data-testid="key-pool-status-panel">
-            <div className="section-kicker">{t('settings.keyPoolTitle')}</div>
-            <h2 id="key-pool-status-title">{t('settings.keyPoolTitle')}</h2>
-            <p className="key-pool-status-description">{t('settings.keyPoolDescription')}</p>
-            {keyPoolStatusError ? (
-              <p className="settings-inline-error" role="status">{keyPoolStatusError}</p>
-            ) : !keyPoolStatus ? (
-              <p role="status">{t('settings.keyPoolLoading')}</p>
-            ) : (
-              <div className="key-pool-provider-list">
-                {keyPoolStatus.map((provider) => (
+          <details className="account-panel key-pool-status-panel" data-testid="key-pool-status-panel">
+            <summary className="key-pool-status-summary">
+              <h2>{t('settings.keyPoolTitle')}</h2>
+              <ChevronDown size={18} aria-hidden="true" />
+            </summary>
+            <div className="key-pool-status-content">
+              {keyPoolStatusError ? (
+                <p className="settings-inline-error" role="status">{keyPoolStatusError}</p>
+              ) : !keyPoolStatus ? (
+                <p role="status">{t('settings.keyPoolLoading')}</p>
+              ) : keyPoolStatus.filter((provider) => provider.credentialCount > 0).length === 0 ? (
+                <p>{t('settings.keyPoolEmpty')}</p>
+              ) : (
+                <div className="key-pool-provider-list">
+                  {keyPoolStatus.filter((provider) => provider.credentialCount > 0).map((provider) => (
                   <div className="key-pool-provider" key={provider.provider}>
                     <div className="key-pool-provider-heading">
                       <strong>{t(`settings.keyPoolProviders.${provider.provider}`)}</strong>
@@ -213,32 +212,33 @@ export default function SettingsPage({
                       </ul>
                     )}
                   </div>
-                ))}
-              </div>
-            )}
-          </section>
+                  ))}
+                </div>
+              )}
+            </div>
+          </details>
           <section className="account-panel storage-usage-panel" aria-labelledby="cloudinary-usage-title">
-            <div className="section-kicker"><HardDrive size={14} /> Cloudinary storage</div>
-            <h2 id="cloudinary-usage-title">Storage usage</h2>
+            <div className="section-kicker"><HardDrive size={14} /> {t('settings.cloudinaryStorage')}</div>
+            <h2 id="cloudinary-usage-title">{t('settings.storageUsage')}</h2>
             {!storageUsage && storageUsageError ? (
               <p className="settings-inline-error">{storageUsageError}</p>
             ) : !cloudinaryEnabled ? (
-              <p>Cloudinary is disabled in provider settings.</p>
+              <p>{t('settings.storageDisabled')}</p>
             ) : storageUsage && !storageUsage.configured ? (
-              <p>Cloudinary credentials are missing. Set `CLOUDINARY_URL` in Replit Secrets.</p>
+              <p>{t('settings.storageCredentialsMissing')}</p>
             ) : storageUsage?.configured && storageUsage.usedBytes !== null && storageUsage.limitBytes !== null ? (
               <>
                 <div className="storage-usage-copy">
-                  <span>{formatBytes(storageUsage.usedBytes)} used</span>
-                  <span>{formatBytes(storageUsage.limitBytes)} limit</span>
+                  <span>{formatBytes(storageUsage.usedBytes)} {t('settings.storageUsed')}</span>
+                  <span>{formatBytes(storageUsage.limitBytes)} {t('settings.storageLimit')}</span>
                 </div>
                 <div className="factory-storage-track" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.min(100, Math.round(storageUsage.usedBytes / Math.max(storageUsage.limitBytes, 1) * 100))}>
                   <span className={storageUsage.usedBytes / Math.max(storageUsage.limitBytes, 1) >= 0.8 ? 'storage-warning' : ''} style={{ width: `${Math.min(100, storageUsage.usedBytes / Math.max(storageUsage.limitBytes, 1) * 100)}%` }} />
                 </div>
-                {storageUsage.usedBytes / Math.max(storageUsage.limitBytes, 1) >= 0.8 && <p className="settings-inline-warning">Cloudinary storage is at least 80% used.</p>}
+                {storageUsage.usedBytes / Math.max(storageUsage.limitBytes, 1) >= 0.8 && <p className="settings-inline-warning">{t('settings.storageWarning')}</p>}
               </>
             ) : (
-              <p>Cloudinary is configured; usage limits were not included in the account response.</p>
+              <p>{t('settings.storageUsageUnavailable')}</p>
             )}
           </section>
           <section className="danger-zone" aria-labelledby="danger-zone-title">
@@ -284,6 +284,7 @@ export default function SettingsPage({
         failureMessage={t('confirmation.deleteFailed')}
         recentLoginMessage={t('confirmation.recentLogin')}
         onConfirm={onDeleteAccount}
+        danger
         confirmationPhrase="DELETE"
         confirmationPhraseLabel={t('confirmation.typeDelete')}
         dir={isRtl ? 'rtl' : 'ltr'}

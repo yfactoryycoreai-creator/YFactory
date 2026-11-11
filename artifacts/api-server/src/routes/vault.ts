@@ -121,9 +121,9 @@ router.post("/vault/keys", async (req, res): Promise<void> => {
     return;
   }
   const secretProvider = providerForSecretName(parsed.data.label);
-  if (!secretProvider || parsed.data.provider !== secretProvider) {
+  if (parsed.data.provider !== secretProvider) {
     res.status(400).json({
-      error: "Use an AGNES_API_KEY or GLM_API_KEY name, with an optional numeric suffix.",
+      error: "Use a name containing only uppercase letters, numbers, and underscores.",
       code: "invalid_secret_name",
     });
     return;
@@ -131,7 +131,7 @@ router.post("/vault/keys", async (req, res): Promise<void> => {
   const providerConfig = (await listProviderConfigs(uid)).find(
     (provider) => provider.id === parsed.data.provider,
   );
-  if (!providerConfig) {
+  if (parsed.data.provider !== "custom" && !providerConfig) {
     res.status(400).json({ error: "Add this provider before saving a key.", code: "provider_not_found" });
     return;
   }
@@ -139,6 +139,10 @@ router.post("/vault/keys", async (req, res): Promise<void> => {
     const existingKeys = await listVaultKeys(uid);
     if (existingKeys.some((key) => key.label === parsed.data.label.trim())) {
       res.status(409).json({ error: "A secret with this name already exists.", code: "duplicate_secret_name" });
+      return;
+    }
+    if (existingKeys.length >= 100) {
+      res.status(409).json({ error: "The secret limit has been reached.", code: "secret_limit" });
       return;
     }
     const key = await createVaultKey(

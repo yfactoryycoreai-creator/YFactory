@@ -1505,6 +1505,7 @@ input,textarea,[contenteditable="true"] { user-select:text; -webkit-user-select:
 .factory-back,.story-icon-button { width:44px; height:44px; border-radius:14px; }
 .factory-storage-copy,.story-image-meter,.story-storage-copy { color:var(--app-secondary); }
 .factory-storage-copy strong { color:var(--app-text); font:14px system-ui,-apple-system,"SF Pro Text",Roboto,"Segoe UI",sans-serif; }
+.storage-estimate-value { direction:ltr; unicode-bidi:isolate; white-space:nowrap; }
 .factory-storage-track,.story-image-progress { height:5px; background:var(--app-raised); }
 .factory-storage-track span,.story-image-progress span { background:var(--app-accent); }
 .factory-list-toolbar { margin:24px 0 12px; }
@@ -1514,6 +1515,7 @@ input,textarea,[contenteditable="true"] { user-select:text; -webkit-user-select:
   font-size:20px;
   font-weight:600;
 }
+.factory-list-toolbar p { display:block; margin:4px 0 0; color:var(--app-secondary); font-size:13px; }
 .factory-primary-button { min-height:48px; border-radius:14px; font-size:15px; }
 .factory-quiet-button { min-height:44px; }
 .story-list {
@@ -1543,9 +1545,22 @@ input,textarea,[contenteditable="true"] { user-select:text; -webkit-user-select:
   content:"";
   transform:rotate(45deg);
 }
+:dir(rtl) .story-card-main::after { transform:rotate(225deg); }
 .story-card-icon { width:52px; height:52px; border-radius:14px; font-size:20px; font-weight:600; }
 .story-card-copy { gap:4px; }
-.story-card-copy strong { color:var(--app-text); font-size:16px; font-weight:600; }
+.story-card-copy strong {
+  display:-webkit-box;
+  overflow:hidden;
+  color:var(--app-text);
+  font-size:16px;
+  font-weight:600;
+  line-height:1.35;
+  text-overflow:ellipsis;
+  white-space:normal;
+  overflow-wrap:anywhere;
+  -webkit-box-orient:vertical;
+  -webkit-line-clamp:2;
+}
 .story-card-copy small { color:var(--app-secondary); font-size:14px; }
 .story-card-count { min-width:36px; min-height:32px; }
 .story-card > .story-icon-button { width:44px; height:44px; }
@@ -1924,7 +1939,8 @@ input,textarea,[contenteditable="true"] { user-select:text; -webkit-user-select:
   font:500 15px system-ui,-apple-system,"SF Pro Text",Roboto,"Segoe UI",sans-serif;
   transition:transform 200ms cubic-bezier(.2,.8,.2,1),filter 200ms cubic-bezier(.2,.8,.2,1);
 }
-.confirmation-danger { color:var(--app-on-accent); background:var(--app-danger); }
+.confirmation-primary { color:var(--app-on-accent); background:var(--app-accent); }
+.confirmation-danger { color:#fff; background:var(--app-danger); }
 .confirmation-cancel {
   border-color:var(--app-separator);
   color:var(--app-text);

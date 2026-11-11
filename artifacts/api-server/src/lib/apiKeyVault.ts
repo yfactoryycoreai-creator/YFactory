@@ -70,11 +70,11 @@ export type GenerationKey = {
   value: string;
 };
 
-export function providerForSecretName(name: string): "agnes" | "glm" | null {
-  const match = /^(AGNES|GLM)_API_KEY(?:_([2-9]|[1-9]\d+))?$/.exec(name.trim());
+export function providerForSecretName(name: string): "agnes" | "glm" | "custom" {
+  const match = /^(AGNES|GLM)_API_KEY(?:_([1-9]\d*))?$/.exec(name.trim());
   if (match?.[1] === "AGNES") return "agnes";
   if (match?.[1] === "GLM") return "glm";
-  return null;
+  return "custom";
 }
 
 export type ProviderGenerationKeys = Record<
@@ -307,9 +307,10 @@ async function readProviderSnapshots(uid: string, provider: ProviderKey) {
 export async function listVaultKeys(uid: string): Promise<VaultKeyMetadata[]> {
   await migrateLegacyKeys(uid);
   const providers = await listProviderConfigs(uid);
-  const snapshots = await Promise.all(providers.map((provider) => readProviderSnapshots(uid, provider.id)));
+  const providerIds = [...new Set([...providers.map((provider) => provider.id), "custom"])];
+  const snapshots = await Promise.all(providerIds.map((provider) => readProviderSnapshots(uid, provider)));
   return snapshots.flatMap((snapshot, index) => snapshot.docs.map((document) =>
-    metadataFromSnapshot(document, providers[index]?.id ?? ""),
+    metadataFromSnapshot(document, providerIds[index] ?? ""),
   ));
 }
 

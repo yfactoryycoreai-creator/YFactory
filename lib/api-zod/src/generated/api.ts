@@ -396,10 +396,10 @@ export const ListVaultKeysResponse = zod.object({
  * @summary Add an encrypted provider API key
  */
 export const createVaultKeyBodyProviderRegExp = new RegExp('^[a-z0-9][a-z0-9-]{0,63}$');
-export const createVaultKeyBodyLabelMax = 80;
+export const createVaultKeyBodyLabelMax = 100;
 
 
-export const createVaultKeyBodyLabelRegExp = new RegExp('^(AGNES|GLM)_API_KEY(?:_([2-9]|[1-9][0-9]+))?$');
+export const createVaultKeyBodyLabelRegExp = new RegExp('^[A-Z0-9_]{1,100}$');
 export const createVaultKeyBodyValueMax = 4096;
 
 

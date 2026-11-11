@@ -494,6 +494,12 @@
 .settings-inline-error { color:#ff9299!important; }
 .factory-storage-track .storage-warning { background:#ed6877; }
 .key-pool-status-panel { display:grid; gap:10px; margin-top:18px; }
+.key-pool-status-summary { display:flex; min-height:44px; align-items:center; justify-content:space-between; gap:12px; list-style:none; cursor:pointer; }
+.key-pool-status-summary::-webkit-details-marker { display:none; }
+.key-pool-status-summary h2 { margin:0; }
+.key-pool-status-summary svg { flex:none; color:var(--app-secondary); transition:transform var(--app-motion); }
+.key-pool-status-panel[open] .key-pool-status-summary svg { transform:rotate(180deg); }
+.key-pool-status-content { display:grid; gap:10px; padding-top:12px; border-top:1px solid var(--app-separator); }
 .key-pool-status-panel h2 { margin:0; color:#e8edf7; font-size:15px; }
 .key-pool-status-panel .section-kicker { margin-bottom:0; }
 .key-pool-status-description { margin:0; color:#9aa8c0; font-size:11px; line-height:1.55; }
@@ -523,6 +529,7 @@
   background:rgba(9,15,27,.42);
 }
 .secrets-panel h2 { margin:0; color:#e8edf7; font-size:15px; }
+.secrets-panel-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; }
 .secrets-add-form {
   display:grid;
   grid-template-columns:minmax(130px,.8fr) minmax(180px,1.2fr) auto;
@@ -583,6 +590,64 @@
 .secrets-actions button:disabled { opacity:.55; cursor:wait; }
 .secrets-actions .secrets-delete-button:hover:not(:disabled) { color:#ff9aa6; border-color:rgba(255,115,132,.32); }
 .secrets-edit-form { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
+.secret-icon-button { display:grid; width:44px; min-width:44px; place-items:center; padding:0!important; }
+.secret-error-line,.secret-status-line { margin:0; font-size:13px; line-height:1.5; }
+.secret-error-line { color:var(--app-danger-text); }
+.secret-status-line { color:var(--app-success-text); }
+.secret-form-sheet { padding-bottom:calc(22px + env(safe-area-inset-bottom)); }
+.secret-form-sheet form { display:grid; gap:16px; }
+.secret-form-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.secret-sheet-close,.secret-reveal-button {
+  display:grid;
+  flex:none;
+  place-items:center;
+  width:44px;
+  min-height:44px;
+  border:1px solid var(--app-separator);
+  border-radius:14px;
+  color:var(--app-text);
+  background:var(--app-raised);
+  cursor:pointer;
+}
+.secret-sheet-field { display:grid; gap:8px; color:var(--app-secondary); font-size:14px; }
+.secret-sheet-field input {
+  width:100%;
+  min-width:0;
+  min-height:48px;
+  box-sizing:border-box;
+  padding:10px 14px;
+  border:1px solid var(--app-separator);
+  border-radius:14px;
+  outline:none;
+  color:var(--app-text);
+  background:var(--app-raised);
+  font:14px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+.secret-sheet-field input:focus-visible,.secret-sheet-close:focus-visible,.secret-reveal-button:focus-visible {
+  outline:2px solid var(--app-accent);
+  outline-offset:2px;
+}
+.secret-value-input-wrap { position:relative; display:flex; align-items:center; }
+.secret-value-input-wrap input { padding-inline-end:58px; }
+.secret-reveal-button { position:absolute; inset-inline-end:4px; min-height:40px; width:44px; border:0; }
+.secret-reveal-button:disabled,.secret-sheet-close:disabled { opacity:.55; cursor:wait; }
+.secret-suggestions { display:flex; flex-wrap:wrap; gap:8px; }
+.secret-suggestions button,.secret-existing-note button {
+  min-height:36px;
+  padding:5px 10px;
+  border:1px solid var(--app-separator);
+  border-radius:999px;
+  color:var(--app-text);
+  background:var(--app-raised);
+  cursor:pointer;
+  font:11px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  direction:ltr;
+}
+.secret-suggestions button:disabled,.secret-existing-note button:disabled { opacity:.55; cursor:wait; }
+.secret-existing-note { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; color:var(--app-secondary); font-size:13px; }
+.secret-existing-note button { color:var(--app-accent-text); font:13px system-ui,-apple-system,"SF Pro Text",Roboto,"Segoe UI",sans-serif; }
+.secret-sheet-actions { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+.confirmation-secret-save { color:var(--app-on-accent); background:var(--app-accent); }
 
 /* Calm account and sign-in surfaces, using the shared app tokens. */
 .auth-screen {

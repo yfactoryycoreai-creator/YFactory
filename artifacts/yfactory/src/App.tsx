@@ -454,12 +454,12 @@ function Home() {
   const handleLogout = async () => {
     if (isSigningOut) return;
     setIsSigningOut(true);
-    setGeneratedImages([]);
     setPrompt('');
     setActiveStory(null);
     setPendingStorySave(null);
     try {
       await signOutFromFirebase();
+      queryClient.clear();
       setProfileOpen(false);
       setLocation('/login');
     } catch {
@@ -1038,6 +1038,7 @@ function ProtectedSettings() {
 
   const handleLogout = async () => {
     await signOutFromFirebase();
+    queryClient.clear();
     setLocation('/login');
   };
 

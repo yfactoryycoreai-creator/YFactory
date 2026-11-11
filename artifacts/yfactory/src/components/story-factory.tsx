@@ -150,7 +150,7 @@ function formatBytes(bytes: number): string {
   return `${bytes} B`;
 }
 
-function formatStoryDate(value: unknown, locale: string): string {
+function formatStoryDate(value: unknown): string {
   const date =
     value instanceof Date
       ? value
@@ -161,7 +161,7 @@ function formatStoryDate(value: unknown, locale: string): string {
         ? (value.toDate as () => Date)()
         : null;
   if (!date || Number.isNaN(date.getTime())) return '';
-  return new Intl.DateTimeFormat(locale, { dateStyle: 'medium' }).format(date);
+  return date.toISOString().slice(0, 10);
 }
 
 const sceneFailureCodes = new Set([
@@ -879,7 +879,7 @@ function StoryFactory({
         <div className="factory-storage" data-testid="storage-usage">
           <div className="factory-storage-copy">
             <span>{t('stories.storageUsage')}</span>
-            <strong>
+            <strong className="storage-estimate-value" dir="ltr">
               {t('stories.storageValue', {
                 used: formatBytes(totalStorageBytes),
                 quota: '20 GB',
@@ -1373,7 +1373,6 @@ function StoryFactory({
         <>
           <div className="factory-list-toolbar">
             <div>
-              <h2>{t('stories.yourStories')}</h2>
               <p>{t('stories.storyCount', { count: stories.length })}</p>
             </div>
             <button
@@ -1427,17 +1426,17 @@ function StoryFactory({
                       {story.storyName.trim().slice(0, 1).toLocaleUpperCase(locale) || 'Y'}
                     </span>
                     <span className="story-card-copy">
-                      <strong>{story.storyName}</strong>
+                      <strong dir="auto" title={story.storyName}>{story.storyName}</strong>
                       <small>
                         {t('stories.imageCounter', {
                           count: story.imageCount,
                           max: story.targetCount,
                         })}
-                        {formatStoryDate(story.createdAt, locale) &&
-                          ` · ${formatStoryDate(story.createdAt, locale)}`}
+                        {formatStoryDate(story.createdAt) && (
+                          <> · <bdi dir="ltr">{formatStoryDate(story.createdAt)}</bdi></>
+                        )}
                       </small>
                     </span>
-                    <span className="story-card-count">{story.imageCount}</span>
                   </button>
                   {editingStoryNameId === story.id ? (
                     <form className="story-name-edit-form story-name-edit-list" onSubmit={(event) => void handleRenameStory(event)}>

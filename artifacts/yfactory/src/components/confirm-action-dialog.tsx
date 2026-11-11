@@ -23,6 +23,7 @@ type ConfirmActionDialogProps = {
   recentLoginMessage?: string;
   confirmationPhrase?: string;
   confirmationPhraseLabel?: string;
+  danger?: boolean;
   onConfirm: () => Promise<void>;
   dir?: 'ltr' | 'rtl';
 };
@@ -42,6 +43,7 @@ const ConfirmActionDialog = forwardRef<
   recentLoginMessage,
   confirmationPhrase,
   confirmationPhraseLabel,
+  danger = false,
   onConfirm,
   dir = 'ltr',
 }, ref) {
@@ -232,7 +234,7 @@ const ConfirmActionDialog = forwardRef<
           )}
           <div className="confirmation-actions">
             <button
-              className="confirmation-button confirmation-danger"
+              className={`confirmation-button ${danger ? 'confirmation-danger' : 'confirmation-primary'}`}
               type="button"
               onClick={() => void confirm()}
               disabled={

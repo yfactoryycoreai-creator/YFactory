@@ -349,8 +349,8 @@ export interface CreateVaultKeyInput {
   provider: ProviderId;
   /**
      * @minLength 1
-     * @maxLength 80
-     * @pattern ^(AGNES|GLM)_API_KEY(?:_([2-9]|[1-9][0-9]+))?$
+     * @maxLength 100
+     * @pattern ^[A-Z0-9_]{1,100}$
      */
   label: string;
   /**
