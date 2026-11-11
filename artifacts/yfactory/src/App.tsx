@@ -16,6 +16,7 @@ import {
   ImagePlus,
   LoaderCircle,
   LogOut,
+  MessageCircle,
   Save,
   Settings,
   Sparkles,
@@ -34,6 +35,7 @@ import { AuthProvider, useAuth } from '@/auth/AuthProvider';
 import LoginPage from '@/pages/login';
 import SettingsPage from '@/pages/settings';
 import NotFound from '@/pages/not-found';
+import ChatScreen from '@/components/chat-screen';
 import {
   deleteUserDocument,
   restoreUserDocument,
@@ -128,6 +130,7 @@ function Home() {
   const [profileOpen, setProfileOpen] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [storiesOpen, setStoriesOpen] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
   const [activeStory, setActiveStory] = useState<StoryRecord | null>(null);
   const [pendingStorySave, setPendingStorySave] =
     useState<GeneratedImageHistoryItem | null>(null);
@@ -215,6 +218,7 @@ function Home() {
   );
 
   const chooseImageTab = () => {
+    setChatOpen(false);
     setStoriesOpen(false);
     setNoticeKey('');
     setImageError('');
@@ -477,7 +481,7 @@ function Home() {
     .join('');
 
   return (
-    <div className={`workspace${isRtl ? ' rtl' : ''}`} dir={isRtl ? 'rtl' : 'ltr'}>
+    <div className={`workspace${isRtl ? ' rtl' : ''}${chatOpen ? ' chat-open' : ''}`} dir={isRtl ? 'rtl' : 'ltr'}>
       <header className="topbar">
         <div className="brand" data-testid="brand-yfactory" aria-label="YFactory">
           <span className="brand-mark" aria-hidden="true">Y</span><span>YFactory</span>
@@ -575,8 +579,8 @@ function Home() {
           <button
             type="button"
             role="tab"
-            aria-selected={!storiesOpen}
-            className={`tab${!storiesOpen ? ' active' : ''}`}
+            aria-selected={!chatOpen && !storiesOpen}
+            className={`tab${!chatOpen && !storiesOpen ? ' active' : ''}`}
             onClick={chooseImageTab}
             data-testid="tab-image"
           >
@@ -586,9 +590,21 @@ function Home() {
           <button
             type="button"
             role="tab"
-            aria-selected={storiesOpen}
-            className={`tab${storiesOpen ? ' active' : ''}`}
+            aria-selected={chatOpen}
+            className={`tab${chatOpen ? ' active' : ''}`}
+            onClick={() => setChatOpen(true)}
+            data-testid="tab-chat"
+          >
+            <MessageCircle size={19} />
+            <span>{t('tabs.chat')}</span>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={!chatOpen && storiesOpen}
+            className={`tab${!chatOpen && storiesOpen ? ' active' : ''}`}
             onClick={() => {
+              setChatOpen(false);
               setStoriesOpen(true);
               setNoticeKey('');
               setImageError('');
@@ -600,7 +616,9 @@ function Home() {
           </button>
         </nav>
 
-        {user && storiesOpen && (
+        {chatOpen && <ChatScreen onBack={() => setChatOpen(false)} />}
+
+        {!chatOpen && user && storiesOpen && (
           <ErrorBoundary FallbackComponent={StoryTabFallback}>
             <Suspense fallback={<StoryTabLoading />}>
               <StoryFactory
@@ -617,7 +635,7 @@ function Home() {
           </ErrorBoundary>
         )}
 
-        {!storiesOpen && (
+        {!chatOpen && !storiesOpen && (
           <ErrorBoundary FallbackComponent={MediaTabFallback}>
           <>
         <section className="composer" aria-label={t('labels.prompt')}>

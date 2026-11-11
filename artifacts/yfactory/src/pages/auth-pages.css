@@ -892,3 +892,169 @@
   .secrets-row { align-items:flex-start; flex-direction:column; }
   .secrets-actions { width:100%; justify-content:flex-start; }
 }
+
+.settings-preferences-panel {
+  display:grid;
+  gap:0;
+  margin:16px 0 0;
+  padding:7px 16px;
+  border:1px solid var(--app-separator);
+  border-radius:20px;
+  color:var(--app-text);
+  background:var(--app-surface);
+  box-shadow:var(--app-shadow,none);
+}
+.settings-preferences-panel h2 {
+  margin:9px 0 5px;
+  color:var(--app-secondary);
+  font-size:12px;
+  font-weight:600;
+}
+.settings-preference-row,.settings-preference-link {
+  display:flex;
+  min-height:60px;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  border-bottom:1px solid var(--app-separator);
+}
+.settings-preference-copy {
+  display:flex;
+  min-width:0;
+  align-items:center;
+  gap:11px;
+  color:var(--app-secondary);
+}
+.settings-preference-copy svg { flex:none; }
+.settings-preference-copy strong {
+  color:var(--app-text);
+  font-size:14px;
+  font-weight:500;
+}
+.settings-language-switch {
+  display:flex;
+  flex:none;
+  align-items:center;
+  gap:3px;
+  padding:3px;
+  border:1px solid var(--app-separator);
+  border-radius:13px;
+  background:var(--app-raised);
+}
+.settings-language-switch button {
+  min-width:56px;
+  min-height:44px;
+  padding:0 10px;
+  border:0;
+  border-radius:10px;
+  color:var(--app-secondary);
+  background:transparent;
+  font-size:12px;
+  cursor:pointer;
+}
+.settings-language-switch button.is-selected {
+  color:var(--app-on-accent);
+  background:var(--app-accent);
+}
+.settings-preference-state {
+  display:flex;
+  align-items:center;
+  gap:10px;
+}
+.settings-coming-soon {
+  color:var(--app-secondary);
+  font-size:11px;
+}
+.settings-disabled-switch {
+  position:relative;
+  width:52px;
+  min-width:52px;
+  height:44px;
+  min-height:44px;
+  padding:0;
+  border:0;
+  background:transparent;
+  cursor:not-allowed;
+}
+.settings-disabled-switch:disabled { opacity:.62; }
+.settings-disabled-switch::before {
+  position:absolute;
+  top:8px;
+  inset-inline-start:0;
+  width:52px;
+  height:28px;
+  border:1px solid var(--app-separator);
+  border-radius:999px;
+  background:var(--app-raised);
+  content:"";
+}
+.settings-disabled-switch span {
+  position:absolute;
+  top:14px;
+  inset-inline-start:6px;
+  width:16px;
+  height:16px;
+  border-radius:50%;
+  background:var(--app-secondary);
+}
+.settings-disabled-switch.is-on::before { border-color:var(--app-accent); background:var(--app-accent); }
+.settings-disabled-switch.is-on span { inset-inline-start:30px; background:var(--app-on-accent); }
+.settings-preference-link {
+  width:100%;
+  min-height:60px;
+  padding:0;
+  border:0;
+  border-bottom:1px solid var(--app-separator);
+  color:var(--app-secondary);
+  background:transparent;
+  text-align:start;
+  cursor:pointer;
+}
+.settings-preference-link:last-child { border-bottom:0; }
+.settings-preference-link > svg { flex:none; }
+.settings-preference-link:hover:not(:disabled) { color:var(--app-accent-text); }
+.settings-screen[dir="rtl"] .settings-back svg,
+.settings-screen[dir="rtl"] .settings-mobile-back svg,
+.settings-screen[dir="rtl"] .settings-preference-link > svg { transform:rotate(180deg); }
+.settings-preferences-panel button:focus-visible {
+  outline:2px solid var(--app-accent);
+  outline-offset:2px;
+}
+.settings-info-card {
+  display:flex;
+  max-width:540px;
+  min-height:260px;
+  flex-direction:column;
+  align-items:flex-start;
+  justify-content:center;
+  gap:13px;
+  margin:56px auto 0;
+  padding:28px;
+  border:1px solid var(--app-separator);
+  border-radius:22px;
+  color:var(--app-text);
+  background:var(--app-surface);
+  box-shadow:var(--app-shadow,none);
+}
+.settings-info-icon {
+  display:grid;
+  width:50px;
+  height:50px;
+  place-items:center;
+  border-radius:16px;
+  color:var(--app-accent-text);
+  background:color-mix(in srgb,var(--app-accent) 15%,var(--app-surface));
+}
+.settings-info-card h1 { margin:0; font-size:23px; font-weight:600; }
+.settings-info-card p { margin:0; color:var(--app-secondary); font-size:14px; line-height:1.6; }
+.settings-info-card .settings-coming-soon { margin-top:4px; }
+.settings-back-spacer { width:44px; }
+@media (max-width:620px) {
+  .settings-preferences-panel { padding-inline:12px; }
+  .settings-preference-row,.settings-preference-link { min-height:62px; }
+  .settings-preference-copy { gap:8px; }
+  .settings-preference-copy strong { font-size:13px; }
+  .settings-language-switch button { min-width:48px; padding-inline:7px; }
+  .settings-preference-state { gap:6px; }
+  .settings-info-card { margin-top:34px; padding:22px; }
+}
