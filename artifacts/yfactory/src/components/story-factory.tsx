@@ -673,7 +673,7 @@ function StoryFactory({
         const code = generationError instanceof StorySceneStartError
           ? generationError.code
           : 'save_failed';
-        setError(`${code}: ${t(`stories.sceneStartError.${code}`)}`);
+        setError(t(`stories.sceneStartError.${code}`));
       }
     } finally {
       setGeneratingStoryImages(false);

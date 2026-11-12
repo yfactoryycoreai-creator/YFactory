@@ -1,3 +1,5 @@
+import { useTranslation } from 'react-i18next';
+
 import {
   Component,
   type ComponentType,
@@ -35,21 +37,17 @@ function toError(value: unknown): Error {
 }
 
 function DefaultFallback({ resetError }: ErrorFallbackProps) {
+  const { t } = useTranslation();
   return (
     <div className="app-error-fallback">
       <div>
-        <h1>
-          Something went wrong
-        </h1>
-        <p>
-          This part of the app hit an error. The rest of the app is still
-          running.
-        </p>
+        <h1>{t('errorBoundary.title')}</h1>
+        <p>{t('errorBoundary.description')}</p>
         <button
           type="button"
           onClick={resetError}
         >
-          Try again
+          {t('errorBoundary.retry')}
         </button>
       </div>
     </div>

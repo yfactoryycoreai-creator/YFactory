@@ -931,30 +931,18 @@
   font-size:14px;
   font-weight:500;
 }
-.settings-language-switch {
-  display:flex;
+.settings-language-select {
   flex:none;
-  align-items:center;
-  gap:3px;
-  padding:3px;
-  border:1px solid var(--app-separator);
-  border-radius:13px;
-  background:var(--app-raised);
-}
-.settings-language-switch button {
-  min-width:56px;
+  width:132px;
+  min-width:0;
   min-height:44px;
   padding:0 10px;
-  border:0;
-  border-radius:10px;
-  color:var(--app-secondary);
-  background:transparent;
-  font-size:12px;
+  border:1px solid var(--app-separator);
+  border-radius:12px;
+  color:var(--app-text);
+  background:var(--app-raised);
+  font-size:13px;
   cursor:pointer;
-}
-.settings-language-switch button.is-selected {
-  color:var(--app-on-accent);
-  background:var(--app-accent);
 }
 .settings-preference-state {
   display:flex;
@@ -1054,7 +1042,7 @@
   .settings-preference-row,.settings-preference-link { min-height:62px; }
   .settings-preference-copy { gap:8px; }
   .settings-preference-copy strong { font-size:13px; }
-  .settings-language-switch button { min-width:48px; padding-inline:7px; }
+  .settings-language-select { width:124px; }
   .settings-preference-state { gap:6px; }
   .settings-info-card { margin-top:34px; padding:22px; }
 }

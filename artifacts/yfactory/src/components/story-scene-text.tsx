@@ -140,7 +140,7 @@ export default function StorySceneText({
       <label>
         <span>
           {t('stories.motionPrompt')}
-          {image.motionPromptSource === 'template' && <small className="story-template-tag">template</small>}
+          {image.motionPromptSource === 'template' && <small className="story-template-tag">{t('stories.template')}</small>}
         </span>
         <textarea
           value={motionPrompt}
@@ -167,7 +167,7 @@ export default function StorySceneText({
       <label>
         <span>
           {t('stories.narration')}
-          {image.narrationSource === 'template' && <small className="story-template-tag">template</small>}
+          {image.narrationSource === 'template' && <small className="story-template-tag">{t('stories.template')}</small>}
         </span>
         <textarea
           value={narration}

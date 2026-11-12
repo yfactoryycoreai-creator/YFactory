@@ -229,9 +229,9 @@ function Home() {
   }, []);
 
   const getUserIdToken = useCallback(async () => {
-    if (!user) throw new Error('Sign in to manage story images.');
+    if (!user) throw new Error(t('status.authRequiredForAction'));
     return user.getIdToken();
-  }, [user]);
+  }, [t, user]);
 
   const handleCancelPendingSave = useCallback(() => {
     setPendingStorySave(null);
@@ -472,7 +472,7 @@ function Home() {
     }
   };
 
-  const profileName = user?.displayName || user?.email || 'YFactory creator';
+  const profileName = user?.displayName || user?.email || t('settings.creator');
   const profileInitials = (user?.displayName || user?.email || 'Y')
     .split(/[\s@]+/)
     .filter(Boolean)
@@ -509,6 +509,7 @@ function Home() {
               <SelectItem className="custom-select-item" value="en">English</SelectItem>
               <SelectItem className="custom-select-item" value="ar">العربية</SelectItem>
               <SelectItem className="custom-select-item" value="fr">Français</SelectItem>
+              <SelectItem className="custom-select-item" value="es">Español</SelectItem>
             </SelectContent>
           </Select>
           <div className="profile-menu-wrap" ref={profileMenuRef}>
@@ -1039,6 +1040,7 @@ function ProtectedHome() {
 }
 
 function ProtectedSettings() {
+  const { t } = useTranslation();
   const { user, loading: authLoading } = useAuth();
   const [, setLocation] = useLocation();
 
@@ -1050,9 +1052,9 @@ function ProtectedSettings() {
   if (!user) return null;
 
   const getIdToken = useCallback(async () => {
-    if (!user) throw new Error('Sign in to manage API keys.');
+    if (!user) throw new Error(t('status.authRequiredForAction'));
     return user.getIdToken();
-  }, [user]);
+  }, [t, user]);
 
   const handleLogout = async () => {
     await signOutFromFirebase();

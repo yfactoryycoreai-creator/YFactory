@@ -12,7 +12,6 @@ export type LoginPageProps = {
 export default function LoginPage({
   loading,
   error,
-  errorMessage,
   onGoogleSignIn,
 }: LoginPageProps) {
   const { t, i18n } = useTranslation();
@@ -46,12 +45,7 @@ export default function LoginPage({
                 ? t('auth.unauthorizedDomainError', {
                     domain: typeof window === 'undefined' ? '' : window.location.hostname,
                   })
-              : t('auth.signInError', { code: error })}
-            {errorMessage && (
-              <code className="auth-error-detail">
-                {error}: {errorMessage}
-              </code>
-            )}
+              : t('auth.signInError')}
           </div>
         )}
 
@@ -97,7 +91,7 @@ export default function LoginPage({
           {loading ? t('common.loading') : ''}
         </p>
       </section>
-      <span className="auth-corner-note" aria-hidden="true">YFACTORY · CREATIVE STUDIO</span>
+      <span className="auth-corner-note" aria-hidden="true">{t('auth.studioTagline')}</span>
     </main>
   );
 }

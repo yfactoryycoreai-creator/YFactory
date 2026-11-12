@@ -70,21 +70,14 @@ export default function SettingsPage({
   const [settingsSubview, setSettingsSubview] = useState<'about' | 'premium' | null>(null);
   const signOutDialogRef = useRef<ConfirmActionDialogHandle | null>(null);
   const deleteAccountDialogRef = useRef<ConfirmActionDialogHandle | null>(null);
-  const displayName = user.displayName || user.email || 'YFactory creator';
+  const displayName = user.displayName || user.email || t('settings.creator');
   const initials = (user.displayName || user.email || 'Y')
     .split(/[\s@]+/)
     .filter(Boolean)
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase())
     .join('');
-  const changeLanguage = (language: 'en' | 'ar') => {
-    document.documentElement.lang = language;
-    document.documentElement.dir = language === 'ar' ? 'rtl' : 'ltr';
-    try {
-      window.localStorage.setItem('yfactory.locale', language);
-    } catch {
-      // The selected language remains active for this session if storage is unavailable.
-    }
+  const changeLanguage = (language: 'en' | 'ar' | 'fr' | 'es') => {
     void i18n.changeLanguage(language);
   };
 
@@ -194,7 +187,7 @@ export default function SettingsPage({
         <div className="settings-content">
           <div className="settings-heading">
             <div>
-              <div className="settings-eyebrow"><span /> YFACTORY / ACCOUNT</div>
+              <div className="settings-eyebrow"><span /> {t('settings.accountEyebrow')}</div>
               <h1>{t('settings.title')}</h1>
               <p>{t('settings.subtitle')}</p>
             </div>
@@ -217,7 +210,7 @@ export default function SettingsPage({
                 <h2 id="account-title" data-testid="text-account-name">{displayName}</h2>
                 {user.email && <p data-testid="text-account-email">{user.email}</p>}
               </div>
-              <span className="account-verified"><ShieldCheck size={15} /> <span>Signed in</span></span>
+              <span className="account-verified"><ShieldCheck size={15} /> <span>{t('settings.signedIn')}</span></span>
             </div>
           </section>
 
@@ -227,26 +220,19 @@ export default function SettingsPage({
                 <Globe2 size={19} aria-hidden="true" />
                 <strong>{t('settings.language')}</strong>
               </div>
-              <div className="settings-language-switch" role="group" aria-label={t('settings.language')}>
-                <button
-                  type="button"
-                  aria-pressed={locale === 'en'}
-                  className={locale === 'en' ? 'is-selected' : ''}
-                  onClick={() => changeLanguage('en')}
-                  data-testid="button-language-en"
-                >
-                  {t('settings.languageEnglish')}
-                </button>
-                <button
-                  type="button"
-                  aria-pressed={locale === 'ar'}
-                  className={locale === 'ar' ? 'is-selected' : ''}
-                  onClick={() => changeLanguage('ar')}
-                  data-testid="button-language-ar"
-                >
-                  {t('settings.languageArabic')}
-                </button>
-              </div>
+              <select
+                className="settings-language-select"
+                aria-label={t('settings.language')}
+                dir={isRtl ? 'rtl' : 'ltr'}
+                value={locale}
+                onChange={(event) => changeLanguage(event.currentTarget.value as 'en' | 'ar' | 'fr' | 'es')}
+                data-testid="select-language"
+              >
+                <option value="en">{t('settings.languageEnglish')}</option>
+                <option value="ar">{t('settings.languageArabic')}</option>
+                <option value="fr">{t('settings.languageFrench')}</option>
+                <option value="es">{t('settings.languageSpanish')}</option>
+              </select>
             </div>
           </section>
 
@@ -408,7 +394,7 @@ export default function SettingsPage({
         <footer className="settings-footer">
           <span>YFactory</span>
           <span className="footer-separator" />
-          <span>Creator workspace</span>
+          <span>{t('settings.creatorWorkspace')}</span>
         </footer>
       </div>
       <ConfirmActionDialog
