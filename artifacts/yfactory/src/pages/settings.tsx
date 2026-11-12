@@ -3,14 +3,8 @@ import { useTranslation } from 'react-i18next';
 import {
   ArrowLeft,
   ChevronDown,
-  ChevronRight,
-  Bell,
-  Globe2,
   HardDrive,
-  Info,
   LogOut,
-  Moon,
-  Sparkles,
   ShieldCheck,
   Trash2,
   UserRound,
@@ -67,7 +61,6 @@ export default function SettingsPage({
   const [keyPoolStatus, setKeyPoolStatus] = useState<KeyPoolProviderStatus[] | null>(null);
   const [keyPoolStatusError, setKeyPoolStatusError] = useState('');
   const [cloudinaryEnabled, setCloudinaryEnabled] = useState(true);
-  const [settingsSubview, setSettingsSubview] = useState<'about' | 'premium' | null>(null);
   const signOutDialogRef = useRef<ConfirmActionDialogHandle | null>(null);
   const deleteAccountDialogRef = useRef<ConfirmActionDialogHandle | null>(null);
   const displayName = user.displayName || user.email || 'YFactory creator';
@@ -77,16 +70,6 @@ export default function SettingsPage({
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase())
     .join('');
-  const changeLanguage = (language: 'en' | 'ar') => {
-    document.documentElement.lang = language;
-    document.documentElement.dir = language === 'ar' ? 'rtl' : 'ltr';
-    try {
-      window.localStorage.setItem('yfactory.locale', language);
-    } catch {
-      // The selected language remains active for this session if storage is unavailable.
-    }
-    void i18n.changeLanguage(language);
-  };
 
   useEffect(() => {
     if (!getIdToken) {
@@ -133,40 +116,6 @@ export default function SettingsPage({
       active = false;
     };
   }, [getIdToken, t]);
-
-  if (settingsSubview) {
-    const isPremium = settingsSubview === 'premium';
-    return (
-      <main className="auth-screen settings-screen" dir={isRtl ? 'rtl' : 'ltr'}>
-        <div className="settings-shell">
-          <header className="settings-topbar">
-            <button
-              className="settings-back"
-              type="button"
-              onClick={() => setSettingsSubview(null)}
-              data-testid="button-settings-subpage-back"
-            >
-              <ArrowLeft size={17} aria-hidden="true" />
-              <span>{t('settings.backToSettings')}</span>
-            </button>
-            <div className="settings-brand" aria-label="YFactory">
-              <span className="settings-brand-mark">Y</span>
-              <span>YFactory</span>
-            </div>
-            <span className="settings-back-spacer" aria-hidden="true" />
-          </header>
-          <section className="settings-info-card" data-testid={`settings-info-${settingsSubview}`}>
-            <span className="settings-info-icon" aria-hidden="true">
-              {isPremium ? <Sparkles size={24} /> : <Info size={24} />}
-            </span>
-            <h1>{isPremium ? t('settings.premiumFeatures') : t('settings.aboutYFactory')}</h1>
-            <p>{isPremium ? t('settings.premiumDescription') : t('settings.aboutDescription')}</p>
-            {isPremium && <span className="settings-coming-soon">{t('settings.comingSoon')}</span>}
-          </section>
-        </div>
-      </main>
-    );
-  }
 
   return (
     <main className="auth-screen settings-screen" dir={isRtl ? 'rtl' : 'ltr'}>
@@ -219,100 +168,6 @@ export default function SettingsPage({
               </div>
               <span className="account-verified"><ShieldCheck size={15} /> <span>Signed in</span></span>
             </div>
-          </section>
-
-          <section className="settings-preferences-panel" aria-labelledby="settings-preferences-title">
-            <h2 id="settings-preferences-title">{t('settings.preferences')}</h2>
-            <div className="settings-preference-row">
-              <div className="settings-preference-copy">
-                <Globe2 size={19} aria-hidden="true" />
-                <strong>{t('settings.language')}</strong>
-              </div>
-              <div className="settings-language-switch" role="group" aria-label={t('settings.language')}>
-                <button
-                  type="button"
-                  aria-pressed={locale === 'en'}
-                  className={locale === 'en' ? 'is-selected' : ''}
-                  onClick={() => changeLanguage('en')}
-                  data-testid="button-language-en"
-                >
-                  {t('settings.languageEnglish')}
-                </button>
-                <button
-                  type="button"
-                  aria-pressed={locale === 'ar'}
-                  className={locale === 'ar' ? 'is-selected' : ''}
-                  onClick={() => changeLanguage('ar')}
-                  data-testid="button-language-ar"
-                >
-                  {t('settings.languageArabic')}
-                </button>
-              </div>
-            </div>
-            <div className="settings-preference-row">
-              <div className="settings-preference-copy">
-                <Bell size={19} aria-hidden="true" />
-                <strong>{t('settings.notifications')}</strong>
-              </div>
-              <div className="settings-preference-state">
-                <span className="settings-coming-soon">{t('settings.comingSoon')}</span>
-                <button
-                  type="button"
-                  className="settings-disabled-switch"
-                  role="switch"
-                  aria-checked="false"
-                  aria-label={`${t('settings.notifications')} — ${t('settings.comingSoon')}`}
-                  disabled
-                  data-testid="toggle-notifications"
-                >
-                  <span />
-                </button>
-              </div>
-            </div>
-            <div className="settings-preference-row">
-              <div className="settings-preference-copy">
-                <Moon size={19} aria-hidden="true" />
-                <strong>{t('settings.darkMode')}</strong>
-              </div>
-              <div className="settings-preference-state">
-                <span className="settings-coming-soon">{t('settings.comingSoon')}</span>
-                <button
-                  type="button"
-                  className="settings-disabled-switch is-on"
-                  role="switch"
-                  aria-checked="true"
-                  aria-label={`${t('settings.darkMode')} — ${t('settings.comingSoon')}`}
-                  disabled
-                  data-testid="toggle-dark-mode"
-                >
-                  <span />
-                </button>
-              </div>
-            </div>
-            <button
-              className="settings-preference-link"
-              type="button"
-              onClick={() => setSettingsSubview('about')}
-              data-testid="button-about-yfactory"
-            >
-              <span className="settings-preference-copy">
-                <Info size={19} aria-hidden="true" />
-                <strong>{t('settings.aboutYFactory')}</strong>
-              </span>
-              <ChevronRight size={18} aria-hidden="true" />
-            </button>
-            <button
-              className="settings-preference-link"
-              type="button"
-              onClick={() => setSettingsSubview('premium')}
-              data-testid="button-premium-features"
-            >
-              <span className="settings-preference-copy">
-                <Sparkles size={19} aria-hidden="true" />
-                <strong>{t('settings.premiumFeatures')}</strong>
-              </span>
-              <ChevronRight size={18} aria-hidden="true" />
-            </button>
           </section>
 
           <SecretsPanel getIdToken={getIdToken} />

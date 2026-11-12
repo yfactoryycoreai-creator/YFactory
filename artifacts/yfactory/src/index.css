@@ -1341,7 +1341,7 @@ input,textarea,[contenteditable="true"] { user-select:text; -webkit-user-select:
   display:grid;
   width:min(calc(100% - 32px),500px);
   height:68px;
-  grid-template-columns:repeat(3,minmax(0,1fr));
+  grid-template-columns:repeat(2,minmax(0,1fr));
   gap:4px;
   padding:5px;
   overflow:visible;
