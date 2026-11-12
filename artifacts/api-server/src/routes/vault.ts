@@ -131,7 +131,7 @@ router.post("/vault/keys", async (req, res): Promise<void> => {
   const providerConfig = (await listProviderConfigs(uid)).find(
     (provider) => provider.id === parsed.data.provider,
   );
-  if (parsed.data.provider !== "custom" && !providerConfig) {
+  if (parsed.data.provider !== "custom" && parsed.data.provider !== "gemini" && !providerConfig) {
     res.status(400).json({ error: "Add this provider before saving a key.", code: "provider_not_found" });
     return;
   }

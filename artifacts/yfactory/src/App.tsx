@@ -617,7 +617,16 @@ function Home() {
           </button>
         </nav>
 
-        {chatOpen && <ChatScreen onBack={() => setChatOpen(false)} />}
+        {chatOpen && (
+          <ChatScreen
+            onBack={() => setChatOpen(false)}
+            getIdToken={getUserIdToken}
+            onOpenSecrets={() => {
+              setChatOpen(false);
+              setLocation('/settings');
+            }}
+          />
+        )}
 
         {!chatOpen && user && storiesOpen && (
           <ErrorBoundary FallbackComponent={StoryTabFallback}>

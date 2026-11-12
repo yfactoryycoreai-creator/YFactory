@@ -305,7 +305,7 @@ export default function SettingsPage({
             </button>
           </section>
 
-          <details className="account-panel key-pool-status-panel" data-testid="key-pool-status-panel">
+          <details className="account-panel key-pool-status-panel" data-testid="key-pool-status-panel" hidden>
             <summary className="key-pool-status-summary">
               <h2>{t('settings.keyPoolTitle')}</h2>
               <ChevronDown size={18} aria-hidden="true" />

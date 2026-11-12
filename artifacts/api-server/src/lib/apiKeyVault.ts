@@ -70,7 +70,8 @@ export type GenerationKey = {
   value: string;
 };
 
-export function providerForSecretName(name: string): "agnes" | "glm" | "custom" {
+export function providerForSecretName(name: string): "agnes" | "glm" | "gemini" | "custom" {
+  if (/^GEMINI_/.test(name.trim())) return "gemini";
   const match = /^(AGNES|GLM)_API_KEY(?:_([1-9]\d*))?$/.exec(name.trim());
   if (match?.[1] === "AGNES") return "agnes";
   if (match?.[1] === "GLM") return "glm";
@@ -307,7 +308,7 @@ async function readProviderSnapshots(uid: string, provider: ProviderKey) {
 export async function listVaultKeys(uid: string): Promise<VaultKeyMetadata[]> {
   await migrateLegacyKeys(uid);
   const providers = await listProviderConfigs(uid);
-  const providerIds = [...new Set([...providers.map((provider) => provider.id), "custom"])];
+  const providerIds = [...new Set([...providers.map((provider) => provider.id), "custom", "gemini"])];
   const snapshots = await Promise.all(providerIds.map((provider) => readProviderSnapshots(uid, provider)));
   return snapshots.flatMap((snapshot, index) => snapshot.docs.map((document) =>
     metadataFromSnapshot(document, providerIds[index] ?? ""),
@@ -441,6 +442,80 @@ export async function clearProviderKeyCooldown(
 ): Promise<void> {
   if (keyId === "environment") return;
   await userProviderKeysCollection(uid, provider).doc(keyId).update({
+    failureStatus: FieldValue.delete(),
+    cooldownUntil: FieldValue.delete(),
+  });
+}
+
+export type GeminiChatKey = { id: string; value: string };
+export type GeminiChatKeyPool = {
+  keys: GeminiChatKey[];
+  hasAny: boolean;
+  hasAuthFailed: boolean;
+  hasCooldown: boolean;
+};
+
+export async function getGeminiChatKeyPool(uid: string): Promise<GeminiChatKeyPool> {
+  const snapshot = await userProviderKeysCollection(uid, "gemini").get();
+  const now = Date.now();
+  const enabled = snapshot.docs.filter((document) => {
+    const data = document.data() as StoredKey;
+    return data.enabled === true;
+  });
+  const hasAuthFailed = enabled.length > 0 &&
+    enabled.every((document) => (document.data() as StoredKey).failureStatus === "failing");
+  const hasCooldown = enabled.some((document) => {
+    const data = document.data() as StoredKey;
+    const cooldownUntil = cooldownMillis(data.cooldownUntil);
+    return data.failureStatus !== "failing" && Boolean(cooldownUntil && cooldownUntil > now);
+  });
+  const eligible = enabled
+    .filter((document) => {
+      const data = document.data() as StoredKey;
+      const cooldownUntil = cooldownMillis(data.cooldownUntil);
+      return data.failureStatus !== "failing" && (!cooldownUntil || cooldownUntil <= now);
+    })
+    .sort((left, right) => {
+      const leftLabel = String((left.data() as StoredKey).label ?? "");
+      const rightLabel = String((right.data() as StoredKey).label ?? "");
+      return leftLabel.localeCompare(rightLabel, undefined, { numeric: true }) ||
+        left.id.localeCompare(right.id);
+    });
+  return {
+    keys: eligible.map((document) => ({
+      id: document.id,
+      value: decryptValue(document.data() as StoredKey),
+    })),
+    hasAny: enabled.length > 0,
+    hasAuthFailed,
+    hasCooldown,
+  };
+}
+
+export async function recordGeminiChatKeyFailure(
+  uid: string,
+  keyId: string,
+  status: number | null,
+): Promise<void> {
+  const keyRef = userProviderKeysCollection(uid, "gemini").doc(keyId);
+  if (status === 401 || status === 403) {
+    await keyRef.update({
+      failureStatus: "failing",
+      cooldownUntil: FieldValue.delete(),
+    });
+    return;
+  }
+  if (status === 429) {
+    await keyRef.update({ cooldownUntil: Timestamp.fromMillis(Date.now() + 60_000) });
+    return;
+  }
+  if (status === null || status >= 500) {
+    await keyRef.update({ cooldownUntil: Timestamp.fromMillis(Date.now() + 30_000) });
+  }
+}
+
+export async function clearGeminiChatKeyFailure(uid: string, keyId: string): Promise<void> {
+  await userProviderKeysCollection(uid, "gemini").doc(keyId).update({
     failureStatus: FieldValue.delete(),
     cooldownUntil: FieldValue.delete(),
   });

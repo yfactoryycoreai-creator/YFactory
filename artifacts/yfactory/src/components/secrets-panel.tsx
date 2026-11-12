@@ -29,7 +29,20 @@ const SECRET_NAME_SUGGESTIONS = [
   'CLOUDINARY_URL',
 ] as const;
 
+function nextGeminiKeyName(keys: VaultKey[]): string {
+  const usedNumbers = new Set(
+    keys.flatMap((key) => {
+      const match = /^GEMINI_API_KEY_(\d+)$/.exec(key.label.trim().toUpperCase());
+      return match ? [Number(match[1])] : [];
+    }),
+  );
+  let next = 1;
+  while (usedNumbers.has(next)) next += 1;
+  return `GEMINI_API_KEY_${next}`;
+}
+
 function providerForSecretName(name: string): string {
+  if (/^GEMINI_/.test(name)) return 'gemini';
   if (/^AGNES_API_KEY(?:_[1-9]\d*)?$/.test(name)) return 'agnes';
   if (/^GLM_API_KEY(?:_[1-9]\d*)?$/.test(name)) return 'glm';
   return 'custom';
@@ -104,6 +117,7 @@ export default function SecretsPanel({ getIdToken }: SecretsPanelProps) {
   const openNewSecret = () => {
     resetForm();
     setStatusMessage('');
+    setName(nextGeminiKeyName(keys));
     setFormMode('create');
   };
 
@@ -222,6 +236,9 @@ export default function SecretsPanel({ getIdToken }: SecretsPanelProps) {
             <div className="secrets-entry">
               <strong dir="ltr">{key.label}</strong>
               <code dir="ltr">{key.maskedValue}</code>
+                {key.provider !== 'gemini' && (
+                  <small>{t('settings.notUsedByChat')}</small>
+                )}
             </div>
             <div className="secrets-actions">
               <button
@@ -317,7 +334,7 @@ export default function SecretsPanel({ getIdToken }: SecretsPanelProps) {
               )}
               {formMode === 'create' && (
                 <div className="secret-suggestions" aria-label={t('settings.secretSuggestions')}>
-                  {SECRET_NAME_SUGGESTIONS.map((suggestion) => (
+                  {[nextGeminiKeyName(keys), ...SECRET_NAME_SUGGESTIONS].map((suggestion) => (
                     <button
                       key={suggestion}
                       type="button"

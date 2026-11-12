@@ -494,6 +494,7 @@
 .settings-inline-error { color:#ff9299!important; }
 .factory-storage-track .storage-warning { background:#ed6877; }
 .key-pool-status-panel { display:grid; gap:10px; margin-top:18px; }
+.key-pool-status-panel[hidden] { display:none; }
 .key-pool-status-summary { display:flex; min-height:44px; align-items:center; justify-content:space-between; gap:12px; list-style:none; cursor:pointer; }
 .key-pool-status-summary::-webkit-details-marker { display:none; }
 .key-pool-status-summary h2 { margin:0; }

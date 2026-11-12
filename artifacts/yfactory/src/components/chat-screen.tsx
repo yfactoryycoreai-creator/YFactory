@@ -13,6 +13,7 @@ import {
   History,
   Image,
   Lightbulb,
+  LoaderCircle,
   Mic,
   MoreHorizontal,
   MoreVertical,
@@ -24,13 +25,24 @@ import {
   X,
 } from "lucide-react";
 import "./chat-screen.css";
+import {
+  ChatApiError,
+  loadChatProviders,
+  sendChatCompletion,
+  type ChatFailureCode,
+  type ChatMessageInput,
+  type ChatProviderOption,
+} from "@/lib/chatApi";
 
 type ChatScreenProps = {
   onBack: () => void;
+  getIdToken?: () => Promise<string>;
+  onOpenSecrets: () => void;
 };
 
 type ChatMessage = {
   id: number;
+  role: "user" | "assistant";
   text: string;
 };
 
@@ -60,16 +72,52 @@ const iconForOption = (name: string) => {
   }
 };
 
-export default function ChatScreen({ onBack }: ChatScreenProps) {
-  const { t } = useTranslation();
+export default function ChatScreen({ onBack, getIdToken, onOpenSecrets }: ChatScreenProps) {
+  const { t, i18n } = useTranslation();
   const [draft, setDraft] = useState("");
   const [ideasOpen, setIdeasOpen] = useState(true);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [fullListOpen, setFullListOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [providers, setProviders] = useState<ChatProviderOption[]>([]);
+  const [selectedProvider, setSelectedProvider] = useState<ChatProviderOption["id"] | "">("");
+  const [model, setModel] = useState("");
+  const [providersLoading, setProvidersLoading] = useState(true);
+  const [sending, setSending] = useState(false);
+  const [failureCode, setFailureCode] = useState<ChatFailureCode | "">("");
+  const conversationRef = useRef<ChatMessageInput[]>([]);
+  const nextMessageIdRef = useRef(1);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
   const restoreFocusRef = useRef<HTMLElement | null>(null);
+  const isRtl = (i18n.resolvedLanguage ?? i18n.language).startsWith("ar");
+
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      setProvidersLoading(true);
+      try {
+        if (!getIdToken) throw new ChatApiError("auth_failed");
+        const nextProviders = await loadChatProviders(await getIdToken());
+        if (active) {
+          setProviders(nextProviders);
+          setSelectedProvider(nextProviders[0]?.id ?? "");
+          setFailureCode("");
+        }
+      } catch (error) {
+        if (active) {
+          setProviders([]);
+          setSelectedProvider("");
+          setFailureCode(error instanceof ChatApiError ? error.code : "timeout");
+        }
+      } finally {
+        if (active) setProvidersLoading(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [getIdToken]);
 
   useEffect(() => {
     if (!sheetOpen && !fullListOpen) return;
@@ -119,13 +167,55 @@ export default function ChatScreen({ onBack }: ChatScreenProps) {
     setSheetOpen(true);
   };
 
-  const sendMessage = (event: FormEvent<HTMLFormElement>) => {
+  const sendMessage = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const text = draft.trim();
-    if (!text) return;
-    setMessages((current) => [...current, { id: Date.now(), text }]);
+    if (!text || sending) return;
+    if (providers.length === 0) {
+      setFailureCode("missing_key");
+      return;
+    }
+    if (!selectedProvider || !model.trim()) {
+      setFailureCode("bad_prompt");
+      return;
+    }
+    if (!getIdToken) {
+      setFailureCode("auth_failed");
+      return;
+    }
+    setFailureCode("");
+    setSending(true);
+    const userMessage: ChatMessage = {
+      id: nextMessageIdRef.current++,
+      role: "user",
+      text,
+    };
+    setMessages((current) => [...current, userMessage]);
     setDraft("");
-    requestAnimationFrame(() => inputRef.current?.focus());
+    const requestMessages: ChatMessageInput[] = [
+      ...conversationRef.current,
+      { role: "user" as const, content: text },
+    ].slice(-12);
+    try {
+      const reply = await sendChatCompletion(await getIdToken(), {
+        provider: selectedProvider,
+        model: model.trim(),
+        messages: requestMessages,
+      });
+      conversationRef.current = [
+        ...requestMessages,
+        { role: "assistant" as const, content: reply },
+      ].slice(-12);
+      setMessages((current) => [
+        ...current,
+        { id: nextMessageIdRef.current++, role: "assistant", text: reply },
+      ]);
+    } catch (error) {
+      setFailureCode(error instanceof ChatApiError ? error.code : "timeout");
+    } finally {
+      setSending(false);
+      requestAnimationFrame(() => inputRef.current?.focus());
+    }
   };
 
   const ideaKeys = ["idea1", "idea2", "idea3"] as const;
@@ -161,6 +251,37 @@ export default function ChatScreen({ onBack }: ChatScreenProps) {
           <ArrowLeft aria-hidden="true" />
         </button>
         <h1 data-testid="text-chat-title">{t("chat:title")}</h1>
+        <div className="chat-model-controls" dir={isRtl ? "rtl" : "ltr"}>
+          <label className="chat-model-field chat-provider-field">
+            <span>{t("chat:provider")}</span>
+            <select
+              value={selectedProvider}
+              onChange={(event) => setSelectedProvider(event.currentTarget.value as ChatProviderOption["id"])}
+              disabled={providersLoading || providers.length === 0 || sending}
+              aria-label={t("chat:provider")}
+              data-testid="select-chat-provider"
+            >
+              {providers.map((provider) => (
+                <option key={provider.id} value={provider.id}>{provider.name}</option>
+              ))}
+              {providers.length === 0 && <option value="">{t("chat:noProvider")}</option>}
+            </select>
+          </label>
+          <label className="chat-model-field chat-model-name-field">
+            <span>{t("chat:model")}</span>
+            <input
+              value={model}
+              onChange={(event) => setModel(event.currentTarget.value)}
+              maxLength={128}
+              autoComplete="off"
+              spellCheck={false}
+              dir="ltr"
+              placeholder={t("chat:modelPlaceholder")}
+              aria-label={t("chat:model")}
+              data-testid="input-chat-model"
+            />
+          </label>
+        </div>
         <div className="chat-header-actions">
           <button
             type="button"
@@ -188,6 +309,20 @@ export default function ChatScreen({ onBack }: ChatScreenProps) {
       </header>
 
       <section className="chat-thread" aria-live="polite" data-testid="chat-thread">
+        {((!providersLoading && providers.length === 0) || failureCode === "missing_key") && (
+          <div className="chat-key-setup" role="status">
+            {failureCode && failureCode !== "missing_key" ? (
+              <p>{t(`chat:${failureCode}`)}</p>
+            ) : (
+              <>
+                <p>{t("chat:missing_key")}</p>
+                <button type="button" onClick={onOpenSecrets} data-testid="button-chat-open-secrets">
+                  {t("chat:openSecrets")}
+                </button>
+              </>
+            )}
+          </div>
+        )}
         {messages.length === 0 ? (
           <div className="chat-empty">
             <div className="chat-greeting">
@@ -264,23 +399,27 @@ export default function ChatScreen({ onBack }: ChatScreenProps) {
         ) : (
           <div className="chat-messages">
             {messages.map((message) => (
-              <div className="chat-message-group" key={message.id} data-testid={`chat-message-${message.id}`}>
-                <article className="chat-message chat-user-message">
-                  <span className="chat-message-label">{t("chat:userLabel")}</span>
-                  <p dir="auto">{message.text}</p>
-                </article>
-                <article className="chat-message chat-assistant-message">
-                  <span className="chat-message-label">{t("chat:assistantLabel")}</span>
-                  <p dir="auto" data-testid={`chat-preview-notice-${message.id}`}>{t("chat:previewOnly")}</p>
-                </article>
-              </div>
+              <article
+                className={`chat-message ${message.role === "user" ? "chat-user-message" : "chat-assistant-message"}`}
+                key={message.id}
+                data-testid={`chat-message-${message.id}`}
+              >
+                <span className="chat-message-label">
+                  {message.role === "user" ? t("chat:userLabel") : t("chat:assistantLabel")}
+                </span>
+                <p dir="auto">{message.text}</p>
+              </article>
             ))}
           </div>
         )}
       </section>
 
       <footer className="chat-compose-area">
-        <form className="chat-composer" onSubmit={sendMessage} data-testid="form-chat-composer">
+        <form
+          className="chat-composer"
+          onSubmit={(event) => void sendMessage(event)}
+          data-testid="form-chat-composer"
+        >
           <button
             type="button"
             className="chat-composer-tool chat-plus"
@@ -306,6 +445,7 @@ export default function ChatScreen({ onBack }: ChatScreenProps) {
             ref={inputRef}
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
+            maxLength={4000}
             placeholder={t("chat:composerPlaceholder")}
             rows={1}
             aria-label={t("chat:composerPlaceholder")}
@@ -314,13 +454,20 @@ export default function ChatScreen({ onBack }: ChatScreenProps) {
           <button
             type="submit"
             className="chat-send-button"
-            disabled={!draft.trim()}
+            disabled={!draft.trim() || sending || providers.length === 0 || !model.trim()}
             aria-label={t("chat:send")}
             data-testid="button-chat-send"
           >
-            <Send aria-hidden="true" />
+            {sending
+              ? <LoaderCircle className="loading-spinner" aria-hidden="true" />
+              : <Send aria-hidden="true" />}
           </button>
         </form>
+        {failureCode && failureCode !== "missing_key" && providers.length > 0 && (
+          <p className="chat-failure-message" role="alert" data-testid="chat-failure-code">
+            {t(`chat:${failureCode}`)}
+          </p>
+        )}
         <p className="chat-footer-note" data-testid="status-chat-connected">
           <BookOpen aria-hidden="true" />
           <span>{t("chat:footerConnected")}</span>
