@@ -221,8 +221,7 @@ export default function SettingsPage({
             </div>
           </section>
 
-          <section className="settings-preferences-panel" aria-labelledby="settings-preferences-title">
-            <h2 id="settings-preferences-title">{t('settings.preferences')}</h2>
+          <section className="settings-preferences-panel" aria-label={t('settings.language')}>
             <div className="settings-preference-row">
               <div className="settings-preference-copy">
                 <Globe2 size={19} aria-hidden="true" />
@@ -249,6 +248,11 @@ export default function SettingsPage({
                 </button>
               </div>
             </div>
+          </section>
+
+          <SecretsPanel getIdToken={getIdToken} />
+
+          <section className="settings-preferences-panel" aria-label={t('settings.preferences')}>
             <div className="settings-preference-row">
               <div className="settings-preference-copy">
                 <Bell size={19} aria-hidden="true" />
@@ -315,7 +319,6 @@ export default function SettingsPage({
             </button>
           </section>
 
-          <SecretsPanel getIdToken={getIdToken} />
           <details className="account-panel key-pool-status-panel" data-testid="key-pool-status-panel">
             <summary className="key-pool-status-summary">
               <h2>{t('settings.keyPoolTitle')}</h2>

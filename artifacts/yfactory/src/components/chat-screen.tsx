@@ -2,15 +2,23 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import {
   ArrowLeft,
+  BookOpen,
+  Brain,
   Camera,
   ChevronDown,
+  ChevronRight,
   FileText,
+  Folder,
+  Globe,
   History,
   Image,
+  Lightbulb,
   Mic,
   MoreHorizontal,
+  MoreVertical,
   Plus,
-  Search,
+  Puzzle,
+  Scan,
   Send,
   Sparkles,
   X,
@@ -34,9 +42,17 @@ const iconForOption = (name: string) => {
     case "image":
       return <Image aria-hidden="true" />;
     case "files":
-      return <FileText aria-hidden="true" />;
+      return <Folder aria-hidden="true" />;
     case "webSearch":
-      return <Search aria-hidden="true" />;
+      return <Globe aria-hidden="true" />;
+    case "connectors":
+      return <Puzzle aria-hidden="true" />;
+    case "myStories":
+      return <BookOpen aria-hidden="true" />;
+    case "skills":
+      return <Sparkles aria-hidden="true" />;
+    case "memory":
+      return <Brain aria-hidden="true" />;
     case "more":
       return <MoreHorizontal aria-hidden="true" />;
     default:
@@ -114,12 +130,11 @@ export default function ChatScreen({ onBack }: ChatScreenProps) {
 
   const ideaKeys = ["idea1", "idea2", "idea3"] as const;
   const actionKeys = [
-    { key: "useStories", icon: <FileText aria-hidden="true" />, fill: true },
+    { key: "useStories", icon: <BookOpen aria-hidden="true" />, fill: true },
     { key: "generateImage", icon: <Image aria-hidden="true" />, fill: true },
-    { key: "analyzeImage", icon: <Search aria-hidden="true" />, fill: false },
-    { key: "browseWeb", icon: <Sparkles aria-hidden="true" />, fill: false },
+    { key: "analyzeImage", icon: <Scan aria-hidden="true" />, fill: false },
+    { key: "browseWeb", icon: <Globe aria-hidden="true" />, fill: false },
   ] as const;
-  const sheetOptions = ["camera", "photos", "files", "webSearch", "more"] as const;
   const allOptions = [
     "camera",
     "photos",
@@ -131,6 +146,7 @@ export default function ChatScreen({ onBack }: ChatScreenProps) {
     "memory",
     "more",
   ] as const;
+  const sheetOptions = allOptions;
 
   return (
     <section className="chat-screen" aria-label={t("chat:title")} data-testid="chat-screen">
@@ -165,7 +181,7 @@ export default function ChatScreen({ onBack }: ChatScreenProps) {
             title={t("chat:comingSoon")}
             data-testid="button-chat-menu"
           >
-            <MoreHorizontal aria-hidden="true" />
+            <MoreVertical aria-hidden="true" />
             <span>{t("chat:comingSoon")}</span>
           </button>
         </div>
@@ -176,18 +192,23 @@ export default function ChatScreen({ onBack }: ChatScreenProps) {
           <div className="chat-empty">
             <div className="chat-greeting">
               <div className="chat-robot" aria-hidden="true">
-                <svg viewBox="0 0 68 68" fill="none">
-                  <path d="M34 10v8" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
-                  <circle cx="34" cy="8" r="3.5" fill="currentColor" />
-                  <rect x="12" y="20" width="44" height="34" rx="13" stroke="currentColor" strokeWidth="2.5" />
-                  <path d="M7 31v12m54-12v12M23 60h22" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
-                  <circle cx="25" cy="36" r="3" fill="currentColor" />
-                  <circle cx="43" cy="36" r="3" fill="currentColor" />
-                  <path d="M26 46c2 2 4.7 3 8 3s6-1 8-3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                  <svg viewBox="0 0 120 100" fill="none">
+                    <path d="m18 11 2.7 6.3L27 20l-6.3 2.7L18 29l-2.7-6.3L9 20l6.3-2.7L18 11Z" fill="currentColor" />
+                    <path d="m102 20 2 4.5 4.5 2-4.5 2-2 4.5-2-4.5-4.5-2 4.5-2 2-4.5Z" fill="currentColor" />
+                    <path d="m105 70 2 4.5 4.5 2-4.5 2-2 4.5-2-4.5-4.5-2 4.5-2 2-4.5Z" fill="currentColor" />
+                    <path d="M60 17v10" stroke="currentColor" strokeWidth="4" strokeLinecap="round" />
+                    <circle cx="60" cy="13" r="4" fill="currentColor" />
+                    <rect x="31" y="27" width="58" height="43" rx="17" fill="var(--chat-bg)" stroke="currentColor" strokeWidth="4" />
+                    <rect x="24" y="39" width="8" height="19" rx="4" fill="currentColor" />
+                    <rect x="88" y="39" width="8" height="19" rx="4" fill="currentColor" />
+                    <circle cx="49" cy="46" r="4" fill="currentColor" />
+                    <circle cx="71" cy="46" r="4" fill="currentColor" />
+                    <rect x="49" y="74" width="22" height="11" rx="5.5" fill="currentColor" />
+                    <path d="M43 90h34" stroke="currentColor" strokeWidth="6" strokeLinecap="round" />
                 </svg>
               </div>
-              <p className="chat-eyebrow">{t("chat:hello")}</p>
-              <h2>{t("chat:help")}</h2>
+                <h2 className="chat-hello">{t("chat:hello")}</h2>
+                <p className="chat-greeting-help">{t("chat:help")}</p>
             </div>
 
             <div className="chat-quick-actions" aria-label={t("chat:title")}>
@@ -217,7 +238,10 @@ export default function ChatScreen({ onBack }: ChatScreenProps) {
                 onClick={() => setIdeasOpen((open) => !open)}
                 data-testid="button-chat-ideas-toggle"
               >
-                <span>{t("chat:suggestedTitle")}</span>
+                <span className="chat-ideas-title">
+                  <Lightbulb aria-hidden="true" />
+                  <span>{t("chat:suggestedTitle")}</span>
+                </span>
                 <ChevronDown className={ideasOpen ? "chat-chevron-open" : ""} aria-hidden="true" />
               </button>
               {ideasOpen && (
@@ -243,11 +267,11 @@ export default function ChatScreen({ onBack }: ChatScreenProps) {
               <div className="chat-message-group" key={message.id} data-testid={`chat-message-${message.id}`}>
                 <article className="chat-message chat-user-message">
                   <span className="chat-message-label">{t("chat:userLabel")}</span>
-                  <p>{message.text}</p>
+                  <p dir="auto">{message.text}</p>
                 </article>
                 <article className="chat-message chat-assistant-message">
                   <span className="chat-message-label">{t("chat:assistantLabel")}</span>
-                  <p data-testid={`chat-preview-notice-${message.id}`}>{t("chat:previewOnly")}</p>
+                  <p dir="auto" data-testid={`chat-preview-notice-${message.id}`}>{t("chat:previewOnly")}</p>
                 </article>
               </div>
             ))}
@@ -297,12 +321,15 @@ export default function ChatScreen({ onBack }: ChatScreenProps) {
             <Send aria-hidden="true" />
           </button>
         </form>
-        <p className="chat-footer-note" data-testid="status-chat-connected">{t("chat:footerConnected")}</p>
+        <p className="chat-footer-note" data-testid="status-chat-connected">
+          <BookOpen aria-hidden="true" />
+          <span>{t("chat:footerConnected")}</span>
+        </p>
       </footer>
 
       {sheetOpen && (
         <div
-          className="chat-sheet-backdrop"
+          className={`chat-sheet-backdrop ${fullListOpen ? "chat-sheet-backdrop-expanded" : ""}`}
           onMouseDown={(event) => {
             if (event.target === event.currentTarget) {
               setSheetOpen(false);
@@ -321,7 +348,6 @@ export default function ChatScreen({ onBack }: ChatScreenProps) {
           >
             <div className="chat-sheet-grabber" aria-hidden="true" />
             <div className="chat-sheet-heading">
-              <h2 id="chat-sheet-title">{fullListOpen ? t("chat:attachmentsTitle") : t("chat:addToConversation")}</h2>
               <button
                 type="button"
                 className="chat-icon-button chat-sheet-close"
@@ -334,6 +360,7 @@ export default function ChatScreen({ onBack }: ChatScreenProps) {
               >
                 <X aria-hidden="true" />
               </button>
+              <h2 id="chat-sheet-title">{fullListOpen ? t("chat:attachmentsTitle") : t("chat:addToConversation")}</h2>
             </div>
             {!fullListOpen ? (
               <div className="chat-attachment-grid">
@@ -379,6 +406,7 @@ export default function ChatScreen({ onBack }: ChatScreenProps) {
                     <span className="chat-option-icon">{iconForOption(option)}</span>
                     <span className="chat-option-name">{t(`chat:options.${option}`)}</span>
                     <span className="chat-coming-soon">{t("chat:comingSoon")}</span>
+                    <ChevronRight aria-hidden="true" />
                   </button>
                 ))}
               </div>
