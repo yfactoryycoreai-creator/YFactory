@@ -116,6 +116,75 @@ export interface ProviderSwitchResult {
   provider: string;
 }
 
+export interface ChatModelOption {
+  /** @pattern ^[a-z0-9][a-z0-9-]{0,63}$ */
+  provider: string;
+  /**
+     * @minLength 1
+     * @maxLength 128
+     */
+  id: string;
+  /** @maxLength 200 */
+  modelName: string;
+}
+
+export interface ChatModelList {
+  models: ChatModelOption[];
+}
+
+export type ChatMessageInputRole = typeof ChatMessageInputRole[keyof typeof ChatMessageInputRole];
+
+
+export const ChatMessageInputRole = {
+  system: 'system',
+  user: 'user',
+  assistant: 'assistant',
+} as const;
+
+export interface ChatMessageInput {
+  role: ChatMessageInputRole;
+  /**
+     * @minLength 1
+     * @maxLength 4000
+     */
+  content: string;
+}
+
+export interface ChatCompletionInput {
+  /** @pattern ^[a-z0-9][a-z0-9-]{0,63}$ */
+  provider: string;
+  /**
+     * @minLength 1
+     * @maxLength 128
+     */
+  keyId: string;
+  /**
+     * @minItems 1
+     * @maxItems 12
+     */
+  messages: ChatMessageInput[];
+}
+
+export interface ChatCompletionResult {
+  reply: string;
+}
+
+export type ChatApiErrorCode = typeof ChatApiErrorCode[keyof typeof ChatApiErrorCode];
+
+
+export const ChatApiErrorCode = {
+  missing_key: 'missing_key',
+  rate_limited: 'rate_limited',
+  auth_failed: 'auth_failed',
+  timeout: 'timeout',
+  bad_prompt: 'bad_prompt',
+  model_not_found: 'model_not_found',
+} as const;
+
+export interface ChatApiError {
+  code: ChatApiErrorCode;
+}
+
 export interface StoryTargetCountInput {
   /**
      * @minimum 1
@@ -332,6 +401,16 @@ export const VaultKeyModelType = {
   text: 'text',
 } as const;
 
+/**
+ * @nullable
+ */
+export type VaultKeyUsage = typeof VaultKeyUsage[keyof typeof VaultKeyUsage] | null;
+
+
+export const VaultKeyUsage = {
+  chat: 'chat',
+} as const;
+
 export type VaultKeyStatus = typeof VaultKeyStatus[keyof typeof VaultKeyStatus];
 
 
@@ -347,6 +426,14 @@ export interface VaultKey {
   label: string;
   /** @nullable */
   modelType: VaultKeyModelType;
+  /**
+     * @maxLength 200
+     * @nullable
+     */
+  modelName: string | null;
+  /** @nullable */
+  usage: VaultKeyUsage;
+  chatSupported: boolean;
   /** @nullable */
   description: string | null;
   maskedValue: string;
@@ -360,6 +447,13 @@ export interface VaultKey {
 export interface VaultKeyList {
   keys: VaultKey[];
 }
+
+export type CreateVaultKeyInputUsage = typeof CreateVaultKeyInputUsage[keyof typeof CreateVaultKeyInputUsage];
+
+
+export const CreateVaultKeyInputUsage = {
+  chat: 'chat',
+} as const;
 
 export type CreateVaultKeyInputModelType = typeof CreateVaultKeyInputModelType[keyof typeof CreateVaultKeyInputModelType];
 
@@ -376,7 +470,13 @@ export interface CreateVaultKeyInput {
      * @minLength 1
      * @maxLength 100
      */
-  label: string;
+  label?: string;
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  modelName?: string;
+  usage?: CreateVaultKeyInputUsage;
   /**
      * @minLength 1
      * @maxLength 4096
@@ -386,6 +486,16 @@ export interface CreateVaultKeyInput {
   /** @maxLength 500 */
   description?: string;
 }
+
+/**
+ * @nullable
+ */
+export type VaultKeyUpdateUsage = typeof VaultKeyUpdateUsage[keyof typeof VaultKeyUpdateUsage] | null;
+
+
+export const VaultKeyUpdateUsage = {
+  chat: 'chat',
+} as const;
 
 export type VaultKeyUpdateModelType = typeof VaultKeyUpdateModelType[keyof typeof VaultKeyUpdateModelType];
 
@@ -401,19 +511,26 @@ export interface VaultKeyUpdate {
      * @minLength 1
      * @maxLength 100
      */
-  label: string;
-  modelType: VaultKeyUpdateModelType;
+  label?: string;
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  modelName?: string;
+  /** @nullable */
+  usage?: VaultKeyUpdateUsage;
+  modelType?: VaultKeyUpdateModelType;
   /**
      * @maxLength 500
      * @nullable
      */
-  description: string | null;
+  description?: string | null;
   /**
      * @minLength 1
      * @maxLength 4096
      * @nullable
      */
-  value: string | null;
+  value?: string | null;
 }
 
 export interface VaultKeyValue {

@@ -7,8 +7,17 @@
  */
 
 export * from './apiError';
+export * from './chatApiError';
+export * from './chatApiErrorCode';
+export * from './chatCompletionInput';
+export * from './chatCompletionResult';
+export * from './chatMessageInput';
+export * from './chatMessageInputRole';
+export * from './chatModelList';
+export * from './chatModelOption';
 export * from './createVaultKeyInput';
 export * from './createVaultKeyInputModelType';
+export * from './createVaultKeyInputUsage';
 export * from './downloadStoryZipParams';
 export * from './generatedImage';
 export * from './getStoryZipDownloadProgressParams';
@@ -53,4 +62,6 @@ export * from './vaultKeyModelType';
 export * from './vaultKeyStatus';
 export * from './vaultKeyUpdate';
 export * from './vaultKeyUpdateModelType';
+export * from './vaultKeyUpdateUsage';
+export * from './vaultKeyUsage';
 export * from './vaultKeyValue';

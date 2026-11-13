@@ -6,23 +6,31 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { VaultKeyUpdateModelType } from './vaultKeyUpdateModelType';
+import type { VaultKeyUpdateUsage } from './vaultKeyUpdateUsage';
 
 export interface VaultKeyUpdate {
   /**
      * @minLength 1
      * @maxLength 100
      */
-  label: string;
-  modelType: VaultKeyUpdateModelType;
+  label?: string;
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  modelName?: string;
+  /** @nullable */
+  usage?: VaultKeyUpdateUsage;
+  modelType?: VaultKeyUpdateModelType;
   /**
      * @maxLength 500
      * @nullable
      */
-  description: string | null;
+  description?: string | null;
   /**
      * @minLength 1
      * @maxLength 4096
      * @nullable
      */
-  value: string | null;
+  value?: string | null;
 }

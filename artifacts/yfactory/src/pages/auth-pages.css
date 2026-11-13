@@ -919,6 +919,9 @@
   gap:12px;
   border-bottom:1px solid var(--app-separator);
 }
+.settings-preference-row[hidden],
+.settings-preference-link[hidden],
+.settings-info-card[hidden] { display:none !important; }
 .settings-preference-copy {
   display:flex;
   min-width:0;
@@ -1103,6 +1106,82 @@
 }
 .secret-existing-note { color:var(--app-danger-text); font-size:13px; }
 .secret-icon-button { min-width:42px!important; width:42px; min-height:42px!important; }
+.api-keys-page-content { max-width:680px; }
+.secrets-list { gap:10px; }
+.secrets-row {
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  padding:14px;
+  border:1px solid var(--app-separator);
+  border-radius:16px;
+  background:var(--app-surface);
+}
+.secret-usage-icon {
+  display:grid;
+  flex:none;
+  width:42px;
+  height:42px;
+  place-items:center;
+  border:1px solid var(--app-separator);
+  border-radius:13px;
+  color:var(--app-accent-text);
+  background:var(--app-raised);
+}
+.secret-card-heading {
+  display:flex;
+  min-width:0;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:8px;
+}
+.secret-card-heading strong {
+  min-width:0;
+  max-width:100%;
+  color:var(--app-text);
+  font-size:14px;
+  overflow-wrap:anywhere;
+}
+.secret-model-badge { font-size:11px; }
+.secrets-entry code {
+  width:fit-content;
+  padding:5px 9px;
+  border:1px solid var(--app-separator);
+  border-radius:8px;
+  color:var(--app-secondary);
+  background:var(--app-raised);
+  font:12px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+.secret-unsupported-note {
+  color:var(--app-accent-text);
+  font-size:12px;
+}
+.secrets-actions { display:flex; align-items:center; gap:4px; }
+.secret-icon-button {
+  width:44px!important;
+  min-width:44px!important;
+  height:44px;
+  min-height:44px!important;
+}
+.secrets-empty-shield {
+  display:grid;
+  width:88px;
+  height:88px;
+  place-items:center;
+  margin:3px 0 7px;
+  color:var(--app-accent-text);
+}
+.secrets-empty-shield svg { width:88px; height:88px; }
+@media (max-width:380px) {
+  .secrets-row { align-items:flex-start; }
+  .secrets-actions {
+    box-sizing:border-box;
+    width:100%;
+    flex:0 0 100%;
+    justify-content:flex-end;
+    padding-inline-start:52px;
+  }
+}
 .secret-form-sheet { max-height:min(90dvh,760px); overflow:auto; }
 .settings-screen[dir="rtl"] .settings-secrets-link .settings-preference-copy > svg { transform:none; }
 .settings-info-card {

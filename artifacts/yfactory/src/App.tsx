@@ -623,7 +623,7 @@ function Home() {
             getIdToken={getUserIdToken}
             onOpenSecrets={() => {
               setChatOpen(false);
-              setLocation('/settings');
+              setLocation('/settings?view=api-keys');
             }}
           />
         )}
@@ -1100,6 +1100,7 @@ function ProtectedSettings() {
         photoURL: user?.photoURL ?? null,
       }}
       getIdToken={user ? getIdToken : undefined}
+      initialSubview={new URLSearchParams(window.location.search).get('view') === 'api-keys' ? 'api-keys' : null}
       onBack={() => setLocation('/')}
       onLogout={handleLogout}
       onDeleteAccount={handleDeleteAccount}

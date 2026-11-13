@@ -41,6 +41,22 @@ test("Gemini adapter exposes only status codes for mocked provider failures", as
   }
 });
 
+test("Gemini adapter marks a mocked unknown-model response without exposing its body", async () => {
+  const adapter = createGeminiChatAdapter(async () =>
+    new Response(JSON.stringify({
+      error: { message: "The requested model gemini-unknown is not found." },
+    }), { status: 400 }),
+  );
+  await assert.rejects(
+    adapter.complete(input),
+    (error: unknown) =>
+      error instanceof ChatAdapterError &&
+      error.status === 400 &&
+      error.reason === "model_not_found" &&
+      !error.message.includes(input.apiKey),
+  );
+});
+
 test("Gemini adapter maps a mocked timeout without exposing credentials", async () => {
   const hangingFetch: typeof fetch = async (_url, init) =>
     new Promise<Response>((_resolve, reject) => {

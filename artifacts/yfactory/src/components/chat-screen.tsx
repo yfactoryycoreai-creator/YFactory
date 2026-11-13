@@ -27,11 +27,11 @@ import {
 import "./chat-screen.css";
 import {
   ChatApiError,
-  loadChatProviders,
+  loadChatModels,
   sendChatCompletion,
   type ChatFailureCode,
+  type ChatModelOption,
   type ChatMessageInput,
-  type ChatProviderOption,
 } from "@/lib/chatApi";
 
 type ChatScreenProps = {
@@ -79,10 +79,9 @@ export default function ChatScreen({ onBack, getIdToken, onOpenSecrets }: ChatSc
   const [sheetOpen, setSheetOpen] = useState(false);
   const [fullListOpen, setFullListOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [providers, setProviders] = useState<ChatProviderOption[]>([]);
-  const [selectedProvider, setSelectedProvider] = useState<ChatProviderOption["id"] | "">("");
-  const [model, setModel] = useState("");
-  const [providersLoading, setProvidersLoading] = useState(true);
+  const [models, setModels] = useState<ChatModelOption[]>([]);
+  const [selectedModelKey, setSelectedModelKey] = useState("");
+  const [modelsLoading, setModelsLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [failureCode, setFailureCode] = useState<ChatFailureCode | "">("");
   const conversationRef = useRef<ChatMessageInput[]>([]);
@@ -95,29 +94,34 @@ export default function ChatScreen({ onBack, getIdToken, onOpenSecrets }: ChatSc
   useEffect(() => {
     let active = true;
     void (async () => {
-      setProvidersLoading(true);
+      setModelsLoading(true);
       try {
         if (!getIdToken) throw new ChatApiError("auth_failed");
-        const nextProviders = await loadChatProviders(await getIdToken());
+        const nextModels = await loadChatModels(await getIdToken());
         if (active) {
-          setProviders(nextProviders);
-          setSelectedProvider(nextProviders[0]?.id ?? "");
+          setModels(nextModels);
+          const first = nextModels[0];
+          setSelectedModelKey(first ? `${first.provider}:${first.id}` : "");
           setFailureCode("");
         }
       } catch (error) {
         if (active) {
-          setProviders([]);
-          setSelectedProvider("");
+          setModels([]);
+          setSelectedModelKey("");
           setFailureCode(error instanceof ChatApiError ? error.code : "timeout");
         }
       } finally {
-        if (active) setProvidersLoading(false);
+        if (active) setModelsLoading(false);
       }
     })();
     return () => {
       active = false;
     };
   }, [getIdToken]);
+
+  const selectedModel = models.find(
+    (entry) => `${entry.provider}:${entry.id}` === selectedModelKey,
+  );
 
   useEffect(() => {
     if (!sheetOpen && !fullListOpen) return;
@@ -171,12 +175,12 @@ export default function ChatScreen({ onBack, getIdToken, onOpenSecrets }: ChatSc
     event.preventDefault();
     const text = draft.trim();
     if (!text || sending) return;
-    if (providers.length === 0) {
+    if (models.length === 0) {
       setFailureCode("missing_key");
       return;
     }
-    if (!selectedProvider || !model.trim()) {
-      setFailureCode("bad_prompt");
+    if (!selectedModel) {
+      setFailureCode("missing_key");
       return;
     }
     if (!getIdToken) {
@@ -198,8 +202,8 @@ export default function ChatScreen({ onBack, getIdToken, onOpenSecrets }: ChatSc
     ].slice(-12);
     try {
       const reply = await sendChatCompletion(await getIdToken(), {
-        provider: selectedProvider,
-        model: model.trim(),
+        provider: selectedModel.provider,
+        keyId: selectedModel.id,
         messages: requestMessages,
       });
       conversationRef.current = [
@@ -252,37 +256,29 @@ export default function ChatScreen({ onBack, getIdToken, onOpenSecrets }: ChatSc
         </button>
         <h1 data-testid="text-chat-title">{t("chat:title")}</h1>
         <div className="chat-model-controls" dir={isRtl ? "rtl" : "ltr"}>
-          <label className="chat-model-field chat-provider-field">
-            <span>{t("chat:provider")}</span>
-            <select
-              value={selectedProvider}
-              onChange={(event) => setSelectedProvider(event.currentTarget.value as ChatProviderOption["id"])}
-              disabled={providersLoading || providers.length === 0 || sending}
-              aria-label={t("chat:provider")}
-              data-testid="select-chat-provider"
-            >
-              {providers.map((provider) => (
-                <option key={provider.id} value={provider.id}>{provider.name}</option>
-              ))}
-              {providers.length === 0 && <option value="">{t("chat:noProvider")}</option>}
-            </select>
-          </label>
           <label className="chat-model-field chat-model-name-field">
             <span>{t("chat:model")}</span>
-            <input
-              value={model}
-              onChange={(event) => setModel(event.currentTarget.value)}
-              maxLength={128}
-              autoComplete="off"
-              spellCheck={false}
-              dir="ltr"
-              placeholder={t("chat:modelPlaceholder")}
+            <select
+              value={selectedModelKey}
+              onChange={(event) => setSelectedModelKey(event.currentTarget.value)}
+              disabled={modelsLoading || models.length === 0 || sending}
               aria-label={t("chat:model")}
-              data-testid="input-chat-model"
-            />
+              dir="ltr"
+              data-testid="select-chat-model"
+            >
+              {models.map((entry) => (
+                <option
+                  key={`${entry.provider}:${entry.id}`}
+                  value={`${entry.provider}:${entry.id}`}
+                >
+                  {entry.modelName}
+                </option>
+              ))}
+              {models.length === 0 && <option value="">{t("chat:noUsableModel")}</option>}
+            </select>
           </label>
         </div>
-        <div className="chat-header-actions">
+        <div className="chat-header-actions" hidden>
           <button
             type="button"
             className="chat-icon-button chat-soon-control"
@@ -309,18 +305,16 @@ export default function ChatScreen({ onBack, getIdToken, onOpenSecrets }: ChatSc
       </header>
 
       <section className="chat-thread" aria-live="polite" data-testid="chat-thread">
-        {((!providersLoading && providers.length === 0) || failureCode === "missing_key") && (
+        {((!modelsLoading && models.length === 0) || failureCode === "missing_key") && (
           <div className="chat-key-setup" role="status">
             {failureCode && failureCode !== "missing_key" ? (
               <p>{t(`chat:${failureCode}`)}</p>
             ) : (
-              <>
-                <p>{t("chat:missing_key")}</p>
-                <button type="button" onClick={onOpenSecrets} data-testid="button-chat-open-secrets">
-                  {t("chat:openSecrets")}
-                </button>
-              </>
+              <p>{t("chat:missing_key")}</p>
             )}
+            <button type="button" onClick={onOpenSecrets} data-testid="button-chat-open-api-keys">
+              {t("chat:openSecrets")}
+            </button>
           </div>
         )}
         {messages.length === 0 ? (
@@ -346,7 +340,7 @@ export default function ChatScreen({ onBack, getIdToken, onOpenSecrets }: ChatSc
                 <p className="chat-greeting-help">{t("chat:help")}</p>
             </div>
 
-            <div className="chat-quick-actions" aria-label={t("chat:title")}>
+            <div className="chat-quick-actions" aria-label={t("chat:title")} hidden>
               {actionKeys.map(({ key, icon, fill }) => (
                 <button
                   type="button"
@@ -365,7 +359,7 @@ export default function ChatScreen({ onBack, getIdToken, onOpenSecrets }: ChatSc
               ))}
             </div>
 
-            <section className="chat-ideas" data-testid="chat-suggested-ideas">
+            <section className="chat-ideas" data-testid="chat-suggested-ideas" hidden>
               <button
                 type="button"
                 className="chat-ideas-toggle"
@@ -423,6 +417,7 @@ export default function ChatScreen({ onBack, getIdToken, onOpenSecrets }: ChatSc
           <button
             type="button"
             className="chat-composer-tool chat-plus"
+            hidden
             onClick={(event) => openSheet(event.currentTarget)}
             aria-label={t("chat:addToConversation")}
             aria-haspopup="dialog"
@@ -430,7 +425,7 @@ export default function ChatScreen({ onBack, getIdToken, onOpenSecrets }: ChatSc
           >
             <Plus aria-hidden="true" />
           </button>
-          <div className="chat-composer-media-tools">
+          <div className="chat-composer-media-tools" hidden>
             <button type="button" className="chat-composer-tool" disabled title={t("chat:comingSoon")} aria-label={`${t("chat:image")} — ${t("chat:comingSoon")}`} data-testid="button-chat-image">
               <Image aria-hidden="true" />
             </button>
@@ -454,7 +449,7 @@ export default function ChatScreen({ onBack, getIdToken, onOpenSecrets }: ChatSc
           <button
             type="submit"
             className="chat-send-button"
-            disabled={!draft.trim() || sending || providers.length === 0 || !model.trim()}
+            disabled={!draft.trim() || sending || models.length === 0 || !selectedModel}
             aria-label={t("chat:send")}
             data-testid="button-chat-send"
           >
@@ -463,19 +458,20 @@ export default function ChatScreen({ onBack, getIdToken, onOpenSecrets }: ChatSc
               : <Send aria-hidden="true" />}
           </button>
         </form>
-        {failureCode && failureCode !== "missing_key" && providers.length > 0 && (
+        {failureCode && failureCode !== "missing_key" && models.length > 0 && (
           <p className="chat-failure-message" role="alert" data-testid="chat-failure-code">
             {t(`chat:${failureCode}`)}
           </p>
         )}
-        <p className="chat-footer-note" data-testid="status-chat-connected">
+        <p className="chat-footer-note" data-testid="status-chat-connected" hidden>
           <BookOpen aria-hidden="true" />
           <span>{t("chat:footerConnected")}</span>
         </p>
       </footer>
 
       {sheetOpen && (
-        <div
+          <div
+            hidden
           className={`chat-sheet-backdrop ${fullListOpen ? "chat-sheet-backdrop-expanded" : ""}`}
           onMouseDown={(event) => {
             if (event.target === event.currentTarget) {

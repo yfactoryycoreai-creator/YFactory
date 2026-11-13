@@ -3,7 +3,10 @@ export type ChatMessage = { role: ChatRole; content: string };
 export type ChatProvider = "gemini";
 
 export class ChatAdapterError extends Error {
-  constructor(readonly status: number | null) {
+  constructor(
+    readonly status: number | null,
+    readonly reason: "model_not_found" | null = null,
+  ) {
     super("Chat provider request failed.");
     this.name = "ChatAdapterError";
   }
@@ -18,6 +21,14 @@ export type ChatAdapter = {
 };
 
 export type ChatAdapterRegistry = Record<ChatProvider, ChatAdapter>;
+
+const CHAT_MODEL_REGISTRY: Array<{ pattern: RegExp; provider: ChatProvider }> = [
+  { pattern: /^gemini-[A-Za-z0-9][A-Za-z0-9._-]{0,126}$/i, provider: "gemini" },
+];
+
+export function chatProviderForModel(model: string): ChatProvider | null {
+  return CHAT_MODEL_REGISTRY.find((entry) => entry.pattern.test(model))?.provider ?? null;
+}
 
 const GEMINI_CHAT_URL =
   "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
@@ -45,7 +56,19 @@ export function createGeminiChatAdapter(
         } catch {
           throw new ChatAdapterError(null);
         }
-        if (!response.ok) throw new ChatAdapterError(response.status);
+        if (!response.ok) {
+          let isUnknownModel = response.status === 404;
+          if (response.status === 400) {
+            const errorBody = await response.clone().text().catch(() => "");
+            isUnknownModel =
+              /model.{0,100}(?:not found|not supported|unknown|does not exist)|(?:not found|not supported|unknown|does not exist).{0,100}model/i
+                .test(errorBody);
+          }
+          throw new ChatAdapterError(
+            response.status,
+            isUnknownModel ? "model_not_found" : null,
+          );
+        }
         const payload: unknown = await response.json().catch(() => null);
         const content =
           typeof payload === "object" && payload !== null &&

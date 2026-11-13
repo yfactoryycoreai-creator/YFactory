@@ -1,4 +1,8 @@
-export type ChatProviderOption = { id: 'gemini'; name: string };
+export type ChatModelOption = {
+  provider: string;
+  id: string;
+  modelName: string;
+};
 export type ChatRole = 'system' | 'user' | 'assistant';
 export type ChatMessageInput = { role: ChatRole; content: string };
 export type ChatFailureCode =
@@ -6,7 +10,8 @@ export type ChatFailureCode =
   | 'rate_limited'
   | 'auth_failed'
   | 'timeout'
-  | 'bad_prompt';
+  | 'bad_prompt'
+  | 'model_not_found';
 
 const failureCodes: ChatFailureCode[] = [
   'missing_key',
@@ -14,6 +19,7 @@ const failureCodes: ChatFailureCode[] = [
   'auth_failed',
   'timeout',
   'bad_prompt',
+  'model_not_found',
 ];
 
 export class ChatApiError extends Error {
@@ -36,6 +42,7 @@ async function request<T>(
         Authorization: `Bearer ${idToken}`,
         ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
       },
+      cache: 'no-store',
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
   } catch {
@@ -53,19 +60,19 @@ async function request<T>(
   return payload as T;
 }
 
-export async function loadChatProviders(idToken: string): Promise<ChatProviderOption[]> {
-  const result = await request<{ providers: ChatProviderOption[] }>(
+export async function loadChatModels(idToken: string): Promise<ChatModelOption[]> {
+  const result = await request<{ models: ChatModelOption[] }>(
     idToken,
-    '/api/chat/providers',
+    '/api/chat/models',
   );
-  return result.providers;
+  return result.models;
 }
 
 export async function sendChatCompletion(
   idToken: string,
   input: {
-    provider: ChatProviderOption['id'];
-    model: string;
+    provider: string;
+    keyId: string;
     messages: ChatMessageInput[];
   },
 ): Promise<string> {

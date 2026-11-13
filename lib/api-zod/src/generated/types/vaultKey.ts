@@ -8,6 +8,7 @@
 import type { ProviderId } from './providerId';
 import type { VaultKeyModelType } from './vaultKeyModelType';
 import type { VaultKeyStatus } from './vaultKeyStatus';
+import type { VaultKeyUsage } from './vaultKeyUsage';
 
 export interface VaultKey {
   id: string;
@@ -15,6 +16,14 @@ export interface VaultKey {
   label: string;
   /** @nullable */
   modelType: VaultKeyModelType;
+  /**
+     * @maxLength 200
+     * @nullable
+     */
+  modelName: string | null;
+  /** @nullable */
+  usage: VaultKeyUsage;
+  chatSupported: boolean;
   /** @nullable */
   description: string | null;
   maskedValue: string;

@@ -11,7 +11,8 @@ export type ChatFailureCode =
   | "rate_limited"
   | "auth_failed"
   | "timeout"
-  | "bad_prompt";
+  | "bad_prompt"
+  | "model_not_found";
 
 export class ChatServiceError extends Error {
   constructor(readonly code: ChatFailureCode) {
@@ -43,6 +44,12 @@ export async function completeWithRotation(input: {
       return reply;
     } catch (error) {
       const status = error instanceof ChatAdapterError ? error.status : null;
+      if (
+        error instanceof ChatAdapterError &&
+        (error.reason === "model_not_found" || status === 404)
+      ) {
+        throw new ChatServiceError("model_not_found");
+      }
       if (status === 400 || (status !== null && status >= 400 && status < 500 &&
         status !== 401 && status !== 403 && status !== 429)) {
         throw new ChatServiceError("bad_prompt");

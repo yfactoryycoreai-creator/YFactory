@@ -21,6 +21,10 @@ import type {
 
 import type {
   ApiError,
+  ChatApiError,
+  ChatCompletionInput,
+  ChatCompletionResult,
+  ChatModelList,
   CreateVaultKeyInput,
   DownloadStoryZipParams,
   GetStoryZipDownloadProgressParams,
@@ -1643,6 +1647,171 @@ export function useListProviders<TData = Awaited<ReturnType<typeof listProviders
 
 
 
+export const getListChatModelsUrl = () => {
+
+
+
+
+  return `/api/chat/models`
+}
+
+/**
+ * @summary List the authenticated user's supported Chat API keys
+ */
+export const listChatModels = async ( options?: Parameters<typeof customFetch>[1]): Promise<ChatModelList> => {
+
+  return customFetch<ChatModelList>(getListChatModelsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListChatModelsQueryKey = () => {
+    return [
+    `/api/chat/models`
+    ] as const;
+    }
+
+
+export const getListChatModelsQueryOptions = <TData = Awaited<ReturnType<typeof listChatModels>>, TError = ErrorType<ChatApiError>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listChatModels>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListChatModelsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listChatModels>>> = ({ signal }) => listChatModels({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listChatModels>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListChatModelsQueryResult = NonNullable<Awaited<ReturnType<typeof listChatModels>>>
+export type ListChatModelsQueryError = ErrorType<ChatApiError>
+
+
+/**
+ * @summary List the authenticated user's supported Chat API keys
+ */
+
+export function useListChatModels<TData = Awaited<ReturnType<typeof listChatModels>>, TError = ErrorType<ChatApiError>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listChatModels>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListChatModelsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateChatCompletionUrl = () => {
+
+
+
+
+  return `/api/chat/completions`
+}
+
+/**
+ * @summary Complete a message using one selected API key owned by the caller
+ */
+export const createChatCompletion = async (chatCompletionInput: ChatCompletionInput, options?: Parameters<typeof customFetch>[1]): Promise<ChatCompletionResult> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<ChatCompletionResult>(getCreateChatCompletionUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(chatCompletionInput)
+  }
+);}
+
+
+
+
+
+export const getCreateChatCompletionMutationKey = () => ['createChatCompletion'] as const;
+
+export const getCreateChatCompletionMutationOptions = <TError = ErrorType<ChatApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createChatCompletion>>, TError,CreateChatCompletionMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createChatCompletion>>, TError,CreateChatCompletionMutationVariables, TContext> => {
+
+const mutationKey = getCreateChatCompletionMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createChatCompletion>>, CreateChatCompletionMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  createChatCompletion(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateChatCompletionMutationResult = NonNullable<Awaited<ReturnType<typeof createChatCompletion>>>
+    export type CreateChatCompletionMutationBody = BodyType<ChatCompletionInput>
+    export type CreateChatCompletionMutationError = ErrorType<ChatApiError>
+    export type CreateChatCompletionMutationVariables = {data: BodyType<ChatCompletionInput>}
+
+    /**
+ * @summary Complete a message using one selected API key owned by the caller
+ */
+export const useCreateChatCompletion = <TError = ErrorType<ChatApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createChatCompletion>>, TError,CreateChatCompletionMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createChatCompletion>>,
+        TError,
+        CreateChatCompletionMutationVariables,
+        TContext
+      > => {
+      return useMutation(getCreateChatCompletionMutationOptions(options));
+    }
+
 export const getDeleteVaultKeyUrl = (provider: ProviderId,
     keyId: string,) => {
 
@@ -1816,7 +1985,7 @@ export const getRevealVaultKeyValueUrl = (provider: ProviderId,
 
 
 
-  return `/api/vault/keys/${provider}/${keyId}/value`
+  return `/api/vault/keys/${provider}/${keyId}/reveal`
 }
 
 /**
@@ -1841,7 +2010,7 @@ export const revealVaultKeyValue = async (provider: ProviderId,
 export const getRevealVaultKeyValueQueryKey = (provider: ProviderId,
     keyId: string,) => {
     return [
-    `/api/vault/keys/${provider}/${keyId}/value`
+    `/api/vault/keys/${provider}/${keyId}/reveal`
     ] as const;
     }
 

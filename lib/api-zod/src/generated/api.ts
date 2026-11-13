@@ -376,6 +376,8 @@ export const GetStoryZipDownloadProgressResponse = zod.object({
  * @summary List masked API key metadata
  */
 export const listVaultKeysResponseKeysItemProviderRegExp = new RegExp('^[a-z0-9][a-z0-9-]{0,63}$');
+export const listVaultKeysResponseKeysItemModelNameMax = 200;
+
 
 
 export const ListVaultKeysResponse = zod.object({
@@ -384,6 +386,9 @@ export const ListVaultKeysResponse = zod.object({
   "provider": zod.string().regex(listVaultKeysResponseKeysItemProviderRegExp),
   "label": zod.string(),
   "modelType": zod.union([zod.literal('images'),zod.literal('video'),zod.literal('text'),zod.literal(null)]).nullable(),
+  "modelName": zod.string().max(listVaultKeysResponseKeysItemModelNameMax).nullable(),
+  "usage": zod.union([zod.literal('chat'),zod.literal(null)]).nullable(),
+  "chatSupported": zod.boolean(),
   "description": zod.string().nullable(),
   "maskedValue": zod.string(),
   "enabled": zod.boolean(),
@@ -400,6 +405,8 @@ export const ListVaultKeysResponse = zod.object({
 export const createVaultKeyBodyProviderRegExp = new RegExp('^[a-z0-9][a-z0-9-]{0,63}$');
 export const createVaultKeyBodyLabelMax = 100;
 
+export const createVaultKeyBodyModelNameMax = 200;
+
 export const createVaultKeyBodyValueMax = 4096;
 
 export const createVaultKeyBodyDescriptionMax = 500;
@@ -408,13 +415,17 @@ export const createVaultKeyBodyDescriptionMax = 500;
 
 export const CreateVaultKeyBody = zod.object({
   "provider": zod.string().regex(createVaultKeyBodyProviderRegExp).optional(),
-  "label": zod.string().min(1).max(createVaultKeyBodyLabelMax),
+  "label": zod.string().min(1).max(createVaultKeyBodyLabelMax).optional(),
+  "modelName": zod.string().min(1).max(createVaultKeyBodyModelNameMax).optional(),
+  "usage": zod.enum(['chat']).optional(),
   "value": zod.string().min(1).max(createVaultKeyBodyValueMax),
   "modelType": zod.enum(['images', 'video', 'text']).optional(),
   "description": zod.string().max(createVaultKeyBodyDescriptionMax).optional()
 })
 
 export const createVaultKeyResponseProviderRegExp = new RegExp('^[a-z0-9][a-z0-9-]{0,63}$');
+export const createVaultKeyResponseModelNameMax = 200;
+
 
 
 export const CreateVaultKeyResponse = zod.object({
@@ -422,6 +433,9 @@ export const CreateVaultKeyResponse = zod.object({
   "provider": zod.string().regex(createVaultKeyResponseProviderRegExp),
   "label": zod.string(),
   "modelType": zod.union([zod.literal('images'),zod.literal('video'),zod.literal('text'),zod.literal(null)]).nullable(),
+  "modelName": zod.string().max(createVaultKeyResponseModelNameMax).nullable(),
+  "usage": zod.union([zod.literal('chat'),zod.literal(null)]).nullable(),
+  "chatSupported": zod.boolean(),
   "description": zod.string().nullable(),
   "maskedValue": zod.string(),
   "enabled": zod.boolean(),
@@ -447,6 +461,51 @@ export const ListProvidersResponse = zod.object({
   "builtIn": zod.boolean(),
   "secretFallback": zod.string().optional()
 }))
+})
+
+
+/**
+ * @summary List the authenticated user's supported Chat API keys
+ */
+export const listChatModelsResponseModelsItemProviderRegExp = new RegExp('^[a-z0-9][a-z0-9-]{0,63}$');
+export const listChatModelsResponseModelsItemIdMax = 128;
+
+export const listChatModelsResponseModelsItemModelNameMax = 200;
+
+
+
+export const ListChatModelsResponse = zod.object({
+  "models": zod.array(zod.object({
+  "provider": zod.string().regex(listChatModelsResponseModelsItemProviderRegExp),
+  "id": zod.string().min(1).max(listChatModelsResponseModelsItemIdMax),
+  "modelName": zod.string().max(listChatModelsResponseModelsItemModelNameMax)
+}))
+})
+
+
+/**
+ * @summary Complete a message using one selected API key owned by the caller
+ */
+export const createChatCompletionBodyProviderRegExp = new RegExp('^[a-z0-9][a-z0-9-]{0,63}$');
+export const createChatCompletionBodyKeyIdMax = 128;
+
+export const createChatCompletionBodyMessagesItemContentMax = 4000;
+
+export const createChatCompletionBodyMessagesMax = 12;
+
+
+
+export const CreateChatCompletionBody = zod.object({
+  "provider": zod.string().regex(createChatCompletionBodyProviderRegExp),
+  "keyId": zod.string().min(1).max(createChatCompletionBodyKeyIdMax),
+  "messages": zod.array(zod.object({
+  "role": zod.enum(['system', 'user', 'assistant']),
+  "content": zod.string().min(1).max(createChatCompletionBodyMessagesItemContentMax)
+})).min(1).max(createChatCompletionBodyMessagesMax)
+})
+
+export const CreateChatCompletionResponse = zod.object({
+  "reply": zod.string()
 })
 
 
@@ -481,6 +540,8 @@ export const UpdateVaultKeyParams = zod.object({
 
 export const updateVaultKeyBodyLabelMax = 100;
 
+export const updateVaultKeyBodyModelNameMax = 200;
+
 export const updateVaultKeyBodyDescriptionMax = 500;
 
 export const updateVaultKeyBodyValueMax = 4096;
@@ -488,13 +549,17 @@ export const updateVaultKeyBodyValueMax = 4096;
 
 
 export const UpdateVaultKeyBody = zod.object({
-  "label": zod.string().min(1).max(updateVaultKeyBodyLabelMax),
-  "modelType": zod.enum(['images', 'video', 'text']),
-  "description": zod.string().max(updateVaultKeyBodyDescriptionMax).nullable(),
-  "value": zod.string().min(1).max(updateVaultKeyBodyValueMax).nullable()
+  "label": zod.string().min(1).max(updateVaultKeyBodyLabelMax).optional(),
+  "modelName": zod.string().min(1).max(updateVaultKeyBodyModelNameMax).optional(),
+  "usage": zod.union([zod.literal('chat'),zod.literal(null)]).nullish(),
+  "modelType": zod.enum(['images', 'video', 'text']).optional(),
+  "description": zod.string().max(updateVaultKeyBodyDescriptionMax).nullish(),
+  "value": zod.string().min(1).max(updateVaultKeyBodyValueMax).nullish()
 })
 
 export const updateVaultKeyResponseProviderRegExp = new RegExp('^[a-z0-9][a-z0-9-]{0,63}$');
+export const updateVaultKeyResponseModelNameMax = 200;
+
 
 
 export const UpdateVaultKeyResponse = zod.object({
@@ -502,6 +567,9 @@ export const UpdateVaultKeyResponse = zod.object({
   "provider": zod.string().regex(updateVaultKeyResponseProviderRegExp),
   "label": zod.string(),
   "modelType": zod.union([zod.literal('images'),zod.literal('video'),zod.literal('text'),zod.literal(null)]).nullable(),
+  "modelName": zod.string().max(updateVaultKeyResponseModelNameMax).nullable(),
+  "usage": zod.union([zod.literal('chat'),zod.literal(null)]).nullable(),
+  "chatSupported": zod.boolean(),
   "description": zod.string().nullable(),
   "maskedValue": zod.string(),
   "enabled": zod.boolean(),
@@ -551,6 +619,8 @@ export const ReplaceVaultKeyValueBody = zod.object({
 })
 
 export const replaceVaultKeyValueResponseProviderRegExp = new RegExp('^[a-z0-9][a-z0-9-]{0,63}$');
+export const replaceVaultKeyValueResponseModelNameMax = 200;
+
 
 
 export const ReplaceVaultKeyValueResponse = zod.object({
@@ -558,6 +628,9 @@ export const ReplaceVaultKeyValueResponse = zod.object({
   "provider": zod.string().regex(replaceVaultKeyValueResponseProviderRegExp),
   "label": zod.string(),
   "modelType": zod.union([zod.literal('images'),zod.literal('video'),zod.literal('text'),zod.literal(null)]).nullable(),
+  "modelName": zod.string().max(replaceVaultKeyValueResponseModelNameMax).nullable(),
+  "usage": zod.union([zod.literal('chat'),zod.literal(null)]).nullable(),
+  "chatSupported": zod.boolean(),
   "description": zod.string().nullable(),
   "maskedValue": zod.string(),
   "enabled": zod.boolean(),

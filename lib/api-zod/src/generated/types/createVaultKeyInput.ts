@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { CreateVaultKeyInputModelType } from './createVaultKeyInputModelType';
+import type { CreateVaultKeyInputUsage } from './createVaultKeyInputUsage';
 import type { ProviderId } from './providerId';
 
 export interface CreateVaultKeyInput {
@@ -14,7 +15,13 @@ export interface CreateVaultKeyInput {
      * @minLength 1
      * @maxLength 100
      */
-  label: string;
+  label?: string;
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  modelName?: string;
+  usage?: CreateVaultKeyInputUsage;
   /**
      * @minLength 1
      * @maxLength 4096

@@ -544,6 +544,82 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ProviderList"
+  /chat/models:
+    get:
+      operationId: listChatModels
+      tags: [chat]
+      summary: List the authenticated user's supported Chat API keys
+      security:
+        - FirebaseBearerAuth: []
+      responses:
+        "200":
+          description: Supported Chat model names and opaque key references only.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatModelList"
+        "401":
+          description: Missing or invalid Firebase ID token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatApiError"
+        "503":
+          description: Chat models could not be loaded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatApiError"
+  /chat/completions:
+    post:
+      operationId: createChatCompletion
+      tags: [chat]
+      summary: Complete a message using one selected API key owned by the caller
+      security:
+        - FirebaseBearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChatCompletionInput"
+      responses:
+        "200":
+          description: The assistant's reply.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatCompletionResult"
+        "400":
+          description: Invalid prompt or model.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatApiError"
+        "401":
+          description: Missing or invalid Firebase ID token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatApiError"
+        "404":
+          description: Selected key or model was not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatApiError"
+        "429":
+          description: The user or selected key is rate limited.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatApiError"
+        "503":
+          description: Chat could not be completed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatApiError"
   /vault/keys/{provider}/{keyId}:
     parameters:
       - name: provider
@@ -616,7 +692,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
-  /vault/keys/{provider}/{keyId}/value:
+  /vault/keys/{provider}/{keyId}/reveal:
     parameters:
       - name: provider
         in: path
@@ -655,6 +731,20 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
+  /vault/keys/{provider}/{keyId}/value:
+    parameters:
+      - name: provider
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/ProviderId"
+      - name: keyId
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
     put:
       operationId: replaceVaultKeyValue
       tags: [vault]
@@ -798,6 +888,69 @@ components:
         provider:
           type: string
       required: [queued, provider]
+    ChatModelOption:
+      type: object
+      properties:
+        provider:
+          type: string
+          pattern: "^[a-z0-9][a-z0-9-]{0,63}$"
+        id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        modelName:
+          type: string
+          maxLength: 200
+      required: [provider, id, modelName]
+    ChatModelList:
+      type: object
+      properties:
+        models:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChatModelOption"
+      required: [models]
+    ChatMessageInput:
+      type: object
+      properties:
+        role:
+          type: string
+          enum: [system, user, assistant]
+        content:
+          type: string
+          minLength: 1
+          maxLength: 4000
+      required: [role, content]
+    ChatCompletionInput:
+      type: object
+      properties:
+        provider:
+          type: string
+          pattern: "^[a-z0-9][a-z0-9-]{0,63}$"
+        keyId:
+          type: string
+          minLength: 1
+          maxLength: 128
+        messages:
+          type: array
+          minItems: 1
+          maxItems: 12
+          items:
+            $ref: "#/components/schemas/ChatMessageInput"
+      required: [provider, keyId, messages]
+    ChatCompletionResult:
+      type: object
+      properties:
+        reply:
+          type: string
+      required: [reply]
+    ChatApiError:
+      type: object
+      properties:
+        code:
+          type: string
+          enum: [missing_key, rate_limited, auth_failed, timeout, bad_prompt, model_not_found]
+      required: [code]
     StoryTargetCountInput:
       type: object
       properties:
@@ -1050,6 +1203,14 @@ components:
         modelType:
           type: ["string", "null"]
           enum: [images, video, text, null]
+        modelName:
+          type: ["string", "null"]
+          maxLength: 200
+        usage:
+          type: ["string", "null"]
+          enum: [chat, null]
+        chatSupported:
+          type: boolean
         description:
           type: ["string", "null"]
         maskedValue:
@@ -1065,7 +1226,7 @@ components:
         cooldownUntil:
           type: ["integer", "null"]
           format: int64
-      required: [id, provider, label, modelType, description, maskedValue, enabled, createdAt, status]
+      required: [id, provider, label, modelType, modelName, usage, chatSupported, description, maskedValue, enabled, createdAt, status]
     VaultKeyList:
       type: object
       properties:
@@ -1083,6 +1244,13 @@ components:
           type: string
           minLength: 1
           maxLength: 100
+        modelName:
+          type: string
+          minLength: 1
+          maxLength: 200
+        usage:
+          type: string
+          enum: [chat]
         value:
           type: string
           minLength: 1
@@ -1093,7 +1261,7 @@ components:
         description:
           type: string
           maxLength: 500
-      required: [label, value]
+      required: [value]
     VaultKeyUpdate:
       type: object
       properties:
@@ -1101,6 +1269,13 @@ components:
           type: string
           minLength: 1
           maxLength: 100
+        modelName:
+          type: string
+          minLength: 1
+          maxLength: 200
+        usage:
+          type: ["string", "null"]
+          enum: [chat, null]
         modelType:
           type: string
           enum: [images, video, text]
@@ -1111,7 +1286,6 @@ components:
           type: ["string", "null"]
           minLength: 1
           maxLength: 4096
-      required: [label, modelType, description, value]
     VaultKeyValue:
       type: object
       properties:

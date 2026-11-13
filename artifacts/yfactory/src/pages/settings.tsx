@@ -38,6 +38,7 @@ export type SettingsUser = {
 export type SettingsPageProps = {
   user: SettingsUser;
   getIdToken?: () => Promise<string>;
+  initialSubview?: 'api-keys' | null;
   onBack: () => void;
   onLogout: () => Promise<void>;
   onDeleteAccount: () => Promise<void>;
@@ -53,6 +54,7 @@ function formatBytes(bytes: number): string {
 export default function SettingsPage({
   user,
   getIdToken,
+  initialSubview = null,
   onBack,
   onLogout,
   onDeleteAccount,
@@ -69,7 +71,7 @@ export default function SettingsPage({
   const [keyPoolStatus, setKeyPoolStatus] = useState<KeyPoolProviderStatus[] | null>(null);
   const [keyPoolStatusError, setKeyPoolStatusError] = useState('');
   const [cloudinaryEnabled, setCloudinaryEnabled] = useState(true);
-  const [settingsSubview, setSettingsSubview] = useState<'about' | 'premium' | 'secrets' | null>(null);
+  const [settingsSubview, setSettingsSubview] = useState<'about' | 'premium' | 'api-keys' | null>(initialSubview);
   const signOutDialogRef = useRef<ConfirmActionDialogHandle | null>(null);
   const deleteAccountDialogRef = useRef<ConfirmActionDialogHandle | null>(null);
   const displayName = user.displayName || user.email || t('settings.creator');
@@ -129,7 +131,7 @@ export default function SettingsPage({
     };
   }, [getIdToken, t]);
 
-  if (settingsSubview === 'secrets') {
+  if (settingsSubview === 'api-keys') {
     return (
       <main className="auth-screen settings-screen" dir={isRtl ? 'rtl' : 'ltr'}>
         <div className="settings-shell">
@@ -149,10 +151,10 @@ export default function SettingsPage({
             </div>
             <span className="settings-back-spacer" aria-hidden="true" />
           </header>
-          <div className="settings-content secrets-page-content">
+          <div className="settings-content api-keys-page-content">
             <div className="settings-heading">
               <div>
-                <h1>{t('settings.secretsTitle')}</h1>
+                <h1>{t('settings.apiKeysTitle')}</h1>
                 <p>{t('settings.secretsPageDescription')}</p>
               </div>
             </div>
@@ -184,7 +186,11 @@ export default function SettingsPage({
             </div>
             <span className="settings-back-spacer" aria-hidden="true" />
           </header>
-          <section className="settings-info-card" data-testid={`settings-info-${settingsSubview}`}>
+          <section
+            className="settings-info-card"
+            hidden={isPremium}
+            data-testid={`settings-info-${settingsSubview}`}
+          >
             <span className="settings-info-icon" aria-hidden="true">
               {isPremium ? <Sparkles size={24} /> : <Info size={24} />}
             </span>
@@ -251,7 +257,7 @@ export default function SettingsPage({
           </section>
 
           <section className="settings-preferences-panel" aria-label={t('settings.language')}>
-            <div className="settings-preference-row">
+            <div className="settings-preference-row" hidden>
               <div className="settings-preference-copy">
                 <Globe2 size={19} aria-hidden="true" />
                 <strong>{t('settings.language')}</strong>
@@ -272,18 +278,18 @@ export default function SettingsPage({
             </div>
           </section>
 
-          <section className="settings-preferences-panel" aria-label={t('settings.secretsTitle')}>
+          <section className="settings-preferences-panel" aria-label={t('settings.apiKeysTitle')}>
             <button
               className="settings-preference-link settings-secrets-link"
               type="button"
-              onClick={() => setSettingsSubview('secrets')}
-              data-testid="button-open-secrets"
+              onClick={() => setSettingsSubview('api-keys')}
+              data-testid="button-open-api-keys"
             >
               <span className="settings-preference-copy">
                 <LockKeyhole size={19} aria-hidden="true" />
                 <span className="settings-secrets-link-copy">
-                  <strong>{t('settings.secretsTitle')}</strong>
-                  <small>{t('settings.secretsEntryDescription')}</small>
+                  <strong>{t('settings.apiKeysTitle')}</strong>
+                  <small>{t('settings.apiKeysEntryDescription')}</small>
                 </span>
               </span>
               <ChevronRight size={18} aria-hidden="true" />
@@ -291,7 +297,7 @@ export default function SettingsPage({
           </section>
 
           <section className="settings-preferences-panel" aria-label={t('settings.preferences')}>
-            <div className="settings-preference-row">
+            <div className="settings-preference-row" hidden>
               <div className="settings-preference-copy">
                 <Bell size={19} aria-hidden="true" />
                 <strong>{t('settings.notifications')}</strong>
@@ -347,6 +353,7 @@ export default function SettingsPage({
               className="settings-preference-link"
               type="button"
               onClick={() => setSettingsSubview('premium')}
+              hidden
               data-testid="button-premium-features"
             >
               <span className="settings-preference-copy">

@@ -5,6 +5,7 @@ import {
   type DocumentData,
   type QueryDocumentSnapshot,
 } from "firebase-admin/firestore";
+import { chatProviderForModel } from "./chatAdapters";
 import { getFirebaseAdmin, requireEncryptionKey } from "./firebaseAdmin";
 
 export const BUILT_IN_PROVIDERS = [
@@ -37,6 +38,7 @@ export type ProviderConfig = {
 };
 export type ProviderKeyStatus = "ready" | "failing" | "cooldown";
 export type SecretModelType = "images" | "video" | "text";
+export type VaultKeyUsage = "chat";
 
 type EncryptedFields = {
   iv: string;
@@ -47,6 +49,8 @@ type EncryptedFields = {
 type StoredKey = DocumentData & {
   label?: unknown;
   modelType?: unknown;
+  modelName?: unknown;
+  usage?: unknown;
   description?: unknown;
   enabled?: unknown;
   createdAt?: unknown;
@@ -62,6 +66,9 @@ export type VaultKeyMetadata = {
   provider: ProviderKey;
   label: string;
   modelType: SecretModelType | null;
+  modelName: string | null;
+  usage: VaultKeyUsage | null;
+  chatSupported: boolean;
   description: string | null;
   maskedValue: string;
   enabled: boolean;
@@ -258,6 +265,11 @@ function metadataFromSnapshot(
     modelType: data.modelType === "images" || data.modelType === "video" || data.modelType === "text"
       ? data.modelType
       : null,
+    modelName: typeof data.modelName === "string" ? data.modelName : null,
+    usage: data.usage === "chat" ? "chat" : null,
+    chatSupported: data.usage === "chat" &&
+      typeof data.modelName === "string" &&
+      chatProviderForModel(data.modelName) !== null,
     description: typeof data.description === "string" && data.description.trim()
       ? data.description
       : null,
@@ -385,12 +397,16 @@ export async function createVaultKey(
   value: string,
   modelType: SecretModelType | null = null,
   description: string | null = null,
+  modelName: string | null = null,
+  usage: VaultKeyUsage | null = null,
 ): Promise<VaultKeyMetadata> {
   const keyRef = userProviderKeysCollection(uid, provider).doc();
   const { db } = getFirebaseAdmin();
   await keyRef.set({
-    label: label.trim(),
+    label: modelName === null ? label.trim() : modelName,
     modelType,
+    ...(modelName === null ? {} : { modelName }),
+    ...(usage === null ? {} : { usage }),
     description: description?.trim() || null,
     enabled: true,
     createdAt: FieldValue.serverTimestamp(),
@@ -425,10 +441,12 @@ export async function updateVaultKey(
   provider: ProviderKey,
   keyId: string,
   input: {
-    label: string;
-    modelType: SecretModelType;
-    description: string | null;
-    value: string | null;
+    label?: string;
+    modelType?: SecretModelType | null;
+    description?: string | null;
+    value?: string | null;
+    modelName?: string;
+    usage?: VaultKeyUsage | null;
   },
 ): Promise<VaultKeyMetadata | null> {
   const keyRef = userProviderKeysCollection(uid, provider).doc(keyId);
@@ -436,9 +454,13 @@ export async function updateVaultKey(
   if (!snapshot.exists) return null;
 
   await keyRef.update({
-    label: input.label.trim(),
-    modelType: input.modelType,
-    description: input.description?.trim() || null,
+    ...(input.label === undefined ? {} : { label: input.label.trim() }),
+    ...(input.modelType === undefined ? {} : { modelType: input.modelType }),
+    ...(input.description === undefined
+      ? {}
+      : { description: input.description?.trim() || null }),
+    ...(input.modelName === undefined ? {} : { modelName: input.modelName }),
+    ...(input.usage === undefined ? {} : { usage: input.usage }),
     ...(input.value
       ? {
           ...encryptValue(input.value.trim()),
@@ -460,6 +482,66 @@ export async function getVaultKeyValue(
   const snapshot = await userProviderKeysCollection(uid, provider).doc(keyId).get();
   if (!snapshot.exists) return null;
   return decryptValue(snapshot.data() as StoredKey);
+}
+
+export type ChatVaultEntry = {
+  id: string;
+  provider: ProviderKey;
+  modelName: string;
+  value: string;
+  enabled: boolean;
+  failed: boolean;
+  cooldownUntil?: number;
+};
+
+export async function getChatVaultEntry(
+  uid: string,
+  provider: ProviderKey,
+  keyId: string,
+): Promise<ChatVaultEntry | null> {
+  const snapshot = await userProviderKeysCollection(uid, provider).doc(keyId).get();
+  if (!snapshot.exists) return null;
+  const data = snapshot.data() as StoredKey;
+  if (data.usage !== "chat" || typeof data.modelName !== "string") return null;
+  const cooldownUntil = cooldownMillis(data.cooldownUntil);
+  return {
+    id: snapshot.id,
+    provider,
+    modelName: data.modelName,
+    value: decryptValue(data),
+    enabled: data.enabled === true,
+    failed: data.failureStatus === "failing",
+    ...(cooldownUntil ? { cooldownUntil } : {}),
+  };
+}
+
+export type ChatVaultKeyMetadata = {
+  id: string;
+  provider: ProviderKey;
+  modelName: string;
+  enabled: boolean;
+  failed: boolean;
+  cooldownUntil?: number;
+};
+
+export async function listChatVaultKeys(uid: string): Promise<ChatVaultKeyMetadata[]> {
+  await migrateLegacyKeys(uid);
+  const providers = await listProviderConfigs(uid);
+  const providerIds = [...new Set([...providers.map((item) => item.id), "custom", "gemini"])];
+  const snapshots = await Promise.all(providerIds.map((provider) => readProviderSnapshots(uid, provider)));
+  return snapshots.flatMap((snapshot, index) => snapshot.docs.flatMap((document) => {
+    const data = document.data() as StoredKey;
+    if (data.usage !== "chat" || typeof data.modelName !== "string") return [];
+    const cooldownUntil = cooldownMillis(data.cooldownUntil);
+    return [{
+      id: document.id,
+      provider: providerIds[index] ?? "",
+      modelName: data.modelName,
+      enabled: data.enabled === true,
+      failed: data.failureStatus === "failing",
+      ...(cooldownUntil ? { cooldownUntil } : {}),
+    }];
+  }));
 }
 
 export async function deleteVaultKey(
@@ -555,7 +637,16 @@ export async function recordGeminiChatKeyFailure(
   keyId: string,
   status: number | null,
 ): Promise<void> {
-  const keyRef = userProviderKeysCollection(uid, "gemini").doc(keyId);
+  await recordChatVaultKeyFailure(uid, "gemini", keyId, status);
+}
+
+export async function recordChatVaultKeyFailure(
+  uid: string,
+  provider: ProviderKey,
+  keyId: string,
+  status: number | null,
+): Promise<void> {
+  const keyRef = userProviderKeysCollection(uid, provider).doc(keyId);
   if (status === 401 || status === 403) {
     await keyRef.update({
       failureStatus: "failing",
@@ -573,7 +664,15 @@ export async function recordGeminiChatKeyFailure(
 }
 
 export async function clearGeminiChatKeyFailure(uid: string, keyId: string): Promise<void> {
-  await userProviderKeysCollection(uid, "gemini").doc(keyId).update({
+  await clearChatVaultKeyFailure(uid, "gemini", keyId);
+}
+
+export async function clearChatVaultKeyFailure(
+  uid: string,
+  provider: ProviderKey,
+  keyId: string,
+): Promise<void> {
+  await userProviderKeysCollection(uid, provider).doc(keyId).update({
     failureStatus: FieldValue.delete(),
     cooldownUntil: FieldValue.delete(),
   });

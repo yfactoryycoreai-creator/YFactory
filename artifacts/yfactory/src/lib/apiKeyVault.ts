@@ -1,6 +1,7 @@
 export type ProviderKey = string;
 export type ProviderKeyStatus = 'ready' | 'failing' | 'cooldown';
 export type SecretModelType = 'images' | 'video' | 'text';
+export type SecretUsage = 'chat';
 
 export type ProviderAdapter =
   | 'agnes'
@@ -34,6 +35,9 @@ export type VaultKey = {
   provider: ProviderKey;
   label: string;
   modelType: SecretModelType | null;
+  modelName: string | null;
+  usage: SecretUsage | null;
+  chatSupported: boolean;
   description: string | null;
   maskedValue: string;
   enabled: boolean;
@@ -118,10 +122,9 @@ export async function loadKeyPoolStatus(idToken: string): Promise<KeyPoolProvide
 export function createVaultKey(
   idToken: string,
   input: {
-    label: string;
+    modelName: string;
+    usage: SecretUsage;
     value: string;
-    modelType: SecretModelType;
-    description: string;
   },
 ): Promise<VaultKey> {
   return vaultRequest<VaultKey>(idToken, '/api/vault/keys', {
@@ -134,9 +137,8 @@ export function updateVaultKeyMetadata(
   idToken: string,
   key: Pick<VaultKey, 'provider' | 'id'>,
   input: {
-    label: string;
-    modelType: SecretModelType;
-    description: string | null;
+    modelName: string;
+    usage: SecretUsage;
     value: string | null;
   },
 ): Promise<VaultKey> {
@@ -156,7 +158,8 @@ export function revealVaultKeyValue(
 ): Promise<string> {
   return vaultRequest<{ value: string }>(
     idToken,
-    `/api/vault/keys/${encodeURIComponent(key.provider)}/${encodeURIComponent(key.id)}/value`,
+    `/api/vault/keys/${encodeURIComponent(key.provider)}/${encodeURIComponent(key.id)}/reveal`,
+    { cache: 'no-store' },
   ).then((result) => result.value);
 }
 

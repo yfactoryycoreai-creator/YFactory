@@ -49,13 +49,25 @@ function createTestApp() {
       [...values.values()]
         .filter((item) => item.uid === uid)
         .map((item) => item.metadata),
-    createKey: async (uid, provider, label, value, modelType = null, description = null) => {
+    createKey: async (
+      uid,
+      provider,
+      label,
+      value,
+      modelType = null,
+      description = null,
+      modelName = null,
+      usage = null,
+    ) => {
       const id = `mock-key-${++nextId}`;
       const metadata: VaultKeyMetadata = {
         id,
         provider,
-        label: label.trim(),
+        label: modelName ?? label.trim(),
         modelType,
+        modelName,
+        usage,
+        chatSupported: usage === "chat" && Boolean(modelName?.startsWith("gemini-")),
         description,
         maskedValue: `••••${value.slice(-4)}`,
         enabled: true,
@@ -71,9 +83,13 @@ function createTestApp() {
       const value = input.value?.trim() || stored.value;
       const metadata: VaultKeyMetadata = {
         ...stored.metadata,
-        label: input.label.trim(),
-        modelType: input.modelType,
-        description: input.description,
+        ...(input.label === undefined ? {} : { label: input.label.trim() }),
+        ...(input.modelType === undefined ? {} : { modelType: input.modelType }),
+        ...(input.modelName === undefined ? {} : { modelName: input.modelName }),
+        ...(input.usage === undefined ? {} : { usage: input.usage }),
+        ...(input.description === undefined ? {} : { description: input.description }),
+        chatSupported: (input.usage ?? stored.metadata.usage) === "chat" &&
+          (input.modelName ?? stored.metadata.modelName ?? "").startsWith("gemini-"),
         maskedValue: `••••${value.slice(-4)}`,
       };
       values.set(`${uid}:${provider}:${keyId}`, { uid, metadata, value });
@@ -90,6 +106,11 @@ test("vault secrets are owner-isolated, editable, revealable, and deletable", as
   const app = createTestApp();
   const unauthenticated = await request(app, "/api/vault/keys");
   assert.equal(unauthenticated.status, 401);
+  const unauthenticatedReveal = await request(
+    app,
+    "/api/vault/keys/custom/mock-key/reveal",
+  );
+  assert.equal(unauthenticatedReveal.status, 401);
 
   const created = await request(app, "/api/vault/keys", {
     token: "user-a",
@@ -122,9 +143,10 @@ test("vault secrets are owner-isolated, editable, revealable, and deletable", as
 
   const revealed = await request(
     app,
-    `/api/vault/keys/${key.provider}/${key.id}/value`,
+    `/api/vault/keys/${key.provider}/${key.id}/reveal`,
     { token: "user-a" },
   );
+  assert.match(revealed.headers.get("cache-control") ?? "", /no-store/);
   assert.deepEqual(await revealed.json(), { value: originalValue });
 
   const updated = await request(app, `/api/vault/keys/${key.provider}/${key.id}`, {
@@ -162,4 +184,52 @@ test("vault secrets are owner-isolated, editable, revealable, and deletable", as
   assert.equal(deleted.status, 204);
   const afterDelete = await request(app, "/api/vault/keys", { token: "user-a" });
   assert.deepEqual(await afterDelete.json(), { keys: [] });
+});
+
+test("new chat key metadata preserves the model name exactly and masks its value", async () => {
+  const app = createTestApp();
+  const response = await request(app, "/api/vault/keys", {
+    token: "user-a",
+    body: {
+      modelName: "gemini-2.5-flash",
+      usage: "chat",
+      value: "mock-only-chat-secret",
+    },
+  });
+  assert.equal(response.status, 201);
+  const responseText = await response.text();
+  assert.ok(!responseText.includes("mock-only-chat-secret"));
+  const metadata = JSON.parse(responseText) as VaultKeyMetadata;
+  assert.equal(metadata.modelName, "gemini-2.5-flash");
+  assert.equal(metadata.usage, "chat");
+  assert.equal(metadata.chatSupported, true);
+});
+
+test("reveal responses are non-cacheable and rate limited per verified user", async () => {
+  const app = createTestApp();
+  const created = await request(app, "/api/vault/keys", {
+    token: "user-a",
+    body: {
+      label: "Old key",
+      modelType: "text",
+      value: originalValue,
+    },
+  });
+  const key = JSON.parse(await created.text()) as VaultKeyMetadata;
+  for (let index = 0; index < 12; index += 1) {
+    const response = await request(
+      app,
+      `/api/vault/keys/${key.provider}/${key.id}/reveal`,
+      { token: "user-a" },
+    );
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get("cache-control") ?? "", /no-store/);
+  }
+  const limited = await request(
+    app,
+    `/api/vault/keys/${key.provider}/${key.id}/reveal`,
+    { token: "user-a" },
+  );
+  assert.equal(limited.status, 429);
+  assert.match(limited.headers.get("cache-control") ?? "", /no-store/);
 });

@@ -94,6 +94,16 @@
   margin-inline-start: auto;
 }
 
+.chat-header-actions[hidden],
+.chat-quick-actions[hidden],
+.chat-ideas[hidden],
+.chat-composer-tool[hidden],
+.chat-composer-media-tools[hidden],
+.chat-footer-note[hidden],
+.chat-sheet-backdrop[hidden] {
+  display: none !important;
+}
+
 .chat-model-controls {
   display: flex;
   flex: 0 1 360px;

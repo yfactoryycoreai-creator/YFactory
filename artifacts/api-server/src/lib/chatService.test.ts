@@ -71,6 +71,27 @@ test("400 prompt errors do not rotate", async () => {
   assert.deepEqual(attempted, [keys[0]?.value]);
 });
 
+test("unknown model errors use model_not_found and do not rotate", async () => {
+  const attempted: string[] = [];
+  await assert.rejects(
+    completeWithRotation({
+      provider: "gemini",
+      model: "gemini-unknown-model",
+      messages,
+      keys,
+      adapters: adaptersFor(async (apiKey) => {
+        attempted.push(apiKey);
+        throw new ChatAdapterError(400, "model_not_found");
+      }),
+      onFailure: async () => undefined,
+      onSuccess: async () => undefined,
+    }),
+    (error: unknown) =>
+      error instanceof ChatServiceError && error.code === "model_not_found",
+  );
+  assert.deepEqual(attempted, [keys[0]?.value]);
+});
+
 test("5xx failures cool a key and rotate", async () => {
   const result = await runWithFirstFailure(503);
   assert.equal(result.reply, "mock reply");

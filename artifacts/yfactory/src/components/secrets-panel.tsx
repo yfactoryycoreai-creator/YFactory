@@ -1,7 +1,22 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
-import { Check, Eye, EyeOff, LoaderCircle, Pencil, Plus, Trash2, X } from 'lucide-react';
+import {
+  Check,
+  Copy,
+  Eye,
+  EyeOff,
+  Film,
+  Image as ImageIcon,
+  KeyRound,
+  LoaderCircle,
+  MessageCircle,
+  Pencil,
+  Plus,
+  ShieldCheck,
+  Trash2,
+  X,
+} from 'lucide-react';
 import ConfirmActionDialog, {
   type ConfirmActionDialogHandle,
 } from '@/components/confirm-action-dialog';
@@ -11,7 +26,7 @@ import {
   loadVaultKeys,
   revealVaultKeyValue,
   updateVaultKeyMetadata,
-  type SecretModelType,
+  type SecretUsage,
   type VaultKey,
 } from '@/lib/apiKeyVault';
 
@@ -23,10 +38,23 @@ type SecretsPanelProps = {
 type SecretFormMode = 'create' | 'edit' | null;
 
 const MAX_SECRET_COUNT = 100;
-const SECRET_NAME_PATTERN = /^[^\u0000-\u001f\u007f]{1,100}$/u;
+const SECRET_NAME_PATTERN = /^[^\u0000-\u001f\u007f]{1,200}$/u;
 
 function keyOrder(left: VaultKey, right: VaultKey): number {
-  return left.label.localeCompare(right.label, undefined, { numeric: true });
+  return (left.modelName ?? left.label).localeCompare(
+    right.modelName ?? right.label,
+    undefined,
+    { numeric: true },
+  );
+}
+
+function UsageIcon({ keyEntry }: { keyEntry: VaultKey }) {
+  if (keyEntry.usage === 'chat' || keyEntry.modelType === 'text') {
+    return <MessageCircle size={20} aria-hidden="true" />;
+  }
+  if (keyEntry.modelType === 'images') return <ImageIcon size={20} aria-hidden="true" />;
+  if (keyEntry.modelType === 'video') return <Film size={20} aria-hidden="true" />;
+  return <KeyRound size={20} aria-hidden="true" />;
 }
 
 export default function SecretsPanel({ userId, getIdToken }: SecretsPanelProps) {
@@ -42,8 +70,7 @@ export default function SecretsPanel({ userId, getIdToken }: SecretsPanelProps) 
   const [editingKey, setEditingKey] = useState<VaultKey | null>(null);
   const [name, setName] = useState('');
   const [value, setValue] = useState('');
-  const [modelType, setModelType] = useState<SecretModelType | ''>('');
-  const [description, setDescription] = useState('');
+  const [usage, setUsage] = useState<SecretUsage | ''>('');
   const [showValue, setShowValue] = useState(false);
   const [formBusy, setFormBusy] = useState(false);
   const [formError, setFormError] = useState('');
@@ -51,7 +78,8 @@ export default function SecretsPanel({ userId, getIdToken }: SecretsPanelProps) 
   const [pendingDelete, setPendingDelete] = useState<VaultKey | null>(null);
   const [pendingDeleteOwnerId, setPendingDeleteOwnerId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [revealedValues, setRevealedValues] = useState<Record<string, string>>({});
+  const [revealedValue, setRevealedValue] = useState<{ id: string; value: string } | null>(null);
+  const revealTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [revealingId, setRevealingId] = useState<string | null>(null);
   const [actionError, setActionError] = useState('');
   const userIdRef = useRef(userId);
@@ -61,14 +89,15 @@ export default function SecretsPanel({ userId, getIdToken }: SecretsPanelProps) 
     let active = true;
     setKeys([]);
     setKeysOwnerId(null);
-    setRevealedValues({});
+    setRevealedValue(null);
+    if (revealTimerRef.current) clearTimeout(revealTimerRef.current);
+    revealTimerRef.current = null;
     setFormMode(null);
     setFormOwnerId(null);
     setEditingKey(null);
     setName('');
     setValue('');
-    setModelType('');
-    setDescription('');
+    setUsage('');
     setPendingDelete(null);
     setPendingDeleteOwnerId(null);
     setLoading(true);
@@ -101,14 +130,17 @@ export default function SecretsPanel({ userId, getIdToken }: SecretsPanelProps) 
     };
   }, [getIdToken, userId, t]);
 
+  useEffect(() => () => {
+    if (revealTimerRef.current) clearTimeout(revealTimerRef.current);
+  }, []);
+
   const visibleKeys = keysOwnerId === userId ? keys : [];
   const loadingForUser = loading || (Boolean(getIdToken) && keysOwnerId !== userId && !loadError);
-  const normalizedName = name.trim();
   const duplicateKey = visibleKeys.find((key) =>
-    key.label.trim().toLocaleLowerCase() === normalizedName.toLocaleLowerCase() &&
+    key.modelName?.toLocaleLowerCase() === name.toLocaleLowerCase() &&
     key.id !== editingKey?.id,
   );
-  const nameIsValid = SECRET_NAME_PATTERN.test(normalizedName);
+  const nameIsValid = SECRET_NAME_PATTERN.test(name) && Boolean(name.trim());
   const hasReachedSecretLimit = visibleKeys.length >= MAX_SECRET_COUNT;
 
   const resetForm = () => {
@@ -117,8 +149,7 @@ export default function SecretsPanel({ userId, getIdToken }: SecretsPanelProps) 
     setEditingKey(null);
     setName('');
     setValue('');
-    setModelType('');
-    setDescription('');
+    setUsage('');
     setShowValue(false);
     setFormError('');
   };
@@ -132,9 +163,8 @@ export default function SecretsPanel({ userId, getIdToken }: SecretsPanelProps) 
 
   const openEditSecret = (key: VaultKey) => {
     setEditingKey(key);
-    setName(key.label);
-    setModelType(key.modelType ?? '');
-    setDescription(key.description ?? '');
+    setName(key.modelName ?? '');
+    setUsage(key.usage ?? '');
     setValue('');
     setShowValue(false);
     setFormError('');
@@ -151,8 +181,8 @@ export default function SecretsPanel({ userId, getIdToken }: SecretsPanelProps) 
       setFormError(t('settings.secretNameInvalid'));
       return;
     }
-    if (!modelType) {
-      setFormError(t('settings.secretModelTypeRequired'));
+    if (!usage) {
+      setFormError(t('settings.secretUsageRequired'));
       return;
     }
     if (formMode === 'create' && !value.trim()) {
@@ -179,27 +209,21 @@ export default function SecretsPanel({ userId, getIdToken }: SecretsPanelProps) 
       if (userIdRef.current !== requestedUserId) return;
       if (formMode === 'edit' && editingKey) {
         const updatedKey = await updateVaultKeyMetadata(token, editingKey, {
-          label: normalizedName,
-          modelType,
-          description: description.trim() || null,
+          modelName: name,
+          usage,
           value: value.trim() || null,
         });
         if (userIdRef.current !== requestedUserId) return;
         setKeys((current) =>
           current.map((key) => key.id === editingKey.id ? updatedKey : key).sort(keyOrder),
         );
-        setRevealedValues((current) => {
-          const next = { ...current };
-          delete next[editingKey.id];
-          return next;
-        });
+        if (revealedValue?.id === editingKey.id) setRevealedValue(null);
         setStatusMessage(t('settings.secretUpdated'));
       } else {
         const savedKey = await createVaultKey(token, {
-          label: normalizedName,
+          modelName: name,
           value: value.trim(),
-          modelType,
-          description: description.trim(),
+          usage,
         });
         if (userIdRef.current !== requestedUserId) return;
         setKeys((current) => [...current, savedKey].sort(keyOrder));
@@ -218,12 +242,10 @@ export default function SecretsPanel({ userId, getIdToken }: SecretsPanelProps) 
   };
 
   const toggleSecretVisibility = async (key: VaultKey) => {
-    if (Object.prototype.hasOwnProperty.call(revealedValues, key.id)) {
-      setRevealedValues((current) => {
-        const next = { ...current };
-        delete next[key.id];
-        return next;
-      });
+    if (revealedValue?.id === key.id) {
+      if (revealTimerRef.current) clearTimeout(revealTimerRef.current);
+      revealTimerRef.current = null;
+      setRevealedValue(null);
       return;
     }
     if (!getIdToken) return;
@@ -233,12 +255,39 @@ export default function SecretsPanel({ userId, getIdToken }: SecretsPanelProps) 
     try {
       const token = await getIdToken();
       if (userIdRef.current !== requestedUserId) return;
-      const revealedValue = await revealVaultKeyValue(token, key);
+      const secret = await revealVaultKeyValue(token, key);
       if (userIdRef.current !== requestedUserId) return;
-      setRevealedValues((current) => ({ ...current, [key.id]: revealedValue }));
+      if (revealTimerRef.current) clearTimeout(revealTimerRef.current);
+      setRevealedValue({ id: key.id, value: secret });
+      revealTimerRef.current = setTimeout(() => {
+        setRevealedValue((current) => current?.id === key.id ? null : current);
+        revealTimerRef.current = null;
+      }, 15_000);
     } catch {
       setActionError(t('settings.vaultRevealFailed'));
     } finally {
+      setRevealingId(null);
+    }
+  };
+
+  const copySecretValue = async (key: VaultKey) => {
+    if (!getIdToken || !navigator.clipboard) {
+      setActionError(t('settings.vaultCopyFailed'));
+      return;
+    }
+    const requestedUserId = userId;
+    setRevealingId(key.id);
+    setActionError('');
+    let secret = '';
+    try {
+      secret = await revealVaultKeyValue(await getIdToken(), key);
+      if (userIdRef.current !== requestedUserId) return;
+      await navigator.clipboard.writeText(secret);
+      setStatusMessage(t('settings.secretCopied'));
+    } catch {
+      setActionError(t('settings.vaultCopyFailed'));
+    } finally {
+      secret = '';
       setRevealingId(null);
     }
   };
@@ -258,11 +307,7 @@ export default function SecretsPanel({ userId, getIdToken }: SecretsPanelProps) 
       await deleteVaultKey(token, key);
       if (userIdRef.current !== requestedUserId) return;
       setKeys((current) => current.filter((item) => item.id !== key.id));
-      setRevealedValues((current) => {
-        const next = { ...current };
-        delete next[key.id];
-        return next;
-      });
+      if (revealedValue?.id === key.id) setRevealedValue(null);
       setStatusMessage(t('settings.secretDeleted'));
       setPendingDelete(null);
     } finally {
@@ -273,17 +318,17 @@ export default function SecretsPanel({ userId, getIdToken }: SecretsPanelProps) 
   return (
     <section className="secrets-panel" aria-labelledby="secrets-title">
       <header className="secrets-panel-heading">
-        <h2 id="secrets-title">{t('settings.savedSecrets')}</h2>
+        <h2 id="secrets-title">{t('settings.savedApiKeys')}</h2>
         <button
           className="factory-primary-button secrets-new-button"
           type="button"
           onClick={openNewSecret}
           disabled={!getIdToken || hasReachedSecretLimit || loadingForUser}
           title={hasReachedSecretLimit ? t('settings.secretLimitReached') : undefined}
-          data-testid="button-new-secret"
+          data-testid="button-new-api-key"
         >
           <Plus size={17} aria-hidden="true" />
-          {t('settings.addSecret')}
+          {t('settings.newApiKey')}
         </button>
       </header>
 
@@ -299,33 +344,54 @@ export default function SecretsPanel({ userId, getIdToken }: SecretsPanelProps) 
         <p className="secret-status-line" role="status">{t('settings.secretLimitReached')}</p>
       )}
 
-      <ul className="secrets-list" aria-label={t('settings.savedSecrets')}>
+      <ul className="secrets-list" aria-label={t('settings.savedApiKeys')}>
         {loadingForUser && <li className="secrets-empty">{t('settings.loadingKeys')}</li>}
         {!loadingForUser && visibleKeys.length === 0 && !loadError && (
           <li className="secrets-empty">
-            <span className="secrets-empty-icon" aria-hidden="true"><Plus size={21} /></span>
+            <span className="secrets-empty-shield" aria-hidden="true">
+              <svg viewBox="0 0 88 88" fill="none">
+                <path d="M44 8 70 18v21c0 18-11 31-26 40C29 70 18 57 18 39V18L44 8Z" fill="currentColor" fillOpacity=".12" />
+                <path d="M44 8 70 18v21c0 18-11 31-26 40C29 70 18 57 18 39V18L44 8Z" stroke="currentColor" strokeWidth="3" />
+                <path d="m32 43 8 8 17-18" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="m16 14 2 5 5 2-5 2-2 5-2-5-5-2 5-2 2-5ZM70 57l2 4 4 2-4 2-2 4-2-4-4-2 4-2 2-4Z" fill="currentColor" />
+              </svg>
+            </span>
             <strong>{t('settings.emptyKeysTitle')}</strong>
             <span>{t('settings.emptyKeys')}</span>
           </li>
         )}
         {visibleKeys.map((key) => (
           <li className="secrets-row" key={`${key.provider}:${key.id}`}>
+            <span className="secret-usage-icon" aria-hidden="true">
+              <UsageIcon keyEntry={key} />
+            </span>
             <div className="secrets-entry">
-              <strong dir="ltr">{key.label}</strong>
-              <span className="secret-model-badge">
-                {key.modelType
-                  ? t(`settings.modelTypes.${key.modelType}`)
-                  : t('settings.modelTypeUnspecified')}
-              </span>
-              {key.description && <small className="secret-description">{key.description}</small>}
-              <code dir="ltr">{revealedValues[key.id] ?? key.maskedValue}</code>
+              <div className="secret-card-heading">
+                <strong dir="ltr">{key.modelName ?? key.label}</strong>
+                <span className="secret-model-badge">
+                  {key.usage
+                    ? t(`settings.usage${key.usage[0].toUpperCase()}${key.usage.slice(1)}`)
+                    : key.modelType
+                      ? t(`settings.modelTypes.${key.modelType}`)
+                      : t('settings.modelTypeUnspecified')}
+                </span>
+              </div>
+              <code dir="ltr">
+                {revealedValue?.id === key.id ? revealedValue.value : key.maskedValue}
+              </code>
+              {(!key.modelName || !key.usage) && (
+                <small className="secret-form-hint">{t('settings.editToFinishSetup')}</small>
+              )}
+              {key.usage === 'chat' && !key.chatSupported && (
+                <small className="secret-unsupported-note">{t('settings.notSupportedYet')}</small>
+              )}
             </div>
             <div className="secrets-actions">
               <button
                 className="secret-icon-button"
                 type="button"
                 disabled={!getIdToken || deletingId === key.id || revealingId === key.id}
-                aria-label={revealedValues[key.id]
+                aria-label={revealedValue?.id === key.id
                   ? t('settings.hideSecretValue')
                   : t('settings.showSecretValue')}
                 onClick={() => void toggleSecretVisibility(key)}
@@ -333,9 +399,21 @@ export default function SecretsPanel({ userId, getIdToken }: SecretsPanelProps) 
               >
                 {revealingId === key.id
                   ? <LoaderCircle className="loading-spinner" size={17} aria-hidden="true" />
-                  : revealedValues[key.id]
+                  : revealedValue?.id === key.id
                     ? <EyeOff size={17} aria-hidden="true" />
                     : <Eye size={17} aria-hidden="true" />}
+              </button>
+              <button
+                className="secret-icon-button"
+                type="button"
+                disabled={!getIdToken || deletingId === key.id || revealingId === key.id}
+                aria-label={t('settings.copySecretValue')}
+                onClick={() => void copySecretValue(key)}
+                data-testid={`button-copy-secret-${key.id}`}
+              >
+                {revealingId === key.id
+                  ? <LoaderCircle className="loading-spinner" size={17} aria-hidden="true" />
+                  : <Copy size={17} aria-hidden="true" />}
               </button>
               <button
                 className="secret-icon-button"
@@ -393,7 +471,7 @@ export default function SecretsPanel({ userId, getIdToken }: SecretsPanelProps) 
             <form onSubmit={(event) => void handleSaveSecret(event)}>
               <header className="secret-form-heading">
                 <DialogPrimitive.Title className="confirmation-title">
-                  {formMode === 'edit' ? t('settings.editSecretTitle') : t('settings.newSecret')}
+                  {formMode === 'edit' ? t('settings.editApiKeyTitle') : t('settings.newApiKey')}
                 </DialogPrimitive.Title>
                 <DialogPrimitive.Close asChild>
                   <button
@@ -407,13 +485,13 @@ export default function SecretsPanel({ userId, getIdToken }: SecretsPanelProps) 
                 </DialogPrimitive.Close>
               </header>
               <label className="secret-sheet-field">
-                <span>{t('settings.secretName')}</span>
+                <span>{t('settings.modelName')}</span>
                 <input
                   id="secret-name-input"
                   value={name}
                   required
-                  maxLength={100}
-                  placeholder={t('settings.secretNamePlaceholder')}
+                  maxLength={200}
+                  placeholder={t('settings.modelNamePlaceholder')}
                   autoComplete="off"
                   spellCheck={false}
                   dir="ltr"
@@ -422,50 +500,45 @@ export default function SecretsPanel({ userId, getIdToken }: SecretsPanelProps) 
                     setFormError('');
                   }}
                   aria-invalid={Boolean(formError && !nameIsValid)}
-                  data-testid="input-secret-name"
+                  data-testid="input-api-key-model-name"
                 />
               </label>
               {name && !nameIsValid && (
                 <p className="secret-error-line" role="alert">{t('settings.secretNameInvalid')}</p>
               )}
               <label className="secret-sheet-field">
-                <span>{t('settings.modelType')}</span>
+                <span>{t('settings.usage')}</span>
                 <select
                   className="secret-model-select"
-                  value={modelType}
+                  value={usage}
                   required
                   onChange={(event) => {
-                    setModelType(event.currentTarget.value as SecretModelType | '');
+                    setUsage(event.currentTarget.value as SecretUsage | '');
                     setFormError('');
                   }}
-                  aria-invalid={Boolean(formError && !modelType)}
-                  data-testid="select-secret-model-type"
+                  aria-invalid={Boolean(formError && !usage)}
+                  data-testid="select-api-key-usage"
                 >
-                  <option value="">{t('settings.selectModelType')}</option>
-                  <option value="images">{t('settings.modelTypes.images')}</option>
-                  <option value="video">{t('settings.modelTypes.video')}</option>
-                  <option value="text">{t('settings.modelTypes.text')}</option>
+                  <option value="">{t('settings.selectUsage')}</option>
+                  <option value="chat">{t('settings.usageChat')}</option>
                 </select>
-                <small className="secret-form-hint">{t('settings.secretModelTypeNote')}</small>
               </label>
               <label className="secret-sheet-field">
-                <span>{t('settings.secretValue')}</span>
+                <span>{t('settings.apiKeyValue')}</span>
                 <span className="secret-value-input-wrap">
                   <input
                     type={showValue ? 'text' : 'password'}
                     value={value}
                     required={formMode === 'create'}
                     maxLength={4096}
-                    placeholder={formMode === 'edit'
-                      ? t('settings.keepExistingKey')
-                      : t('settings.keyValuePlaceholder')}
+                    placeholder={t('settings.keyValuePlaceholder')}
                     autoComplete="new-password"
                     dir="ltr"
                     onChange={(event) => {
                       setValue(event.currentTarget.value);
                       setFormError('');
                     }}
-                    data-testid="input-secret-value"
+                    data-testid="input-api-key-value"
                   />
                   <button
                     className="secret-reveal-button"
@@ -481,21 +554,9 @@ export default function SecretsPanel({ userId, getIdToken }: SecretsPanelProps) 
                 </span>
                 {formMode === 'edit' && editingKey && (
                   <small className="secret-form-hint">
-                    {t('settings.currentKey')}: <code dir="ltr">{editingKey.maskedValue}</code>
+                    {t('settings.keepExistingKey')} · {t('settings.currentKey')}: <code dir="ltr">{editingKey.maskedValue}</code>
                   </small>
                 )}
-              </label>
-              <label className="secret-sheet-field">
-                <span>{t('settings.secretDescription')}</span>
-                <textarea
-                  className="secret-description-input"
-                  value={description}
-                  maxLength={500}
-                  placeholder={t('settings.secretDescriptionPlaceholder')}
-                  rows={3}
-                  onChange={(event) => setDescription(event.currentTarget.value)}
-                  data-testid="input-secret-description"
-                />
               </label>
               {duplicateKey && (
                 <div className="secret-existing-note" role="alert">
@@ -519,7 +580,7 @@ export default function SecretsPanel({ userId, getIdToken }: SecretsPanelProps) 
                   disabled={
                     formBusy ||
                     !nameIsValid ||
-                    !modelType ||
+                    !usage ||
                     (formMode === 'create' && !value.trim()) ||
                     !getIdToken ||
                     Boolean(duplicateKey) ||

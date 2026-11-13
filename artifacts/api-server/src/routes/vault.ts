@@ -124,6 +124,25 @@ async function authenticatedUid(
   }
 }
 
+const REVEAL_WINDOW_MS = 60_000;
+const REVEAL_LIMIT = 12;
+
+function createRevealRateLimiter() {
+  const requestsByUser = new Map<string, number[]>();
+  return (uid: string, now = Date.now()): boolean => {
+    const recent = (requestsByUser.get(uid) ?? []).filter(
+      (timestamp) => now - timestamp < REVEAL_WINDOW_MS,
+    );
+    if (recent.length >= REVEAL_LIMIT) {
+      requestsByUser.set(uid, recent);
+      return false;
+    }
+    recent.push(now);
+    requestsByUser.set(uid, recent);
+    return true;
+  };
+}
+
 router.get("/vault/keys", async (req, res): Promise<void> => {
   const uid = await authenticatedUid(req, res, dependencies.verifyIdToken);
   if (!uid) return;
@@ -146,31 +165,38 @@ router.post("/vault/keys", async (req, res): Promise<void> => {
   const uid = await authenticatedUid(req, res, dependencies.verifyIdToken);
   if (!uid) return;
   const parsed = CreateVaultKeyBody.safeParse(req.body);
+  const isModelEntry = parsed.success && typeof parsed.data.modelName === "string";
+  const modelName = isModelEntry ? parsed.data.modelName : undefined;
+  const label = parsed.success ? (modelName ?? parsed.data.label ?? "") : "";
   if (
     !parsed.success ||
-    !parsed.data.label.trim() ||
-    parsed.data.label.trim().length > 100 ||
-    /[\u0000-\u001f\u007f]/.test(parsed.data.label) ||
+    !label.trim() ||
+    label.length > (modelName === undefined ? 100 : 200) ||
+    /[\u0000-\u001f\u007f]/.test(label) ||
     !parsed.data.value.trim() ||
     parsed.data.value.trim().length > 4096 ||
     (parsed.data.modelType !== undefined &&
       !["images", "video", "text"].includes(parsed.data.modelType)) ||
+    (modelName !== undefined && parsed.data.usage !== "chat") ||
+    (modelName === undefined && parsed.data.usage !== undefined) ||
     (parsed.data.description !== undefined && parsed.data.description.length > 500)
   ) {
     res.status(400).json({ error: "Provide a valid name, model type, and API key.", code: "invalid_request" });
     return;
   }
-  const secretProvider = providerForSecretName(parsed.data.label);
-  const providerConfig = (await dependencies.listProviders(uid)).find(
-    (provider) => provider.id === secretProvider,
-  );
-  if (secretProvider !== "custom" && secretProvider !== "gemini" && !providerConfig) {
+  const secretProvider = isModelEntry ? "custom" : providerForSecretName(label);
+  const providerConfig = isModelEntry || secretProvider === "custom" || secretProvider === "gemini"
+    ? undefined
+    : (await dependencies.listProviders(uid)).find((provider) => provider.id === secretProvider);
+  if (!isModelEntry && secretProvider !== "custom" && secretProvider !== "gemini" && !providerConfig) {
     res.status(400).json({ error: "Add this provider before saving a key.", code: "provider_not_found" });
     return;
   }
   try {
     const existingKeys = await dependencies.listKeys(uid);
-    if (existingKeys.some((key) => key.label.trim().toLocaleLowerCase() === parsed.data.label.trim().toLocaleLowerCase())) {
+    if (existingKeys.some((key) =>
+      (key.modelName ?? key.label).trim().toLocaleLowerCase() === label.trim().toLocaleLowerCase()
+    )) {
       res.status(409).json({ error: "A secret with this name already exists.", code: "duplicate_secret_name" });
       return;
     }
@@ -181,10 +207,12 @@ router.post("/vault/keys", async (req, res): Promise<void> => {
     const key = await dependencies.createKey(
       uid,
       secretProvider as ProviderKey,
-      parsed.data.label,
+      label,
       parsed.data.value,
       parsed.data.modelType ?? null,
       parsed.data.description?.trim() || null,
+      modelName ?? null,
+      parsed.data.usage ?? null,
     );
     res.status(201).json(CreateVaultKeyResponse.parse(key));
   } catch (error) {
@@ -204,16 +232,27 @@ router.patch("/vault/keys/:provider/:keyId", async (req, res): Promise<void> => 
   if (!uid) return;
   const params = UpdateVaultKeyParams.safeParse(req.params);
   const parsed = UpdateVaultKeyBody.safeParse(req.body);
-  const label = parsed.success ? parsed.data.label.trim() : "";
-  const value = parsed.success ? parsed.data.value : null;
+  const label = parsed.success ? parsed.data.label?.trim() ?? "" : "";
+  const modelName = parsed.success ? parsed.data.modelName : undefined;
+  const value = parsed.success ? parsed.data.value : undefined;
   if (
     !params.success ||
     !parsed.success ||
-    !label ||
-    label.length > 100 ||
-    /[\u0000-\u001f\u007f]/.test(label) ||
-    (value !== null && (!value.trim() || value.trim().length > 4096)) ||
-    (parsed.success && parsed.data.description !== null && parsed.data.description.length > 500)
+    (!label && modelName === undefined && parsed.data.modelType === undefined &&
+      parsed.data.description === undefined && parsed.data.usage === undefined &&
+      parsed.data.value === undefined) ||
+    (parsed.success && parsed.data.label !== undefined &&
+      (!label || label.length > 100 || /[\u0000-\u001f\u007f]/.test(parsed.data.label))) ||
+    (modelName !== undefined &&
+      (!modelName.trim() || modelName.length > 200 || /[\u0000-\u001f\u007f]/.test(modelName))) ||
+    (parsed.success && parsed.data.usage !== undefined &&
+      parsed.data.usage !== null && parsed.data.usage !== "chat") ||
+    (parsed.success && parsed.data.modelType !== undefined &&
+      parsed.data.modelType !== null &&
+      !["images", "video", "text"].includes(parsed.data.modelType)) ||
+    (value !== undefined && value !== null && (!value.trim() || value.trim().length > 4096)) ||
+    (parsed.success && parsed.data.description !== undefined &&
+      parsed.data.description !== null && parsed.data.description.length > 500)
   ) {
     res.status(400).json({ error: "Provide valid secret details.", code: "invalid_request" });
     return;
@@ -221,8 +260,9 @@ router.patch("/vault/keys/:provider/:keyId", async (req, res): Promise<void> => 
   try {
     const existingKeys = await dependencies.listKeys(uid);
     if (existingKeys.some((key) =>
-      key.label.trim().toLocaleLowerCase() === label.toLocaleLowerCase() &&
-      !(key.provider === params.data.provider && key.id === params.data.keyId)
+      (key.modelName ?? key.label).trim().toLocaleLowerCase() ===
+        (modelName ?? label).trim().toLocaleLowerCase() &&
+      (key.provider !== params.data.provider || key.id !== params.data.keyId)
     )) {
       res.status(409).json({ error: "A secret with this name already exists.", code: "duplicate_secret_name" });
       return;
@@ -232,10 +272,12 @@ router.patch("/vault/keys/:provider/:keyId", async (req, res): Promise<void> => 
       params.data.provider as ProviderKey,
       params.data.keyId,
       {
-        label,
-        modelType: parsed.data.modelType,
-        description: parsed.data.description,
-        value: value?.trim() || null,
+        ...(parsed.data.label === undefined ? {} : { label }),
+        ...(parsed.data.modelType === undefined ? {} : { modelType: parsed.data.modelType }),
+        ...(parsed.data.description === undefined ? {} : { description: parsed.data.description }),
+        ...(parsed.data.value === undefined ? {} : { value: value?.trim() || null }),
+        ...(modelName === undefined ? {} : { modelName }),
+        ...(parsed.data.usage === undefined ? {} : { usage: parsed.data.usage }),
       },
     );
     if (!updated) {
@@ -255,9 +297,18 @@ router.patch("/vault/keys/:provider/:keyId", async (req, res): Promise<void> => 
   }
 });
 
-router.get("/vault/keys/:provider/:keyId/value", async (req, res): Promise<void> => {
+const allowReveal = createRevealRateLimiter();
+
+router.get(
+  ["/vault/keys/:provider/:keyId/reveal", "/vault/keys/:provider/:keyId/value"],
+  async (req, res): Promise<void> => {
+  res.set("Cache-Control", "no-store, private").set("Pragma", "no-cache").set("Expires", "0");
   const uid = await authenticatedUid(req, res, dependencies.verifyIdToken);
   if (!uid) return;
+  if (!allowReveal(uid)) {
+    res.status(429).json({ error: "Please wait before revealing another API key.", code: "rate_limited" });
+    return;
+  }
   const params = RevealVaultKeyValueParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: "The API key reference is invalid.", code: "invalid_request" });
@@ -284,7 +335,8 @@ router.get("/vault/keys/:provider/:keyId/value", async (req, res): Promise<void>
       code: "vault_unavailable",
     });
   }
-});
+  },
+);
 
 router.put("/vault/keys/:provider/:keyId/value", async (req, res): Promise<void> => {
   const uid = await authenticatedUid(req, res, dependencies.verifyIdToken);
