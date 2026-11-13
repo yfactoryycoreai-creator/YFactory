@@ -6,12 +6,17 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { ProviderId } from './providerId';
+import type { VaultKeyModelType } from './vaultKeyModelType';
 import type { VaultKeyStatus } from './vaultKeyStatus';
 
 export interface VaultKey {
   id: string;
   provider: ProviderId;
   label: string;
+  /** @nullable */
+  modelType: VaultKeyModelType;
+  /** @nullable */
+  description: string | null;
   maskedValue: string;
   enabled: boolean;
   createdAt: bigint;

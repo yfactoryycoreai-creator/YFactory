@@ -320,6 +320,18 @@ export interface StoryImage {
   error?: string;
 }
 
+/**
+ * @nullable
+ */
+export type VaultKeyModelType = typeof VaultKeyModelType[keyof typeof VaultKeyModelType] | null;
+
+
+export const VaultKeyModelType = {
+  images: 'images',
+  video: 'video',
+  text: 'text',
+} as const;
+
 export type VaultKeyStatus = typeof VaultKeyStatus[keyof typeof VaultKeyStatus];
 
 
@@ -333,6 +345,10 @@ export interface VaultKey {
   id: string;
   provider: ProviderId;
   label: string;
+  /** @nullable */
+  modelType: VaultKeyModelType;
+  /** @nullable */
+  description: string | null;
   maskedValue: string;
   enabled: boolean;
   createdAt: number;
@@ -345,18 +361,62 @@ export interface VaultKeyList {
   keys: VaultKey[];
 }
 
+export type CreateVaultKeyInputModelType = typeof CreateVaultKeyInputModelType[keyof typeof CreateVaultKeyInputModelType];
+
+
+export const CreateVaultKeyInputModelType = {
+  images: 'images',
+  video: 'video',
+  text: 'text',
+} as const;
+
 export interface CreateVaultKeyInput {
-  provider: ProviderId;
+  provider?: ProviderId;
   /**
      * @minLength 1
      * @maxLength 100
-     * @pattern ^[A-Z0-9_]{1,100}$
      */
   label: string;
   /**
      * @minLength 1
      * @maxLength 4096
      */
+  value: string;
+  modelType?: CreateVaultKeyInputModelType;
+  /** @maxLength 500 */
+  description?: string;
+}
+
+export type VaultKeyUpdateModelType = typeof VaultKeyUpdateModelType[keyof typeof VaultKeyUpdateModelType];
+
+
+export const VaultKeyUpdateModelType = {
+  images: 'images',
+  video: 'video',
+  text: 'text',
+} as const;
+
+export interface VaultKeyUpdate {
+  /**
+     * @minLength 1
+     * @maxLength 100
+     */
+  label: string;
+  modelType: VaultKeyUpdateModelType;
+  /**
+     * @maxLength 500
+     * @nullable
+     */
+  description: string | null;
+  /**
+     * @minLength 1
+     * @maxLength 4096
+     * @nullable
+     */
+  value: string | null;
+}
+
+export interface VaultKeyValue {
   value: string;
 }
 

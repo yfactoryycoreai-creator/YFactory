@@ -8,6 +8,7 @@
 
 export * from './apiError';
 export * from './createVaultKeyInput';
+export * from './createVaultKeyInputModelType';
 export * from './downloadStoryZipParams';
 export * from './generatedImage';
 export * from './getStoryZipDownloadProgressParams';
@@ -48,4 +49,8 @@ export * from './storyZipProgress';
 export * from './storyZipProgressStatus';
 export * from './vaultKey';
 export * from './vaultKeyList';
+export * from './vaultKeyModelType';
 export * from './vaultKeyStatus';
+export * from './vaultKeyUpdate';
+export * from './vaultKeyUpdateModelType';
+export * from './vaultKeyValue';

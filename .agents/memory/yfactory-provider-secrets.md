@@ -3,8 +3,8 @@ name: YFactory provider secrets
 description: Product requirements for managing and selecting user-supplied image-provider credentials.
 ---
 
-Replit Secrets are the source of truth for global provider credentials. Discover unnumbered and positive-numbered names dynamically; Cloudflare token and account ID suffixes must match. Keep values server-side, expose only provider/index metadata, and persist cooldowns server-side. If user-specific keys are part of a later scope, keep them server-side and use global Replit Secrets as fallback.
+Keep existing Replit environment credentials available to generation engines, but isolate user-supplied vault secrets by Firebase UID and never use environment credentials as a fallback for Gemini chat. Treat the vault's model type and description as organizational metadata only; runtime integrations remain determined by existing provider mappings. Discover unnumbered and positive-numbered environment names dynamically, and keep Cloudflare token/account ID suffixes paired.
 
-**Why:** The user specified this as YFactory's provider-credential contract and explicitly required Replit Secrets to remain authoritative.
+**Why:** The user requires existing generation integrations to keep working while their own vault keys remain private, and explicitly says model type does not connect a provider.
 
-**How to apply:** Preserve dynamic discovery, Cloudflare pairing, sanitized status/trails, server-only state, and per-provider rotation when adding provider integrations or key-management UI.
+**How to apply:** Preserve environment-key discovery, Cloudflare pairing, sanitized status/trails, and existing provider rotation. For user-vault features, derive ownership from the verified Firebase ID token, keep values encrypted server-side, and enable only integrations the runtime already supports.

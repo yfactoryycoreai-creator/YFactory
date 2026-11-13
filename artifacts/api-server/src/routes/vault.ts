@@ -4,12 +4,19 @@ import {
   CreateVaultKeyResponse,
   DeleteVaultKeyParams,
   ListVaultKeysResponse,
+  RevealVaultKeyValueParams,
+  RevealVaultKeyValueResponse,
+  UpdateVaultKeyBody,
+  UpdateVaultKeyParams,
+  UpdateVaultKeyResponse,
 } from "@workspace/api-zod";
 import {
   createVaultKey,
   deleteVaultKey,
+  getVaultKeyValue,
   listVaultKeys,
   listProviderConfigs,
+  updateVaultKey,
   updateVaultKeyValue,
   providerForSecretName,
   type ProviderKey,
@@ -17,14 +24,41 @@ import {
 import { keyPool } from "../lib/keyPool";
 import { verifyFirebaseIdToken } from "../lib/firebaseAdmin";
 
-const router: IRouter = Router();
 const KEY_STATUS_PROVIDERS = ["agnes", "cloudflare", "glm", "magic_hour"] as const;
+type VaultRouterDependencies = {
+  verifyIdToken: typeof verifyFirebaseIdToken;
+  listProviders: typeof listProviderConfigs;
+  listKeys: typeof listVaultKeys;
+  createKey: typeof createVaultKey;
+  updateKey: typeof updateVaultKey;
+  updateValue: typeof updateVaultKeyValue;
+  revealValue: typeof getVaultKeyValue;
+  deleteKey: typeof deleteVaultKey;
+  readKeyPoolStatus: typeof keyPool.readStatus;
+};
+
+export function createVaultRouter(
+  overrides: Partial<VaultRouterDependencies> = {},
+): IRouter {
+  const dependencies: VaultRouterDependencies = {
+    verifyIdToken: verifyFirebaseIdToken,
+    listProviders: listProviderConfigs,
+    listKeys: listVaultKeys,
+    createKey: createVaultKey,
+    updateKey: updateVaultKey,
+    updateValue: updateVaultKeyValue,
+    revealValue: getVaultKeyValue,
+    deleteKey: deleteVaultKey,
+    readKeyPoolStatus: () => keyPool.readStatus(),
+    ...overrides,
+  };
+  const router: IRouter = Router();
 
 router.get("/providers", async (req, res): Promise<void> => {
-  const uid = await authenticatedUid(req, res);
+  const uid = await authenticatedUid(req, res, dependencies.verifyIdToken);
   if (!uid) return;
   try {
-    res.json({ providers: await listProviderConfigs(uid) });
+    res.json({ providers: await dependencies.listProviders(uid) });
   } catch (error) {
     req.log.error({ reason: error instanceof Error ? error.message : "unknown" }, "Could not load providers.");
     res.status(503).json({ error: "Providers could not be loaded.", code: "providers_unavailable" });
@@ -32,10 +66,10 @@ router.get("/providers", async (req, res): Promise<void> => {
 });
 
 router.get("/vault/key-pool-status", async (req, res): Promise<void> => {
-  const uid = await authenticatedUid(req, res);
+  const uid = await authenticatedUid(req, res, dependencies.verifyIdToken);
   if (!uid) return;
   try {
-    const status = await keyPool.readStatus();
+    const status = await dependencies.readKeyPoolStatus();
     res.json({
       providers: KEY_STATUS_PROVIDERS.map((provider) => {
         const current = status.providers.find((item) => item.provider === provider);
@@ -62,6 +96,7 @@ router.get("/vault/key-pool-status", async (req, res): Promise<void> => {
 async function authenticatedUid(
   req: Parameters<Parameters<IRouter["get"]>[1]>[0],
   res: Parameters<Parameters<IRouter["get"]>[1]>[1],
+  verifyIdToken: typeof verifyFirebaseIdToken = verifyFirebaseIdToken,
 ): Promise<string | null> {
   const authorization = req.get("authorization") ?? "";
   const token = authorization.match(/^Bearer\s+(.+)$/i)?.[1];
@@ -70,7 +105,7 @@ async function authenticatedUid(
     return null;
   }
   try {
-    const uid = await verifyFirebaseIdToken(token);
+    const uid = await verifyIdToken(token);
     if (!uid) {
       res.status(401).json({ error: "Sign in again before managing API keys.", code: "unauthorized" });
       return null;
@@ -90,10 +125,10 @@ async function authenticatedUid(
 }
 
 router.get("/vault/keys", async (req, res): Promise<void> => {
-  const uid = await authenticatedUid(req, res);
+  const uid = await authenticatedUid(req, res, dependencies.verifyIdToken);
   if (!uid) return;
   try {
-    const response = ListVaultKeysResponse.parse({ keys: await listVaultKeys(uid) });
+    const response = ListVaultKeysResponse.parse({ keys: await dependencies.listKeys(uid) });
     res.json(response);
   } catch (error) {
     req.log.error(
@@ -108,36 +143,34 @@ router.get("/vault/keys", async (req, res): Promise<void> => {
 });
 
 router.post("/vault/keys", async (req, res): Promise<void> => {
-  const uid = await authenticatedUid(req, res);
+  const uid = await authenticatedUid(req, res, dependencies.verifyIdToken);
   if (!uid) return;
   const parsed = CreateVaultKeyBody.safeParse(req.body);
   if (
     !parsed.success ||
     !parsed.data.label.trim() ||
+    parsed.data.label.trim().length > 100 ||
+    /[\u0000-\u001f\u007f]/.test(parsed.data.label) ||
     !parsed.data.value.trim() ||
-    parsed.data.value.trim().length > 4096
+    parsed.data.value.trim().length > 4096 ||
+    (parsed.data.modelType !== undefined &&
+      !["images", "video", "text"].includes(parsed.data.modelType)) ||
+    (parsed.data.description !== undefined && parsed.data.description.length > 500)
   ) {
-    res.status(400).json({ error: "Provide a provider, key name, and API key.", code: "invalid_request" });
+    res.status(400).json({ error: "Provide a valid name, model type, and API key.", code: "invalid_request" });
     return;
   }
   const secretProvider = providerForSecretName(parsed.data.label);
-  if (parsed.data.provider !== secretProvider) {
-    res.status(400).json({
-      error: "Use a name containing only uppercase letters, numbers, and underscores.",
-      code: "invalid_secret_name",
-    });
-    return;
-  }
-  const providerConfig = (await listProviderConfigs(uid)).find(
-    (provider) => provider.id === parsed.data.provider,
+  const providerConfig = (await dependencies.listProviders(uid)).find(
+    (provider) => provider.id === secretProvider,
   );
-  if (parsed.data.provider !== "custom" && parsed.data.provider !== "gemini" && !providerConfig) {
+  if (secretProvider !== "custom" && secretProvider !== "gemini" && !providerConfig) {
     res.status(400).json({ error: "Add this provider before saving a key.", code: "provider_not_found" });
     return;
   }
   try {
-    const existingKeys = await listVaultKeys(uid);
-    if (existingKeys.some((key) => key.label === parsed.data.label.trim())) {
+    const existingKeys = await dependencies.listKeys(uid);
+    if (existingKeys.some((key) => key.label.trim().toLocaleLowerCase() === parsed.data.label.trim().toLocaleLowerCase())) {
       res.status(409).json({ error: "A secret with this name already exists.", code: "duplicate_secret_name" });
       return;
     }
@@ -145,11 +178,13 @@ router.post("/vault/keys", async (req, res): Promise<void> => {
       res.status(409).json({ error: "The secret limit has been reached.", code: "secret_limit" });
       return;
     }
-    const key = await createVaultKey(
+    const key = await dependencies.createKey(
       uid,
-      parsed.data.provider as ProviderKey,
+      secretProvider as ProviderKey,
       parsed.data.label,
       parsed.data.value,
+      parsed.data.modelType ?? null,
+      parsed.data.description?.trim() || null,
     );
     res.status(201).json(CreateVaultKeyResponse.parse(key));
   } catch (error) {
@@ -164,8 +199,95 @@ router.post("/vault/keys", async (req, res): Promise<void> => {
   }
 });
 
+router.patch("/vault/keys/:provider/:keyId", async (req, res): Promise<void> => {
+  const uid = await authenticatedUid(req, res, dependencies.verifyIdToken);
+  if (!uid) return;
+  const params = UpdateVaultKeyParams.safeParse(req.params);
+  const parsed = UpdateVaultKeyBody.safeParse(req.body);
+  const label = parsed.success ? parsed.data.label.trim() : "";
+  const value = parsed.success ? parsed.data.value : null;
+  if (
+    !params.success ||
+    !parsed.success ||
+    !label ||
+    label.length > 100 ||
+    /[\u0000-\u001f\u007f]/.test(label) ||
+    (value !== null && (!value.trim() || value.trim().length > 4096)) ||
+    (parsed.success && parsed.data.description !== null && parsed.data.description.length > 500)
+  ) {
+    res.status(400).json({ error: "Provide valid secret details.", code: "invalid_request" });
+    return;
+  }
+  try {
+    const existingKeys = await dependencies.listKeys(uid);
+    if (existingKeys.some((key) =>
+      key.label.trim().toLocaleLowerCase() === label.toLocaleLowerCase() &&
+      !(key.provider === params.data.provider && key.id === params.data.keyId)
+    )) {
+      res.status(409).json({ error: "A secret with this name already exists.", code: "duplicate_secret_name" });
+      return;
+    }
+    const updated = await dependencies.updateKey(
+      uid,
+      params.data.provider as ProviderKey,
+      params.data.keyId,
+      {
+        label,
+        modelType: parsed.data.modelType,
+        description: parsed.data.description,
+        value: value?.trim() || null,
+      },
+    );
+    if (!updated) {
+      res.status(404).json({ error: "API key not found.", code: "key_not_found" });
+      return;
+    }
+    res.json(UpdateVaultKeyResponse.parse(updated));
+  } catch (error) {
+    req.log.error(
+      { reason: error instanceof Error ? error.name : "unknown" },
+      "Could not update encrypted API key metadata.",
+    );
+    res.status(503).json({
+      error: "The API key could not be updated.",
+      code: "vault_unavailable",
+    });
+  }
+});
+
+router.get("/vault/keys/:provider/:keyId/value", async (req, res): Promise<void> => {
+  const uid = await authenticatedUid(req, res, dependencies.verifyIdToken);
+  if (!uid) return;
+  const params = RevealVaultKeyValueParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: "The API key reference is invalid.", code: "invalid_request" });
+    return;
+  }
+  try {
+    const value = await dependencies.revealValue(
+      uid,
+      params.data.provider as ProviderKey,
+      params.data.keyId,
+    );
+    if (value === null) {
+      res.status(404).json({ error: "API key not found.", code: "key_not_found" });
+      return;
+    }
+    res.json(RevealVaultKeyValueResponse.parse({ value }));
+  } catch (error) {
+    req.log.error(
+      { reason: error instanceof Error ? error.name : "unknown" },
+      "Could not reveal encrypted API key.",
+    );
+    res.status(503).json({
+      error: "The API key could not be revealed.",
+      code: "vault_unavailable",
+    });
+  }
+});
+
 router.put("/vault/keys/:provider/:keyId/value", async (req, res): Promise<void> => {
-  const uid = await authenticatedUid(req, res);
+  const uid = await authenticatedUid(req, res, dependencies.verifyIdToken);
   if (!uid) return;
   const provider = String(req.params.provider ?? "");
   const keyId = String(req.params.keyId ?? "");
@@ -177,7 +299,7 @@ router.put("/vault/keys/:provider/:keyId/value", async (req, res): Promise<void>
     return;
   }
   try {
-    const key = await updateVaultKeyValue(
+    const key = await dependencies.updateValue(
       uid,
       provider as ProviderKey,
       keyId,
@@ -201,7 +323,7 @@ router.put("/vault/keys/:provider/:keyId/value", async (req, res): Promise<void>
 });
 
 router.delete("/vault/keys/:provider/:keyId", async (req, res): Promise<void> => {
-  const uid = await authenticatedUid(req, res);
+  const uid = await authenticatedUid(req, res, dependencies.verifyIdToken);
   if (!uid) return;
   const params = DeleteVaultKeyParams.safeParse(req.params);
   if (!params.success) {
@@ -209,7 +331,7 @@ router.delete("/vault/keys/:provider/:keyId", async (req, res): Promise<void> =>
     return;
   }
   try {
-    const deleted = await deleteVaultKey(
+    const deleted = await dependencies.deleteKey(
       uid,
       params.data.provider as ProviderKey,
       params.data.keyId,
@@ -231,4 +353,8 @@ router.delete("/vault/keys/:provider/:keyId", async (req, res): Promise<void> =>
   }
 });
 
+  return router;
+}
+
+const router = createVaultRouter();
 export default router;

@@ -47,7 +47,9 @@ import type {
   StoryZipDownloadToken,
   StoryZipProgress,
   VaultKey,
-  VaultKeyList
+  VaultKeyList,
+  VaultKeyUpdate,
+  VaultKeyValue
 } from './api.schemas';
 
 import { customFetch } from '../custom-fetch';
@@ -1716,6 +1718,179 @@ export const useDeleteVaultKey = <TError = ErrorType<ApiError>,
       > => {
       return useMutation(getDeleteVaultKeyMutationOptions(options));
     }
+
+export const getUpdateVaultKeyUrl = (provider: ProviderId,
+    keyId: string,) => {
+
+
+
+
+  return `/api/vault/keys/${provider}/${keyId}`
+}
+
+/**
+ * @summary Update saved API key metadata and optionally its value
+ */
+export const updateVaultKey = async (provider: ProviderId,
+    keyId: string,
+    vaultKeyUpdate: VaultKeyUpdate, options?: Parameters<typeof customFetch>[1]): Promise<VaultKey> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<VaultKey>(getUpdateVaultKeyUrl(provider,keyId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(vaultKeyUpdate)
+  }
+);}
+
+
+
+
+
+export const getUpdateVaultKeyMutationKey = () => ['updateVaultKey'] as const;
+
+export const getUpdateVaultKeyMutationOptions = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateVaultKey>>, TError,UpdateVaultKeyMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateVaultKey>>, TError,UpdateVaultKeyMutationVariables, TContext> => {
+
+const mutationKey = getUpdateVaultKeyMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateVaultKey>>, UpdateVaultKeyMutationVariables> = (props) => {
+          const {provider,keyId,data} = props ?? {};
+
+          return  updateVaultKey(provider,keyId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateVaultKeyMutationResult = NonNullable<Awaited<ReturnType<typeof updateVaultKey>>>
+    export type UpdateVaultKeyMutationBody = BodyType<VaultKeyUpdate>
+    export type UpdateVaultKeyMutationError = ErrorType<ApiError>
+    export type UpdateVaultKeyMutationVariables = {provider: ProviderId;keyId: string;data: BodyType<VaultKeyUpdate>}
+
+    /**
+ * @summary Update saved API key metadata and optionally its value
+ */
+export const useUpdateVaultKey = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateVaultKey>>, TError,UpdateVaultKeyMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateVaultKey>>,
+        TError,
+        UpdateVaultKeyMutationVariables,
+        TContext
+      > => {
+      return useMutation(getUpdateVaultKeyMutationOptions(options));
+    }
+
+export const getRevealVaultKeyValueUrl = (provider: ProviderId,
+    keyId: string,) => {
+
+
+
+
+  return `/api/vault/keys/${provider}/${keyId}/value`
+}
+
+/**
+ * @summary Reveal a saved API key to its authenticated owner
+ */
+export const revealVaultKeyValue = async (provider: ProviderId,
+    keyId: string, options?: Parameters<typeof customFetch>[1]): Promise<VaultKeyValue> => {
+
+  return customFetch<VaultKeyValue>(getRevealVaultKeyValueUrl(provider,keyId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getRevealVaultKeyValueQueryKey = (provider: ProviderId,
+    keyId: string,) => {
+    return [
+    `/api/vault/keys/${provider}/${keyId}/value`
+    ] as const;
+    }
+
+
+export const getRevealVaultKeyValueQueryOptions = <TData = Awaited<ReturnType<typeof revealVaultKeyValue>>, TError = ErrorType<ApiError>>(provider: ProviderId,
+    keyId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof revealVaultKeyValue>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getRevealVaultKeyValueQueryKey(provider,keyId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof revealVaultKeyValue>>> = ({ signal }) => revealVaultKeyValue(provider,keyId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: provider !== null && provider !== undefined && keyId !== null && keyId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof revealVaultKeyValue>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type RevealVaultKeyValueQueryResult = NonNullable<Awaited<ReturnType<typeof revealVaultKeyValue>>>
+export type RevealVaultKeyValueQueryError = ErrorType<ApiError>
+
+
+/**
+ * @summary Reveal a saved API key to its authenticated owner
+ */
+
+export function useRevealVaultKeyValue<TData = Awaited<ReturnType<typeof revealVaultKeyValue>>, TError = ErrorType<ApiError>>(
+ provider: ProviderId,
+    keyId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof revealVaultKeyValue>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getRevealVaultKeyValueQueryOptions(provider,keyId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getReplaceVaultKeyValueUrl = (provider: ProviderId,
     keyId: string,) => {

@@ -1009,6 +1009,102 @@
   outline:2px solid var(--app-accent);
   outline-offset:2px;
 }
+.settings-secrets-link { width:100%; min-width:0; }
+.settings-secrets-link-copy { display:grid; min-width:0; gap:3px; }
+.settings-secrets-link-copy strong { color:var(--app-text); font-weight:600; }
+.settings-secrets-link-copy small {
+  overflow-wrap:anywhere;
+  color:var(--app-secondary);
+  font-size:12px;
+  line-height:1.4;
+}
+.secrets-page-content { max-width:680px; }
+.secrets-panel { min-width:0; }
+.secrets-panel-heading h2 { font-size:20px; }
+.secrets-new-button { min-height:44px; flex:none; }
+.secrets-row {
+  align-items:flex-start;
+  gap:10px;
+  padding:14px 0;
+}
+.secrets-entry { flex:1; gap:7px; overflow-wrap:anywhere; }
+.secrets-entry strong { overflow-wrap:anywhere; }
+.secrets-entry code {
+  display:block;
+  max-width:100%;
+  overflow-wrap:anywhere;
+  white-space:normal;
+  unicode-bidi:isolate;
+}
+.secret-model-badge {
+  width:fit-content;
+  max-width:100%;
+  padding:4px 9px;
+  border:1px solid var(--app-separator);
+  border-radius:999px;
+  color:var(--app-accent-text);
+  background:var(--app-raised);
+  font-size:12px;
+}
+.secret-description { color:var(--app-secondary); font-size:13px; line-height:1.5; overflow-wrap:anywhere; }
+.secret-form-hint { color:var(--app-secondary); font-size:12px; line-height:1.5; }
+.secret-form-hint code { color:var(--app-text); font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; unicode-bidi:isolate; }
+.secrets-actions { flex:none; gap:3px; }
+.secret-success-banner {
+  display:flex;
+  align-items:center;
+  gap:9px;
+  padding:12px 14px;
+  border:1px solid color-mix(in srgb,var(--app-success) 32%,transparent);
+  border-radius:14px;
+  color:var(--app-success-text);
+  background:color-mix(in srgb,var(--app-success) 9%,var(--app-surface));
+  font-size:14px;
+}
+.secrets-empty {
+  display:grid;
+  justify-items:center;
+  gap:9px;
+  padding:34px 14px;
+  color:var(--app-secondary);
+  text-align:center;
+}
+.secrets-empty strong { color:var(--app-text); font-size:16px; }
+.secrets-empty-icon {
+  width:48px;
+  height:48px;
+  display:grid;
+  place-items:center;
+  border:1px solid var(--app-separator);
+  border-radius:16px;
+  color:var(--app-accent-text);
+  background:var(--app-raised);
+}
+.secret-sheet-field select,.secret-sheet-field textarea {
+  width:100%;
+  min-width:0;
+  box-sizing:border-box;
+  border:1px solid var(--app-separator);
+  border-radius:14px;
+  outline:none;
+  color:var(--app-text);
+  background:var(--app-raised);
+  font:14px system-ui,-apple-system,"SF Pro Text",Roboto,"Segoe UI",sans-serif;
+}
+.secret-sheet-field select { min-height:48px; padding:0 14px; }
+.secret-sheet-field textarea { min-height:86px; padding:12px 14px; resize:vertical; }
+.secret-sheet-field select:focus-visible,.secret-sheet-field textarea:focus-visible {
+  outline:2px solid var(--app-accent);
+  outline-offset:2px;
+}
+.secret-sheet-field input::placeholder,.secret-sheet-field textarea::placeholder {
+  color:var(--app-secondary);
+  opacity:.8;
+}
+.secret-existing-note { color:var(--app-danger-text); font-size:13px; }
+.secret-icon-button { min-width:42px!important; width:42px; min-height:42px!important; }
+.secret-form-sheet { max-height:min(90dvh,760px); overflow:auto; }
+.settings-screen[dir="rtl"] .settings-secrets-link .settings-preference-copy > svg { transform:none; }
 .settings-info-card {
   display:flex;
   max-width:540px;

@@ -383,6 +383,8 @@ export const ListVaultKeysResponse = zod.object({
   "id": zod.string(),
   "provider": zod.string().regex(listVaultKeysResponseKeysItemProviderRegExp),
   "label": zod.string(),
+  "modelType": zod.union([zod.literal('images'),zod.literal('video'),zod.literal('text'),zod.literal(null)]).nullable(),
+  "description": zod.string().nullable(),
   "maskedValue": zod.string(),
   "enabled": zod.boolean(),
   "createdAt": zod.number().int(),
@@ -398,16 +400,18 @@ export const ListVaultKeysResponse = zod.object({
 export const createVaultKeyBodyProviderRegExp = new RegExp('^[a-z0-9][a-z0-9-]{0,63}$');
 export const createVaultKeyBodyLabelMax = 100;
 
-
-export const createVaultKeyBodyLabelRegExp = new RegExp('^[A-Z0-9_]{1,100}$');
 export const createVaultKeyBodyValueMax = 4096;
+
+export const createVaultKeyBodyDescriptionMax = 500;
 
 
 
 export const CreateVaultKeyBody = zod.object({
-  "provider": zod.string().regex(createVaultKeyBodyProviderRegExp),
-  "label": zod.string().min(1).max(createVaultKeyBodyLabelMax).regex(createVaultKeyBodyLabelRegExp),
-  "value": zod.string().min(1).max(createVaultKeyBodyValueMax)
+  "provider": zod.string().regex(createVaultKeyBodyProviderRegExp).optional(),
+  "label": zod.string().min(1).max(createVaultKeyBodyLabelMax),
+  "value": zod.string().min(1).max(createVaultKeyBodyValueMax),
+  "modelType": zod.enum(['images', 'video', 'text']).optional(),
+  "description": zod.string().max(createVaultKeyBodyDescriptionMax).optional()
 })
 
 export const createVaultKeyResponseProviderRegExp = new RegExp('^[a-z0-9][a-z0-9-]{0,63}$');
@@ -417,6 +421,8 @@ export const CreateVaultKeyResponse = zod.object({
   "id": zod.string(),
   "provider": zod.string().regex(createVaultKeyResponseProviderRegExp),
   "label": zod.string(),
+  "modelType": zod.union([zod.literal('images'),zod.literal('video'),zod.literal('text'),zod.literal(null)]).nullable(),
+  "description": zod.string().nullable(),
   "maskedValue": zod.string(),
   "enabled": zod.boolean(),
   "createdAt": zod.number().int(),
@@ -461,6 +467,69 @@ export const DeleteVaultKeyResponse = zod.void()
 
 
 /**
+ * @summary Update saved API key metadata and optionally its value
+ */
+export const updateVaultKeyPathProviderRegExp = new RegExp('^[a-z0-9][a-z0-9-]{0,63}$');
+export const updateVaultKeyPathKeyIdMax = 128;
+
+
+
+export const UpdateVaultKeyParams = zod.object({
+  "provider": zod.coerce.string().regex(updateVaultKeyPathProviderRegExp),
+  "keyId": zod.coerce.string().min(1).max(updateVaultKeyPathKeyIdMax)
+})
+
+export const updateVaultKeyBodyLabelMax = 100;
+
+export const updateVaultKeyBodyDescriptionMax = 500;
+
+export const updateVaultKeyBodyValueMax = 4096;
+
+
+
+export const UpdateVaultKeyBody = zod.object({
+  "label": zod.string().min(1).max(updateVaultKeyBodyLabelMax),
+  "modelType": zod.enum(['images', 'video', 'text']),
+  "description": zod.string().max(updateVaultKeyBodyDescriptionMax).nullable(),
+  "value": zod.string().min(1).max(updateVaultKeyBodyValueMax).nullable()
+})
+
+export const updateVaultKeyResponseProviderRegExp = new RegExp('^[a-z0-9][a-z0-9-]{0,63}$');
+
+
+export const UpdateVaultKeyResponse = zod.object({
+  "id": zod.string(),
+  "provider": zod.string().regex(updateVaultKeyResponseProviderRegExp),
+  "label": zod.string(),
+  "modelType": zod.union([zod.literal('images'),zod.literal('video'),zod.literal('text'),zod.literal(null)]).nullable(),
+  "description": zod.string().nullable(),
+  "maskedValue": zod.string(),
+  "enabled": zod.boolean(),
+  "createdAt": zod.number().int(),
+  "status": zod.enum(['ready', 'failing', 'cooldown']),
+  "cooldownUntil": zod.number().int().nullish()
+})
+
+
+/**
+ * @summary Reveal a saved API key to its authenticated owner
+ */
+export const revealVaultKeyValuePathProviderRegExp = new RegExp('^[a-z0-9][a-z0-9-]{0,63}$');
+export const revealVaultKeyValuePathKeyIdMax = 128;
+
+
+
+export const RevealVaultKeyValueParams = zod.object({
+  "provider": zod.coerce.string().regex(revealVaultKeyValuePathProviderRegExp),
+  "keyId": zod.coerce.string().min(1).max(revealVaultKeyValuePathKeyIdMax)
+})
+
+export const RevealVaultKeyValueResponse = zod.object({
+  "value": zod.string()
+})
+
+
+/**
  * @summary Replace a saved API key value
  */
 export const replaceVaultKeyValuePathProviderRegExp = new RegExp('^[a-z0-9][a-z0-9-]{0,63}$');
@@ -488,6 +557,8 @@ export const ReplaceVaultKeyValueResponse = zod.object({
   "id": zod.string(),
   "provider": zod.string().regex(replaceVaultKeyValueResponseProviderRegExp),
   "label": zod.string(),
+  "modelType": zod.union([zod.literal('images'),zod.literal('video'),zod.literal('text'),zod.literal(null)]).nullable(),
+  "description": zod.string().nullable(),
   "maskedValue": zod.string(),
   "enabled": zod.boolean(),
   "createdAt": zod.number().int(),

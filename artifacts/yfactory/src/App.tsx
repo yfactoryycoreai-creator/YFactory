@@ -1094,6 +1094,7 @@ function ProtectedSettings() {
   return (
     <SettingsPage
       user={{
+        uid: user?.uid ?? null,
         displayName: user?.displayName ?? null,
         email: user?.email ?? null,
         photoURL: user?.photoURL ?? null,

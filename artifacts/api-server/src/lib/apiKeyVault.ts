@@ -36,6 +36,7 @@ export type ProviderConfig = {
   secretFallback?: string;
 };
 export type ProviderKeyStatus = "ready" | "failing" | "cooldown";
+export type SecretModelType = "images" | "video" | "text";
 
 type EncryptedFields = {
   iv: string;
@@ -45,6 +46,8 @@ type EncryptedFields = {
 
 type StoredKey = DocumentData & {
   label?: unknown;
+  modelType?: unknown;
+  description?: unknown;
   enabled?: unknown;
   createdAt?: unknown;
   failureStatus?: unknown;
@@ -58,6 +61,8 @@ export type VaultKeyMetadata = {
   id: string;
   provider: ProviderKey;
   label: string;
+  modelType: SecretModelType | null;
+  description: string | null;
   maskedValue: string;
   enabled: boolean;
   createdAt: number;
@@ -71,8 +76,9 @@ export type GenerationKey = {
 };
 
 export function providerForSecretName(name: string): "agnes" | "glm" | "gemini" | "custom" {
-  if (/^GEMINI_/.test(name.trim())) return "gemini";
-  const match = /^(AGNES|GLM)_API_KEY(?:_([1-9]\d*))?$/.exec(name.trim());
+  const normalizedName = name.trim().toUpperCase();
+  if (/^GEMINI_/.test(normalizedName)) return "gemini";
+  const match = /^(AGNES|GLM)_API_KEY(?:_([1-9]\d*))?$/.exec(normalizedName);
   if (match?.[1] === "AGNES") return "agnes";
   if (match?.[1] === "GLM") return "glm";
   return "custom";
@@ -249,6 +255,12 @@ function metadataFromSnapshot(
     id: snapshot.id,
     provider,
     label: typeof data.label === "string" ? data.label : "API key",
+    modelType: data.modelType === "images" || data.modelType === "video" || data.modelType === "text"
+      ? data.modelType
+      : null,
+    description: typeof data.description === "string" && data.description.trim()
+      ? data.description
+      : null,
     maskedValue: secret.length > 4 ? `••••••${secret.slice(-4)}` : "••••",
     enabled: data.enabled === true,
     createdAt: createdAtMillis(data.createdAt),
@@ -371,11 +383,15 @@ export async function createVaultKey(
   provider: ProviderKey,
   label: string,
   value: string,
+  modelType: SecretModelType | null = null,
+  description: string | null = null,
 ): Promise<VaultKeyMetadata> {
   const keyRef = userProviderKeysCollection(uid, provider).doc();
   const { db } = getFirebaseAdmin();
   await keyRef.set({
     label: label.trim(),
+    modelType,
+    description: description?.trim() || null,
     enabled: true,
     createdAt: FieldValue.serverTimestamp(),
     ...encryptValue(value.trim()),
@@ -402,6 +418,48 @@ export async function updateVaultKeyValue(
   });
   const updated = await keyRef.get();
   return metadataFromSnapshot(updated as QueryDocumentSnapshot, provider);
+}
+
+export async function updateVaultKey(
+  uid: string,
+  provider: ProviderKey,
+  keyId: string,
+  input: {
+    label: string;
+    modelType: SecretModelType;
+    description: string | null;
+    value: string | null;
+  },
+): Promise<VaultKeyMetadata | null> {
+  const keyRef = userProviderKeysCollection(uid, provider).doc(keyId);
+  const snapshot = await keyRef.get();
+  if (!snapshot.exists) return null;
+
+  await keyRef.update({
+    label: input.label.trim(),
+    modelType: input.modelType,
+    description: input.description?.trim() || null,
+    ...(input.value
+      ? {
+          ...encryptValue(input.value.trim()),
+          enabled: true,
+          failureStatus: FieldValue.delete(),
+          cooldownUntil: FieldValue.delete(),
+        }
+      : {}),
+  });
+  const updated = await keyRef.get();
+  return metadataFromSnapshot(updated as QueryDocumentSnapshot, provider);
+}
+
+export async function getVaultKeyValue(
+  uid: string,
+  provider: ProviderKey,
+  keyId: string,
+): Promise<string | null> {
+  const snapshot = await userProviderKeysCollection(uid, provider).doc(keyId).get();
+  if (!snapshot.exists) return null;
+  return decryptValue(snapshot.data() as StoredKey);
 }
 
 export async function deleteVaultKey(

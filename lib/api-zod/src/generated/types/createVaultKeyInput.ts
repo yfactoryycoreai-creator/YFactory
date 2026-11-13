@@ -5,14 +5,14 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { CreateVaultKeyInputModelType } from './createVaultKeyInputModelType';
 import type { ProviderId } from './providerId';
 
 export interface CreateVaultKeyInput {
-  provider: ProviderId;
+  provider?: ProviderId;
   /**
      * @minLength 1
      * @maxLength 100
-     * @pattern ^[A-Z0-9_]{1,100}$
      */
   label: string;
   /**
@@ -20,4 +20,7 @@ export interface CreateVaultKeyInput {
      * @maxLength 4096
      */
   value: string;
+  modelType?: CreateVaultKeyInputModelType;
+  /** @maxLength 500 */
+  description?: string;
 }

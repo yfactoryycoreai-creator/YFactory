@@ -1,5 +1,6 @@
 export type ProviderKey = string;
 export type ProviderKeyStatus = 'ready' | 'failing' | 'cooldown';
+export type SecretModelType = 'images' | 'video' | 'text';
 
 export type ProviderAdapter =
   | 'agnes'
@@ -32,6 +33,8 @@ export type VaultKey = {
   id: string;
   provider: ProviderKey;
   label: string;
+  modelType: SecretModelType | null;
+  description: string | null;
   maskedValue: string;
   enabled: boolean;
   createdAt: number;
@@ -114,7 +117,12 @@ export async function loadKeyPoolStatus(idToken: string): Promise<KeyPoolProvide
 
 export function createVaultKey(
   idToken: string,
-  input: { provider: ProviderKey; label: string; value: string },
+  input: {
+    label: string;
+    value: string;
+    modelType: SecretModelType;
+    description: string;
+  },
 ): Promise<VaultKey> {
   return vaultRequest<VaultKey>(idToken, '/api/vault/keys', {
     method: 'POST',
@@ -122,19 +130,34 @@ export function createVaultKey(
   });
 }
 
-export function replaceVaultKeyValue(
+export function updateVaultKeyMetadata(
   idToken: string,
   key: Pick<VaultKey, 'provider' | 'id'>,
-  value: string,
+  input: {
+    label: string;
+    modelType: SecretModelType;
+    description: string | null;
+    value: string | null;
+  },
 ): Promise<VaultKey> {
   return vaultRequest<VaultKey>(
     idToken,
-    `/api/vault/keys/${encodeURIComponent(key.provider)}/${encodeURIComponent(key.id)}/value`,
+    `/api/vault/keys/${encodeURIComponent(key.provider)}/${encodeURIComponent(key.id)}`,
     {
-      method: 'PUT',
-      body: JSON.stringify({ value }),
+      method: 'PATCH',
+      body: JSON.stringify(input),
     },
   );
+}
+
+export function revealVaultKeyValue(
+  idToken: string,
+  key: Pick<VaultKey, 'provider' | 'id'>,
+): Promise<string> {
+  return vaultRequest<{ value: string }>(
+    idToken,
+    `/api/vault/keys/${encodeURIComponent(key.provider)}/${encodeURIComponent(key.id)}/value`,
+  ).then((result) => result.value);
 }
 
 export async function deleteVaultKey(

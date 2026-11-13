@@ -9,6 +9,7 @@ import {
   HardDrive,
   Info,
   LogOut,
+  LockKeyhole,
   Moon,
   Sparkles,
   ShieldCheck,
@@ -28,6 +29,7 @@ import {
 import './auth-pages.css';
 
 export type SettingsUser = {
+  uid: string | null;
   displayName: string | null;
   email: string | null;
   photoURL: string | null;
@@ -67,7 +69,7 @@ export default function SettingsPage({
   const [keyPoolStatus, setKeyPoolStatus] = useState<KeyPoolProviderStatus[] | null>(null);
   const [keyPoolStatusError, setKeyPoolStatusError] = useState('');
   const [cloudinaryEnabled, setCloudinaryEnabled] = useState(true);
-  const [settingsSubview, setSettingsSubview] = useState<'about' | 'premium' | null>(null);
+  const [settingsSubview, setSettingsSubview] = useState<'about' | 'premium' | 'secrets' | null>(null);
   const signOutDialogRef = useRef<ConfirmActionDialogHandle | null>(null);
   const deleteAccountDialogRef = useRef<ConfirmActionDialogHandle | null>(null);
   const displayName = user.displayName || user.email || t('settings.creator');
@@ -127,7 +129,41 @@ export default function SettingsPage({
     };
   }, [getIdToken, t]);
 
-  if (settingsSubview) {
+  if (settingsSubview === 'secrets') {
+    return (
+      <main className="auth-screen settings-screen" dir={isRtl ? 'rtl' : 'ltr'}>
+        <div className="settings-shell">
+          <header className="settings-topbar">
+            <button
+              className="settings-back"
+              type="button"
+              onClick={() => setSettingsSubview(null)}
+              data-testid="button-secrets-back"
+            >
+              <ArrowLeft size={17} aria-hidden="true" />
+              <span>{t('settings.backToSettings')}</span>
+            </button>
+            <div className="settings-brand" aria-label="YFactory">
+              <span className="settings-brand-mark">Y</span>
+              <span>YFactory</span>
+            </div>
+            <span className="settings-back-spacer" aria-hidden="true" />
+          </header>
+          <div className="settings-content secrets-page-content">
+            <div className="settings-heading">
+              <div>
+                <h1>{t('settings.secretsTitle')}</h1>
+                <p>{t('settings.secretsPageDescription')}</p>
+              </div>
+            </div>
+            <SecretsPanel userId={user.uid} getIdToken={getIdToken} />
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  if (settingsSubview === 'about' || settingsSubview === 'premium') {
     const isPremium = settingsSubview === 'premium';
     return (
       <main className="auth-screen settings-screen" dir={isRtl ? 'rtl' : 'ltr'}>
@@ -236,7 +272,23 @@ export default function SettingsPage({
             </div>
           </section>
 
-          <SecretsPanel getIdToken={getIdToken} />
+          <section className="settings-preferences-panel" aria-label={t('settings.secretsTitle')}>
+            <button
+              className="settings-preference-link settings-secrets-link"
+              type="button"
+              onClick={() => setSettingsSubview('secrets')}
+              data-testid="button-open-secrets"
+            >
+              <span className="settings-preference-copy">
+                <LockKeyhole size={19} aria-hidden="true" />
+                <span className="settings-secrets-link-copy">
+                  <strong>{t('settings.secretsTitle')}</strong>
+                  <small>{t('settings.secretsEntryDescription')}</small>
+                </span>
+              </span>
+              <ChevronRight size={18} aria-hidden="true" />
+            </button>
+          </section>
 
           <section className="settings-preferences-panel" aria-label={t('settings.preferences')}>
             <div className="settings-preference-row">

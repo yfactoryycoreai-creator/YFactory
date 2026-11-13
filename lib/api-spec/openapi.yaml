@@ -488,7 +488,7 @@ paths:
         - FirebaseBearerAuth: []
       responses:
         "200":
-          description: Masked key metadata; secret values are never returned.
+          description: Masked key metadata; secret values are not returned.
           content:
             application/json:
               schema:
@@ -579,6 +579,43 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
+    patch:
+      operationId: updateVaultKey
+      tags: [vault]
+      summary: Update saved API key metadata and optionally its value
+      security:
+        - FirebaseBearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VaultKeyUpdate"
+      responses:
+        "200":
+          description: Updated masked key metadata.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VaultKey"
+        "400":
+          description: Invalid key metadata.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: Missing or invalid Firebase ID token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Key not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
   /vault/keys/{provider}/{keyId}/value:
     parameters:
       - name: provider
@@ -593,6 +630,31 @@ paths:
           type: string
           minLength: 1
           maxLength: 128
+    get:
+      operationId: revealVaultKeyValue
+      tags: [vault]
+      summary: Reveal a saved API key to its authenticated owner
+      security:
+        - FirebaseBearerAuth: []
+      responses:
+        "200":
+          description: The decrypted value for the authenticated user's key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VaultKeyValue"
+        "401":
+          description: Missing or invalid Firebase ID token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Key not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
     put:
       operationId: replaceVaultKeyValue
       tags: [vault]
@@ -985,6 +1047,11 @@ components:
           $ref: "#/components/schemas/ProviderId"
         label:
           type: string
+        modelType:
+          type: ["string", "null"]
+          enum: [images, video, text, null]
+        description:
+          type: ["string", "null"]
         maskedValue:
           type: string
         enabled:
@@ -998,7 +1065,7 @@ components:
         cooldownUntil:
           type: ["integer", "null"]
           format: int64
-      required: [id, provider, label, maskedValue, enabled, createdAt, status]
+      required: [id, provider, label, modelType, description, maskedValue, enabled, createdAt, status]
     VaultKeyList:
       type: object
       properties:
@@ -1016,12 +1083,41 @@ components:
           type: string
           minLength: 1
           maxLength: 100
-          pattern: '^[A-Z0-9_]{1,100}$'
         value:
           type: string
           minLength: 1
           maxLength: 4096
-      required: [provider, label, value]
+        modelType:
+          type: string
+          enum: [images, video, text]
+        description:
+          type: string
+          maxLength: 500
+      required: [label, value]
+    VaultKeyUpdate:
+      type: object
+      properties:
+        label:
+          type: string
+          minLength: 1
+          maxLength: 100
+        modelType:
+          type: string
+          enum: [images, video, text]
+        description:
+          type: ["string", "null"]
+          maxLength: 500
+        value:
+          type: ["string", "null"]
+          minLength: 1
+          maxLength: 4096
+      required: [label, modelType, description, value]
+    VaultKeyValue:
+      type: object
+      properties:
+        value:
+          type: string
+      required: [value]
     ReplaceVaultKeyValueInput:
       type: object
       properties:
