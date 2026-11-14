@@ -5,10 +5,12 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { ProviderId } from './providerId';
 import type { VaultKeyUpdateModelType } from './vaultKeyUpdateModelType';
 import type { VaultKeyUpdateUsage } from './vaultKeyUpdateUsage';
 
 export interface VaultKeyUpdate {
+  provider?: ProviderId;
   /**
      * @minLength 1
      * @maxLength 100

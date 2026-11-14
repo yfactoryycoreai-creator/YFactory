@@ -2,14 +2,17 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import {
+  ArrowLeft,
   Check,
   Copy,
   Eye,
   EyeOff,
-  LockKeyhole,
+  Layers,
   LoaderCircle,
   Pencil,
+  MoreVertical,
   Plus,
+  Search,
   Trash2,
   X,
 } from 'lucide-react';
@@ -17,10 +20,12 @@ import ConfirmActionDialog, {
   type ConfirmActionDialogHandle,
 } from '@/components/confirm-action-dialog';
 import {
+  addVaultKeyModel,
   createVaultKey,
   deleteVaultKey,
   loadVaultKeys,
   loadVaultProviders,
+  removeVaultKeyModel,
   revealVaultKeyValue,
   updateVaultKeyMetadata,
   type VaultKey,
@@ -30,6 +35,7 @@ import {
 type SecretsPanelProps = {
   userId: string | null;
   getIdToken?: () => Promise<string>;
+  initialModelTarget?: Pick<VaultKey, 'provider' | 'id'> | null;
 };
 
 type SecretFormMode = 'create' | 'edit' | null;
@@ -43,16 +49,19 @@ function keyOrder(left: VaultKey, right: VaultKey): number {
   );
 }
 
-function ProviderAvatar({ keyEntry }: { keyEntry: VaultKey }) {
-  const name = keyEntry.providerName ?? keyEntry.modelName ?? keyEntry.label;
+function ProviderAvatar() {
   return (
     <span className="secret-provider-avatar" aria-hidden="true">
-      {Array.from(name.trim())[0]?.toLocaleUpperCase() ?? '•'}
+      <Layers size={21} />
     </span>
   );
 }
 
-export default function SecretsPanel({ userId, getIdToken }: SecretsPanelProps) {
+export default function SecretsPanel({
+  userId,
+  getIdToken,
+  initialModelTarget,
+}: SecretsPanelProps) {
   const { t, i18n } = useTranslation();
   const isRtl = (i18n.resolvedLanguage ?? i18n.language).startsWith('ar');
   const deleteDialogRef = useRef<ConfirmActionDialogHandle | null>(null);
@@ -78,6 +87,15 @@ export default function SecretsPanel({ userId, getIdToken }: SecretsPanelProps) 
   const revealTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [revealingId, setRevealingId] = useState<string | null>(null);
   const [actionError, setActionError] = useState('');
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [activeModelsTarget, setActiveModelsTarget] =
+    useState<Pick<VaultKey, 'provider' | 'id'> | null>(null);
+  const [modelSearch, setModelSearch] = useState('');
+  const [manualModelOpen, setManualModelOpen] = useState(false);
+  const [manualModelId, setManualModelId] = useState('');
+  const [modelBusy, setModelBusy] = useState(false);
+  const [modelError, setModelError] = useState('');
+  const handledInitialTargetRef = useRef<string | null>(null);
   const userIdRef = useRef(userId);
   userIdRef.current = userId;
 
@@ -93,6 +111,10 @@ export default function SecretsPanel({ userId, getIdToken }: SecretsPanelProps) 
     setEditingKey(null);
     setProviderInput('');
     setValue('');
+    setActiveModelsTarget(null);
+    setOpenMenuId(null);
+    setManualModelOpen(false);
+    setManualModelId('');
     setPendingDelete(null);
     setPendingDeleteOwnerId(null);
     setLoading(true);
@@ -166,6 +188,32 @@ export default function SecretsPanel({ userId, getIdToken }: SecretsPanelProps) 
   );
   const providerIsUnsupported = Boolean(providerQuery) && !providerMatches;
   const hasReachedSecretLimit = visibleKeys.length >= MAX_SECRET_COUNT;
+  const activeModelsKey = activeModelsTarget
+    ? visibleKeys.find((key) =>
+        key.provider === activeModelsTarget.provider && key.id === activeModelsTarget.id,
+      ) ?? null
+    : null;
+  const visibleModels = (activeModelsKey?.models ?? []).filter((model) =>
+    model.toLocaleLowerCase().includes(modelSearch.trim().toLocaleLowerCase()),
+  );
+
+  useEffect(() => {
+    if (!initialModelTarget || keysOwnerId !== userId) return;
+    const targetKey = `${userId}:${initialModelTarget.provider}:${initialModelTarget.id}`;
+    if (handledInitialTargetRef.current === targetKey) return;
+    const target = visibleKeys.find((key) =>
+      key.provider === initialModelTarget.provider && key.id === initialModelTarget.id,
+    );
+    if (!target) return;
+    handledInitialTargetRef.current = targetKey;
+    setActiveModelsTarget({ provider: target.provider, id: target.id });
+  }, [
+    initialModelTarget?.provider,
+    initialModelTarget?.id,
+    keysOwnerId,
+    userId,
+    visibleKeys,
+  ]);
 
   const resetForm = () => {
     setFormMode(null);
@@ -179,12 +227,28 @@ export default function SecretsPanel({ userId, getIdToken }: SecretsPanelProps) 
 
   const openNewSecret = () => {
     resetForm();
+    setActiveModelsTarget(null);
+    setOpenMenuId(null);
     setStatusMessage('');
     setFormOwnerId(userId);
     setFormMode('create');
   };
 
+  const openModels = (key: VaultKey) => {
+    setOpenMenuId(null);
+    setModelSearch('');
+    setManualModelOpen(false);
+    setManualModelId('');
+    setModelError('');
+    if (!key.providerName) {
+      openEditSecret(key);
+      return;
+    }
+    setActiveModelsTarget({ provider: key.provider, id: key.id });
+  };
+
   const openEditSecret = (key: VaultKey) => {
+    setOpenMenuId(null);
     setEditingKey(key);
     setProviderInput(key.providerName ?? '');
     setValue('');
@@ -195,11 +259,71 @@ export default function SecretsPanel({ userId, getIdToken }: SecretsPanelProps) 
     setFormMode('edit');
   };
 
+  const replaceKey = (previous: VaultKey, updated: VaultKey) => {
+    setKeys((current) =>
+      current.map((key) =>
+        key.id === previous.id && key.provider === previous.provider ? updated : key,
+      ).sort(keyOrder),
+    );
+  };
+
+  const saveManualModel = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!activeModelsKey || !getIdToken || modelBusy) return;
+    const modelId = manualModelId.trim();
+    setModelError('');
+    if (!modelId || modelId.length > 200) {
+      setModelError(t('settings.modelIdInvalid'));
+      return;
+    }
+    if (activeModelsKey.models.includes(modelId)) {
+      setModelError(t('settings.modelAlreadySaved'));
+      return;
+    }
+    setModelBusy(true);
+    try {
+      const updated = await addVaultKeyModel(
+        await getIdToken(),
+        activeModelsKey,
+        modelId,
+      );
+      replaceKey(activeModelsKey, updated);
+      setManualModelId('');
+      setManualModelOpen(false);
+      setStatusMessage(t('settings.modelSaved'));
+    } catch {
+      setModelError(t('settings.modelSaveFailed'));
+    } finally {
+      setModelBusy(false);
+    }
+  };
+
+  const removeSavedModel = async (modelId: string) => {
+    if (!activeModelsKey || !getIdToken || modelBusy) return;
+    setModelBusy(true);
+    setModelError('');
+    try {
+      const updated = await removeVaultKeyModel(
+        await getIdToken(),
+        activeModelsKey,
+        modelId,
+      );
+      replaceKey(activeModelsKey, updated);
+      setStatusMessage(t('settings.modelRemoved'));
+    } catch {
+      setModelError(t('settings.modelRemoveFailed'));
+    } finally {
+      setModelBusy(false);
+    }
+  };
+
   const handleSaveSecret = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (formOwnerId !== userIdRef.current || !formMode) return;
     const requestedUserId = userIdRef.current;
-    if (formMode === 'create' && !selectedProvider) {
+    const needsProvider = formMode === 'create' ||
+      (formMode === 'edit' && Boolean(editingKey && !editingKey.providerName));
+    if (needsProvider && !selectedProvider) {
       setFormError(providerIsUnsupported
         ? t('settings.notSupportedYet')
         : t('settings.providerRequired'));
@@ -226,11 +350,12 @@ export default function SecretsPanel({ userId, getIdToken }: SecretsPanelProps) 
       if (formMode === 'edit' && editingKey) {
         const updatedKey = await updateVaultKeyMetadata(token, editingKey, {
           value: value.trim() || null,
+          ...(!editingKey.providerName && selectedProvider
+            ? { provider: selectedProvider.id }
+            : {}),
         });
         if (userIdRef.current !== requestedUserId) return;
-        setKeys((current) =>
-          current.map((key) => key.id === editingKey.id ? updatedKey : key).sort(keyOrder),
-        );
+        replaceKey(editingKey, updatedKey);
         if (revealedValue?.id === editingKey.id) setRevealedValue(null);
         setStatusMessage(t('settings.secretUpdated'));
       } else {
@@ -243,6 +368,7 @@ export default function SecretsPanel({ userId, getIdToken }: SecretsPanelProps) 
         });
         if (userIdRef.current !== requestedUserId) return;
         setKeys((current) => [...current, savedKey].sort(keyOrder));
+        setActiveModelsTarget({ provider: savedKey.provider, id: savedKey.id });
         setStatusMessage(t('settings.secretSaved'));
       }
       resetForm();
@@ -333,16 +459,116 @@ export default function SecretsPanel({ userId, getIdToken }: SecretsPanelProps) 
 
   return (
     <section className="secrets-panel" aria-labelledby="api-keys-title">
-      <header className="secrets-panel-heading">
-        <div className="api-keys-title-block">
-          <span className="api-keys-title-icon" aria-hidden="true">
-            <LockKeyhole size={25} />
-          </span>
-          <div className="api-keys-title-copy">
-            <h1 id="api-keys-title">{t('settings.apiKeysTitle')}</h1>
-            <p>{t('settings.apiKeysEntryDescription')}</p>
-          </div>
+      {activeModelsKey ? (
+        <div className="api-key-models-screen" dir={isRtl ? 'rtl' : 'ltr'}>
+          <header className="api-key-models-heading">
+            <button
+              className="secret-screen-back"
+              type="button"
+              onClick={() => {
+                setActiveModelsTarget(null);
+                setModelError('');
+                setManualModelOpen(false);
+                setManualModelId('');
+              }}
+            >
+              <ArrowLeft size={19} aria-hidden="true" />
+              <span>{t('settings.backToApiKeys')}</span>
+            </button>
+            <h1>{activeModelsKey.providerName}</h1>
+          </header>
+          <label className="secret-model-search">
+            <Search size={19} aria-hidden="true" />
+            <input
+              type="search"
+              value={modelSearch}
+              onChange={(event) => setModelSearch(event.currentTarget.value)}
+              placeholder={t('settings.searchModels')}
+              aria-label={t('settings.searchModels')}
+              dir="ltr"
+            />
+          </label>
+          {modelError && <p className="secret-error-line" role="alert">{modelError}</p>}
+          {statusMessage && <p className="secret-status-line" role="status">{statusMessage}</p>}
+          <ul className="secret-model-list" aria-label={t('settings.savedModels')}>
+            {visibleModels.length === 0 ? (
+              <li className="secret-model-empty">{t('settings.noSavedModels')}</li>
+            ) : visibleModels.map((modelId) => (
+              <li key={modelId}>
+                <code dir="ltr">{modelId}</code>
+                <button
+                  className="secret-model-selected"
+                  type="button"
+                  disabled={!getIdToken || modelBusy}
+                  aria-label={t('settings.removeModelAria', { model: modelId })}
+                  onClick={() => void removeSavedModel(modelId)}
+                >
+                  {modelBusy
+                    ? <LoaderCircle className="loading-spinner" size={18} aria-hidden="true" />
+                    : <Check size={19} aria-hidden="true" />}
+                </button>
+              </li>
+            ))}
+          </ul>
+          {manualModelOpen ? (
+            <form className="secret-manual-model-form" onSubmit={(event) => void saveManualModel(event)}>
+              <label className="secret-sheet-field">
+                <span>{t('settings.modelIdLabel')}</span>
+                <input
+                  autoFocus
+                  value={manualModelId}
+                  maxLength={200}
+                  autoComplete="off"
+                  spellCheck={false}
+                  dir="ltr"
+                  placeholder={t('settings.modelIdPlaceholder')}
+                  onChange={(event) => {
+                    setManualModelId(event.currentTarget.value);
+                    setModelError('');
+                  }}
+                />
+              </label>
+              <div className="secret-sheet-actions">
+                <button
+                  className="confirmation-button confirmation-cancel"
+                  type="button"
+                  disabled={modelBusy}
+                  onClick={() => {
+                    setManualModelOpen(false);
+                    setManualModelId('');
+                    setModelError('');
+                  }}
+                >
+                  {t('settings.cancel')}
+                </button>
+                <button
+                  className="confirmation-button confirmation-secret-save"
+                  type="submit"
+                  disabled={!getIdToken || modelBusy || !manualModelId.trim()}
+                >
+                  {modelBusy && <LoaderCircle className="confirmation-spinner" size={17} aria-hidden="true" />}
+                  {t('settings.addModel')}
+                </button>
+              </div>
+            </form>
+          ) : (
+            <button
+              className="secret-add-model-button"
+              type="button"
+              onClick={() => {
+                setManualModelOpen(true);
+                setModelError('');
+              }}
+            >
+              <Plus size={19} aria-hidden="true" />
+              {t('settings.addModelManually')}
+            </button>
+          )}
         </div>
+      ) : (
+      <>
+      <header className="secrets-panel-heading">
+        <h1 id="api-keys-title">{t('settings.apiKeysTitle')}</h1>
         <button
           className="factory-primary-button secrets-new-button"
           type="button"
@@ -352,7 +578,7 @@ export default function SecretsPanel({ userId, getIdToken }: SecretsPanelProps) 
           data-testid="button-new-api-key"
         >
           <Plus size={17} aria-hidden="true" />
-          {t('settings.newApiKey')}
+          {t('settings.newSecret')}
         </button>
       </header>
 
@@ -371,109 +597,133 @@ export default function SecretsPanel({ userId, getIdToken }: SecretsPanelProps) 
       <ul className="secrets-list" aria-label={t('settings.savedApiKeys')}>
         {loadingForUser && <li className="secrets-empty">{t('settings.loadingKeys')}</li>}
         {!loadingForUser && visibleKeys.length === 0 && !loadError && (
-          <li className="secrets-empty">
+          <li className="secrets-empty-state">
+            <div className="secrets-empty-shield" aria-hidden="true">
+              <svg viewBox="0 0 160 160" fill="none">
+                <ellipse cx="80" cy="84" rx="71" ry="29" transform="rotate(-25 80 84)" stroke="currentColor" strokeWidth="2" opacity=".5" />
+                <path d="M80 20 119 36v31c0 28-15 48-39 63C56 115 41 95 41 67V36l39-16Z" fill="currentColor" fillOpacity=".12" />
+                <path d="M80 20 119 36v31c0 28-15 48-39 63C56 115 41 95 41 67V36l39-16Z" stroke="currentColor" strokeWidth="5" />
+                <rect x="64" y="69" width="32" height="27" rx="6" fill="currentColor" />
+                <path d="M70 69V59a10 10 0 0 1 20 0v10" stroke="currentColor" strokeWidth="6" strokeLinecap="round" />
+                <circle cx="80" cy="81" r="3" fill="var(--app-bg)" />
+                <path d="M80 84v6" stroke="var(--app-bg)" strokeWidth="3" strokeLinecap="round" />
+                <circle cx="23" cy="107" r="4" fill="currentColor" />
+                <circle cx="133" cy="55" r="4" fill="currentColor" />
+              </svg>
+            </div>
             <strong>{t('settings.emptyKeysTitle')}</strong>
             <span>{t('settings.emptyKeys')}</span>
+            <button
+              className="factory-primary-button secrets-empty-new-button"
+              type="button"
+              onClick={openNewSecret}
+              disabled={!getIdToken || loadingForUser}
+            >
+              <Plus size={17} aria-hidden="true" />
+              {t('settings.newSecret')}
+            </button>
           </li>
         )}
-        {visibleKeys.map((key) => (
-          <li className="secrets-row" key={`${key.provider}:${key.id}`}>
-            <ProviderAvatar keyEntry={key} />
-            <div className="secrets-entry">
-              <div className="secret-card-heading">
-                <strong dir="ltr">{key.modelName ?? key.providerName ?? key.label}</strong>
-                <span className="secret-model-badge">
-                  {key.modelName && key.usage
-                    ? t(`settings.usage${key.usage[0].toUpperCase()}${key.usage.slice(1)}`)
-                    : key.modelName && key.modelType
-                      ? t(`settings.modelTypes.${key.modelType}`)
-                      : t('settings.noModelsYet')}
-                </span>
+        {visibleKeys.map((key) => {
+          const menuId = `${key.provider}:${key.id}`;
+          const displayName = key.providerName ?? key.modelName ?? key.label;
+          return (
+            <li className="secrets-row" key={menuId}>
+              <ProviderAvatar />
+              <div className="secrets-entry">
+                <strong dir="ltr">{displayName}</strong>
+                <code dir="ltr">
+                  {revealedValue?.id === key.id ? revealedValue.value : key.maskedValue}
+                </code>
               </div>
-              <code dir="ltr">
-                {revealedValue?.id === key.id ? revealedValue.value : key.maskedValue}
-              </code>
-              {!key.modelName && !key.providerName && (
-                <small className="secret-form-hint">{t('settings.editToFinishSetup')}</small>
-              )}
-              {key.usage === 'chat' && !key.chatSupported && (
-                <small className="secret-unsupported-note">{t('settings.notSupportedYet')}</small>
-              )}
-            </div>
-            <div className="secrets-actions">
-              <button
-                className="secret-icon-button"
-                type="button"
-                disabled={!getIdToken || deletingId === key.id || revealingId === key.id}
-                aria-label={revealedValue?.id === key.id
-                  ? t('settings.hideSecretValue')
-                  : t('settings.showSecretValue')}
-                onClick={() => void toggleSecretVisibility(key)}
-                data-testid={`button-reveal-secret-${key.id}`}
-              >
-                {revealingId === key.id
-                  ? <LoaderCircle className="loading-spinner" size={17} aria-hidden="true" />
-                  : revealedValue?.id === key.id
-                    ? <EyeOff size={17} aria-hidden="true" />
-                    : <Eye size={17} aria-hidden="true" />}
-              </button>
-              <button
-                className="secret-icon-button"
-                type="button"
-                disabled={!getIdToken || deletingId === key.id || revealingId === key.id}
-                aria-label={t('settings.copySecretValue')}
-                onClick={() => void copySecretValue(key)}
-                data-testid={`button-copy-secret-${key.id}`}
-              >
-                {revealingId === key.id
-                  ? <LoaderCircle className="loading-spinner" size={17} aria-hidden="true" />
-                  : <Copy size={17} aria-hidden="true" />}
-              </button>
-              <button
-                className="secret-icon-button"
-                type="button"
-                disabled={!getIdToken || deletingId === key.id}
-                aria-label={t('settings.editSecretAria', { name: key.label })}
-                onClick={() => openEditSecret(key)}
-                data-testid={`button-edit-secret-${key.id}`}
-              >
-                <Pencil size={17} aria-hidden="true" />
-              </button>
-              <button
-                className="secret-icon-button secrets-delete-button"
-                type="button"
-                disabled={!getIdToken || deletingId === key.id}
-                aria-label={t('settings.deleteSecretAria', { name: key.label })}
-                aria-busy={deletingId === key.id}
-                onClick={() => {
-                  setPendingDelete(key);
-                  setPendingDeleteOwnerId(userId);
-                  deleteDialogRef.current?.open(
-                    t('settings.confirmDeleteSecret', { name: key.label }),
-                  );
-                }}
-                data-testid={`button-delete-secret-${key.id}`}
-              >
-                {deletingId === key.id
-                  ? <LoaderCircle className="loading-spinner" size={17} aria-hidden="true" />
-                  : <Trash2 size={17} aria-hidden="true" />}
-              </button>
-            </div>
-          </li>
-        ))}
+              <div className="secrets-actions">
+                <button
+                  className="secret-icon-button"
+                  type="button"
+                  disabled={!getIdToken || deletingId === key.id || revealingId === key.id}
+                  aria-label={revealedValue?.id === key.id
+                    ? t('settings.hideSecretValue')
+                    : t('settings.showSecretValue')}
+                  onClick={() => void toggleSecretVisibility(key)}
+                  data-testid={`button-reveal-secret-${key.id}`}
+                >
+                  {revealingId === key.id
+                    ? <LoaderCircle className="loading-spinner" size={17} aria-hidden="true" />
+                    : revealedValue?.id === key.id
+                      ? <EyeOff size={17} aria-hidden="true" />
+                      : <Eye size={17} aria-hidden="true" />}
+                </button>
+                <div className="secret-menu-wrap">
+                  <button
+                    className="secret-icon-button"
+                    type="button"
+                    disabled={!getIdToken || deletingId === key.id}
+                    aria-label={t('settings.apiKeyActions')}
+                    aria-haspopup="menu"
+                    aria-expanded={openMenuId === menuId}
+                    onClick={() => setOpenMenuId((current) => current === menuId ? null : menuId)}
+                    data-testid={`button-api-key-menu-${key.id}`}
+                  >
+                    <MoreVertical size={18} aria-hidden="true" />
+                  </button>
+                  {openMenuId === menuId && (
+                    <div className="secret-action-menu" role="menu">
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => openEditSecret(key)}
+                      >
+                        <Pencil size={17} aria-hidden="true" />
+                        {t('settings.apiKeyMenuEdit')}
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        disabled={!key.providerName}
+                        onClick={() => openModels(key)}
+                      >
+                        <Layers size={17} aria-hidden="true" />
+                        {t('settings.showModels')}
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        disabled={!getIdToken || revealingId === key.id}
+                        onClick={() => {
+                          setOpenMenuId(null);
+                          void copySecretValue(key);
+                        }}
+                      >
+                        <Copy size={17} aria-hidden="true" />
+                        {t('settings.copyKeyAction')}
+                      </button>
+                      <button
+                        className="secret-action-delete"
+                        type="button"
+                        role="menuitem"
+                        disabled={!getIdToken || deletingId === key.id}
+                        onClick={() => {
+                          setOpenMenuId(null);
+                          setPendingDelete(key);
+                          setPendingDeleteOwnerId(userId);
+                          deleteDialogRef.current?.open(
+                            t('settings.confirmDeleteSecret', { name: displayName }),
+                          );
+                        }}
+                      >
+                        <Trash2 size={17} aria-hidden="true" />
+                        {t('settings.deleteAction')}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </li>
+          );
+        })}
       </ul>
-
-      <div className="secrets-footer-illustration" aria-hidden="true">
-        <svg viewBox="0 0 160 160" fill="none">
-          <path d="M80 12 130 32v39c0 34-20 58-50 77C50 129 30 105 30 71V32L80 12Z" fill="currentColor" fillOpacity=".12" />
-          <path d="M80 12 130 32v39c0 34-20 58-50 77C50 129 30 105 30 71V32L80 12Z" stroke="currentColor" strokeWidth="5" />
-          <rect x="58" y="72" width="44" height="36" rx="8" fill="currentColor" />
-          <path d="M68 72V59a12 12 0 0 1 24 0v13" stroke="currentColor" strokeWidth="7" strokeLinecap="round" />
-          <circle cx="80" cy="88" r="4" fill="var(--app-bg)" />
-          <path d="M80 92v7" stroke="var(--app-bg)" strokeWidth="4" strokeLinecap="round" />
-        </svg>
-      </div>
-
+      </>
+      )}
       <DialogPrimitive.Root
         open={formMode !== null && formOwnerId === userId}
         onOpenChange={(nextOpen) => {
@@ -498,7 +748,7 @@ export default function SecretsPanel({ userId, getIdToken }: SecretsPanelProps) 
             <form onSubmit={(event) => void handleSaveSecret(event)}>
               <header className="secret-form-heading">
                 <DialogPrimitive.Title className="confirmation-title">
-                  {formMode === 'edit' ? t('settings.editApiKeyTitle') : t('settings.newApiKey')}
+                  {formMode === 'edit' ? t('settings.editApiKeyTitle') : t('settings.newSecret')}
                 </DialogPrimitive.Title>
                 <DialogPrimitive.Close asChild>
                   <button
@@ -513,9 +763,9 @@ export default function SecretsPanel({ userId, getIdToken }: SecretsPanelProps) 
               </header>
               <label className="secret-sheet-field">
                 <span>{t('settings.provider')}</span>
-                {formMode === 'edit' ? (
+                {formMode === 'edit' && editingKey?.providerName ? (
                   <input
-                    value={editingKey?.providerName ?? t('settings.providerNotSet')}
+                    value={editingKey.providerName}
                     readOnly
                     dir="ltr"
                     data-testid="input-api-key-provider-readonly"
@@ -525,7 +775,7 @@ export default function SecretsPanel({ userId, getIdToken }: SecretsPanelProps) 
                     <input
                       id="secret-provider-input"
                       value={providerInput}
-                      list="api-key-provider-options"
+                      list={providerQuery ? 'api-key-provider-options' : undefined}
                       required
                       maxLength={100}
                       placeholder={t('settings.providerPlaceholder')}
@@ -539,11 +789,16 @@ export default function SecretsPanel({ userId, getIdToken }: SecretsPanelProps) 
                       aria-invalid={Boolean(formError && !selectedProvider)}
                       data-testid="input-api-key-provider"
                     />
-                    <datalist id="api-key-provider-options">
-                      {providerOptions.map((provider) => (
-                        <option key={provider.id} value={provider.label} />
-                      ))}
-                    </datalist>
+                    {providerQuery && (
+                      <datalist id="api-key-provider-options">
+                        {providerOptions.filter((provider) =>
+                          provider.label.toLocaleLowerCase().includes(providerQuery.trim().toLocaleLowerCase()) ||
+                          provider.id.toLocaleLowerCase().includes(providerQuery.trim().toLocaleLowerCase()),
+                        ).map((provider) => (
+                          <option key={provider.id} value={provider.label} />
+                        ))}
+                      </datalist>
+                    )}
                     {providerIsUnsupported && (
                       <small className="secret-provider-unsupported">
                         {t('settings.notSupportedYet')}
@@ -607,7 +862,9 @@ export default function SecretsPanel({ userId, getIdToken }: SecretsPanelProps) 
                   type="submit"
                   disabled={
                     formBusy ||
-                    (formMode === 'create' && !selectedProvider) ||
+                    ((formMode === 'create' ||
+                      (formMode === 'edit' && Boolean(editingKey && !editingKey.providerName))) &&
+                      !selectedProvider) ||
                     (formMode === 'create' && !value.trim()) ||
                     !getIdToken ||
                     (formMode === 'create' && hasReachedSecretLimit)
@@ -618,9 +875,7 @@ export default function SecretsPanel({ userId, getIdToken }: SecretsPanelProps) 
                   {formBusy && <LoaderCircle className="confirmation-spinner" size={17} aria-hidden="true" />}
                   {formBusy
                     ? t('settings.saving')
-                    : formMode === 'edit'
-                      ? t('settings.updateSecret')
-                      : t('settings.saveSecret')}
+                    : t('settings.saveSecret')}
                 </button>
               </div>
             </form>

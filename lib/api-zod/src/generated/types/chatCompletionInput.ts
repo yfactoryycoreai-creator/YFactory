@@ -16,6 +16,11 @@ export interface ChatCompletionInput {
      */
   keyId: string;
   /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  modelName?: string;
+  /**
      * @minItems 1
      * @maxItems 12
      */

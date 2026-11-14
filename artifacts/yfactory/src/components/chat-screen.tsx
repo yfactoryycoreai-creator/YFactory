@@ -33,11 +33,13 @@ import {
   type ChatModelOption,
   type ChatMessageInput,
 } from "@/lib/chatApi";
+import { loadVaultKeys, type VaultKey } from "@/lib/apiKeyVault";
 
 type ChatScreenProps = {
   onBack: () => void;
   getIdToken?: () => Promise<string>;
   onOpenSecrets: () => void;
+  onOpenModels: (key: Pick<VaultKey, "provider" | "id">) => void;
 };
 
 type ChatMessage = {
@@ -72,7 +74,12 @@ const iconForOption = (name: string) => {
   }
 };
 
-export default function ChatScreen({ onBack, getIdToken, onOpenSecrets }: ChatScreenProps) {
+export default function ChatScreen({
+  onBack,
+  getIdToken,
+  onOpenSecrets,
+  onOpenModels,
+}: ChatScreenProps) {
   const { t, i18n } = useTranslation();
   const [draft, setDraft] = useState("");
   const [ideasOpen, setIdeasOpen] = useState(true);
@@ -81,6 +88,9 @@ export default function ChatScreen({ onBack, getIdToken, onOpenSecrets }: ChatSc
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [models, setModels] = useState<ChatModelOption[]>([]);
   const [selectedModelKey, setSelectedModelKey] = useState("");
+  const [modelSetupTarget, setModelSetupTarget] = useState<
+    Pick<VaultKey, "provider" | "id"> | null
+  >(null);
   const [modelsLoading, setModelsLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [failureCode, setFailureCode] = useState<ChatFailureCode | "">("");
@@ -97,17 +107,27 @@ export default function ChatScreen({ onBack, getIdToken, onOpenSecrets }: ChatSc
       setModelsLoading(true);
       try {
         if (!getIdToken) throw new ChatApiError("auth_failed");
-        const nextModels = await loadChatModels(await getIdToken());
+        const token = await getIdToken();
+        const nextModels = await loadChatModels(token);
+        const setupKey = nextModels.length === 0
+          ? (await loadVaultKeys(token)).find((key) => Boolean(key.providerName)) ?? null
+          : null;
         if (active) {
           setModels(nextModels);
           const first = nextModels[0];
-          setSelectedModelKey(first ? `${first.provider}:${first.id}` : "");
+          setSelectedModelKey(first
+            ? `${first.provider}:${first.id}:${first.modelName}`
+            : "");
+          setModelSetupTarget(setupKey
+            ? { provider: setupKey.provider, id: setupKey.id }
+            : null);
           setFailureCode("");
         }
       } catch (error) {
         if (active) {
           setModels([]);
           setSelectedModelKey("");
+          setModelSetupTarget(null);
           setFailureCode(error instanceof ChatApiError ? error.code : "timeout");
         }
       } finally {
@@ -120,8 +140,14 @@ export default function ChatScreen({ onBack, getIdToken, onOpenSecrets }: ChatSc
   }, [getIdToken]);
 
   const selectedModel = models.find(
-    (entry) => `${entry.provider}:${entry.id}` === selectedModelKey,
+    (entry) => `${entry.provider}:${entry.id}:${entry.modelName}` === selectedModelKey,
   );
+  const modelsByProvider = [...models.reduce((groups, entry) => {
+    const group = groups.get(entry.provider) ?? [];
+    group.push(entry);
+    groups.set(entry.provider, group);
+    return groups;
+  }, new Map<string, ChatModelOption[]>()).entries()];
 
   useEffect(() => {
     if (!sheetOpen && !fullListOpen) return;
@@ -204,6 +230,7 @@ export default function ChatScreen({ onBack, getIdToken, onOpenSecrets }: ChatSc
       const reply = await sendChatCompletion(await getIdToken(), {
         provider: selectedModel.provider,
         keyId: selectedModel.id,
+        modelName: selectedModel.modelName,
         messages: requestMessages,
       });
       conversationRef.current = [
@@ -266,13 +293,17 @@ export default function ChatScreen({ onBack, getIdToken, onOpenSecrets }: ChatSc
               dir="ltr"
               data-testid="select-chat-model"
             >
-              {models.map((entry) => (
-                <option
-                  key={`${entry.provider}:${entry.id}`}
-                  value={`${entry.provider}:${entry.id}`}
-                >
-                  {entry.modelName}
-                </option>
+              {modelsByProvider.map(([provider, entries]) => (
+                <optgroup key={provider} label={entries[0]?.providerName ?? provider}>
+                  {entries.map((entry) => (
+                    <option
+                      key={`${entry.provider}:${entry.id}:${entry.modelName}`}
+                      value={`${entry.provider}:${entry.id}:${entry.modelName}`}
+                    >
+                      {entry.modelName}
+                    </option>
+                  ))}
+                </optgroup>
               ))}
               {models.length === 0 && <option value="">{t("chat:noUsableModel")}</option>}
             </select>
@@ -310,10 +341,16 @@ export default function ChatScreen({ onBack, getIdToken, onOpenSecrets }: ChatSc
             {failureCode && failureCode !== "missing_key" ? (
               <p>{t(`chat:${failureCode}`)}</p>
             ) : (
-              <p>{t("chat:missing_key")}</p>
+              <p>{modelSetupTarget ? t("chat:noChatModels") : t("chat:missing_key")}</p>
             )}
-            <button type="button" onClick={onOpenSecrets} data-testid="button-chat-open-api-keys">
-              {t("chat:openSecrets")}
+            <button
+              type="button"
+              onClick={() => modelSetupTarget
+                ? onOpenModels(modelSetupTarget)
+                : onOpenSecrets()}
+              data-testid="button-chat-open-api-keys"
+            >
+              {modelSetupTarget ? t("chat:openModels") : t("chat:openSecrets")}
             </button>
           </div>
         )}

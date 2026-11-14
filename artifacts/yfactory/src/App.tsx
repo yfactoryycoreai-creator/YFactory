@@ -625,6 +625,12 @@ function Home() {
               setChatOpen(false);
               setLocation('/settings?view=api-keys');
             }}
+            onOpenModels={(key) => {
+              setChatOpen(false);
+              setLocation(
+                `/settings?view=api-keys&modelsProvider=${encodeURIComponent(key.provider)}&modelsKeyId=${encodeURIComponent(key.id)}`,
+              );
+            }}
           />
         )}
 
@@ -1101,6 +1107,12 @@ function ProtectedSettings() {
       }}
       getIdToken={user ? getIdToken : undefined}
       initialSubview={new URLSearchParams(window.location.search).get('view') === 'api-keys' ? 'api-keys' : null}
+      initialModelTarget={(() => {
+        const params = new URLSearchParams(window.location.search);
+        const provider = params.get('modelsProvider');
+        const id = params.get('modelsKeyId');
+        return provider && id ? { provider, id } : null;
+      })()}
       onBack={() => setLocation('/')}
       onLogout={handleLogout}
       onDeleteAccount={handleDeleteAccount}

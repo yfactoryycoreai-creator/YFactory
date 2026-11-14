@@ -53,6 +53,7 @@ type StoredKey = DocumentData & {
   modelName?: unknown;
   usage?: unknown;
   description?: unknown;
+  models?: unknown;
   enabled?: unknown;
   createdAt?: unknown;
   failureStatus?: unknown;
@@ -72,6 +73,7 @@ export type VaultKeyMetadata = {
   usage: VaultKeyUsage | null;
   chatSupported: boolean;
   description: string | null;
+  models: string[];
   maskedValue: string;
   enabled: boolean;
   createdAt: number;
@@ -279,6 +281,15 @@ function metadataFromSnapshot(
     description: typeof data.description === "string" && data.description.trim()
       ? data.description
       : null,
+    models: Array.isArray(data.models)
+      ? [...new Set(data.models.filter(
+          (model): model is string =>
+            typeof model === "string" &&
+            model.length > 0 &&
+            model.length <= 200 &&
+            chatProviderForModel(model) === provider,
+        ))]
+      : [],
     maskedValue: secret.length > 4 ? `••••••${secret.slice(-4)}` : "••••",
     enabled: data.enabled === true,
     createdAt: createdAtMillis(data.createdAt),
@@ -455,13 +466,12 @@ export async function updateVaultKey(
     value?: string | null;
     modelName?: string;
     usage?: VaultKeyUsage | null;
+    provider?: string;
+    models?: string[];
   },
 ): Promise<VaultKeyMetadata | null> {
   const keyRef = userProviderKeysCollection(uid, provider).doc(keyId);
-  const snapshot = await keyRef.get();
-  if (!snapshot.exists) return null;
-
-  await keyRef.update({
+  const fields: DocumentData = {
     ...(input.label === undefined ? {} : { label: input.label.trim() }),
     ...(input.modelType === undefined ? {} : { modelType: input.modelType }),
     ...(input.description === undefined
@@ -469,6 +479,7 @@ export async function updateVaultKey(
       : { description: input.description?.trim() || null }),
     ...(input.modelName === undefined ? {} : { modelName: input.modelName }),
     ...(input.usage === undefined ? {} : { usage: input.usage }),
+    ...(input.models === undefined ? {} : { models: [...new Set(input.models)] }),
     ...(input.value
       ? {
           ...encryptValue(input.value.trim()),
@@ -477,9 +488,44 @@ export async function updateVaultKey(
           cooldownUntil: FieldValue.delete(),
         }
       : {}),
+  };
+
+  if (input.provider && input.provider !== provider) {
+    const { db } = getFirebaseAdmin();
+    const destinationRef = userProviderKeysCollection(uid, input.provider).doc(keyId);
+    const moved = await db.runTransaction(async (transaction) => {
+      const [source, destination] = await Promise.all([
+        transaction.get(keyRef),
+        transaction.get(destinationRef),
+      ]);
+      if (!source.exists) return false;
+      if (destination.exists) throw new Error("The destination API key already exists.");
+      const movedData: DocumentData = {
+        ...source.data(),
+        ...fields,
+        provider: input.provider,
+      };
+      if (input.value) {
+        delete movedData.failureStatus;
+        delete movedData.cooldownUntil;
+      }
+      transaction.set(destinationRef, movedData);
+      transaction.delete(keyRef);
+      return true;
+    });
+    if (!moved) return null;
+    const movedSnapshot = await destinationRef.get();
+    return metadataFromSnapshot(movedSnapshot as QueryDocumentSnapshot, input.provider);
+  }
+
+  const snapshot = await keyRef.get();
+  if (!snapshot.exists) return null;
+  await keyRef.update({
+    ...fields,
+    ...(input.provider === undefined ? {} : { provider: input.provider }),
   });
   const updated = await keyRef.get();
-  return metadataFromSnapshot(updated as QueryDocumentSnapshot, provider);
+  return metadataFromSnapshot(updated as QueryDocumentSnapshot, input.provider ?? provider);
 }
 
 export async function getVaultKeyValue(
@@ -506,16 +552,33 @@ export async function getChatVaultEntry(
   uid: string,
   provider: ProviderKey,
   keyId: string,
+  selectedModelName?: string,
 ): Promise<ChatVaultEntry | null> {
   const snapshot = await userProviderKeysCollection(uid, provider).doc(keyId).get();
   if (!snapshot.exists) return null;
   const data = snapshot.data() as StoredKey;
-  if (data.usage !== "chat" || typeof data.modelName !== "string") return null;
+  const legacyModelName =
+    data.usage === "chat" && typeof data.modelName === "string"
+      ? data.modelName
+      : null;
+  const savedModels = Array.isArray(data.models)
+    ? data.models.filter(
+        (model): model is string =>
+          typeof model === "string" && chatProviderForModel(model) === provider,
+      )
+    : [];
+  const modelName = selectedModelName ??
+    legacyModelName ??
+    (savedModels.length === 1 ? savedModels[0] : null);
+  if (
+    !modelName ||
+    (modelName !== legacyModelName && !savedModels.includes(modelName))
+  ) return null;
   const cooldownUntil = cooldownMillis(data.cooldownUntil);
   return {
     id: snapshot.id,
     provider,
-    modelName: data.modelName,
+    modelName,
     value: decryptValue(data),
     enabled: data.enabled === true,
     failed: data.failureStatus === "failing",
@@ -526,6 +589,7 @@ export async function getChatVaultEntry(
 export type ChatVaultKeyMetadata = {
   id: string;
   provider: ProviderKey;
+  providerName: string;
   modelName: string;
   enabled: boolean;
   failed: boolean;
@@ -539,16 +603,34 @@ export async function listChatVaultKeys(uid: string): Promise<ChatVaultKeyMetada
   const snapshots = await Promise.all(providerIds.map((provider) => readProviderSnapshots(uid, provider)));
   return snapshots.flatMap((snapshot, index) => snapshot.docs.flatMap((document) => {
     const data = document.data() as StoredKey;
-    if (data.usage !== "chat" || typeof data.modelName !== "string") return [];
     const cooldownUntil = cooldownMillis(data.cooldownUntil);
-    return [{
+    const provider = providerIds[index] ?? "";
+    const legacyModelName =
+      data.usage === "chat" && typeof data.modelName === "string"
+        ? data.modelName
+        : null;
+    const models = Array.isArray(data.models)
+      ? data.models.filter(
+          (model): model is string =>
+            typeof model === "string" && chatProviderForModel(model) === provider,
+        )
+      : [];
+    const modelNames = [...new Set([
+      ...models,
+      ...(legacyModelName ? [legacyModelName] : []),
+    ])];
+    const providerName = API_KEY_PROVIDER_REGISTRY.find(
+      (option) => option.id === provider,
+    )?.label ?? "Gemini";
+    return modelNames.map((modelName) => ({
       id: document.id,
-      provider: providerIds[index] ?? "",
-      modelName: data.modelName,
+      provider,
+      providerName,
+      modelName,
       enabled: data.enabled === true,
       failed: data.failureStatus === "failing",
       ...(cooldownUntil ? { cooldownUntil } : {}),
-    }];
+    }));
   }));
 }
 

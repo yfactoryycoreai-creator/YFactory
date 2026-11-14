@@ -1,6 +1,7 @@
 export type ChatModelOption = {
   provider: string;
   id: string;
+  providerName: string;
   modelName: string;
 };
 export type ChatRole = 'system' | 'user' | 'assistant';
@@ -73,6 +74,7 @@ export async function sendChatCompletion(
   input: {
     provider: string;
     keyId: string;
+    modelName: string;
     messages: ChatMessageInput[];
   },
 ): Promise<string> {

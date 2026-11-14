@@ -39,6 +39,7 @@ export type SettingsPageProps = {
   user: SettingsUser;
   getIdToken?: () => Promise<string>;
   initialSubview?: 'api-keys' | null;
+  initialModelTarget?: { provider: string; id: string } | null;
   onBack: () => void;
   onLogout: () => Promise<void>;
   onDeleteAccount: () => Promise<void>;
@@ -55,6 +56,7 @@ export default function SettingsPage({
   user,
   getIdToken,
   initialSubview = null,
+  initialModelTarget = null,
   onBack,
   onLogout,
   onDeleteAccount,
@@ -152,7 +154,11 @@ export default function SettingsPage({
             <span className="settings-back-spacer" aria-hidden="true" />
           </header>
           <div className="settings-content api-keys-page-content">
-            <SecretsPanel userId={user.uid} getIdToken={getIdToken} />
+            <SecretsPanel
+              userId={user.uid}
+              getIdToken={getIdToken}
+              initialModelTarget={initialModelTarget}
+            />
           </div>
         </div>
       </main>

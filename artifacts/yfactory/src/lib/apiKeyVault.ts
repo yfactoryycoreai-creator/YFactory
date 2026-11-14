@@ -40,6 +40,7 @@ export type VaultKey = {
   usage: SecretUsage | null;
   chatSupported: boolean;
   description: string | null;
+  models: string[];
   maskedValue: string;
   enabled: boolean;
   createdAt: number;
@@ -152,6 +153,7 @@ export function updateVaultKeyMetadata(
   key: Pick<VaultKey, 'provider' | 'id'>,
   input: {
     value: string | null;
+    provider?: ProviderKey;
   },
 ): Promise<VaultKey> {
   return vaultRequest<VaultKey>(
@@ -161,6 +163,33 @@ export function updateVaultKeyMetadata(
       method: 'PATCH',
       body: JSON.stringify(input),
     },
+  );
+}
+
+export function addVaultKeyModel(
+  idToken: string,
+  key: Pick<VaultKey, 'provider' | 'id'>,
+  modelId: string,
+): Promise<VaultKey> {
+  return vaultRequest<VaultKey>(
+    idToken,
+    `/api/vault/keys/${encodeURIComponent(key.provider)}/${encodeURIComponent(key.id)}/models`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ modelId }),
+    },
+  );
+}
+
+export function removeVaultKeyModel(
+  idToken: string,
+  key: Pick<VaultKey, 'provider' | 'id'>,
+  modelId: string,
+): Promise<VaultKey> {
+  return vaultRequest<VaultKey>(
+    idToken,
+    `/api/vault/keys/${encodeURIComponent(key.provider)}/${encodeURIComponent(key.id)}/models/${encodeURIComponent(modelId)}`,
+    { method: 'DELETE' },
   );
 }
 

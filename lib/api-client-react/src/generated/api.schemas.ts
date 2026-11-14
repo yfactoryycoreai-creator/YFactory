@@ -124,6 +124,11 @@ export interface ChatModelOption {
      * @maxLength 128
      */
   id: string;
+  /**
+     * @minLength 1
+     * @maxLength 100
+     */
+  providerName: string;
   /** @maxLength 200 */
   modelName: string;
 }
@@ -158,6 +163,11 @@ export interface ChatCompletionInput {
      * @maxLength 128
      */
   keyId: string;
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  modelName?: string;
   /**
      * @minItems 1
      * @maxItems 12
@@ -461,6 +471,11 @@ export interface VaultKey {
   status: VaultKeyStatus;
   /** @nullable */
   cooldownUntil?: number | null;
+  /**
+     * @items.minLength 1
+     * @items.maxLength 200
+     */
+  models: string[];
 }
 
 export interface VaultKeyList {
@@ -526,6 +541,7 @@ export const VaultKeyUpdateModelType = {
 } as const;
 
 export interface VaultKeyUpdate {
+  provider?: ProviderId;
   /**
      * @minLength 1
      * @maxLength 100
@@ -550,6 +566,15 @@ export interface VaultKeyUpdate {
      * @nullable
      */
   value?: string | null;
+}
+
+export interface VaultKeyModelInput {
+  /**
+     * @minLength 1
+     * @maxLength 200
+     * @pattern ^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$
+     */
+  modelId: string;
 }
 
 export interface VaultKeyValue {

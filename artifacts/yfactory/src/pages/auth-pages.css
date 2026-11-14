@@ -1218,6 +1218,171 @@
   }
 }
 .secret-form-sheet { max-height:min(90dvh,760px); overflow:auto; }
+.secrets-panel { gap:14px; margin:0; padding:0; border:0; background:transparent; }
+.secrets-panel-heading { align-items:center; gap:12px; }
+.secrets-panel-heading h1 { margin:0; color:var(--app-text); font-size:23px; font-weight:600; }
+.secrets-new-button,.secrets-empty-new-button { min-height:44px; white-space:nowrap; }
+.secrets-list { gap:10px; }
+.secrets-row {
+  box-sizing:border-box;
+  min-width:0;
+  min-height:72px;
+  gap:12px;
+  padding:10px 12px;
+  border:1px solid var(--app-separator);
+  border-radius:18px;
+  background:var(--app-surface);
+}
+.secret-provider-avatar {
+  display:grid;
+  flex:none;
+  width:44px;
+  height:44px;
+  place-items:center;
+  border:1px solid var(--app-separator);
+  border-radius:14px;
+  color:var(--app-accent);
+  background:var(--app-bg);
+}
+.secret-provider-avatar svg { display:block; }
+.secrets-entry { flex:1 1 auto; min-width:0; gap:5px; }
+.secrets-entry strong {
+  display:block;
+  overflow:hidden;
+  color:var(--app-text);
+  font:500 15px system-ui,-apple-system,"Segoe UI",sans-serif;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.secrets-entry code {
+  display:block;
+  max-width:100%;
+  overflow:hidden;
+  color:var(--app-secondary);
+  font:12px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.secrets-actions { flex:none; align-items:center; gap:6px; margin-inline-start:auto; }
+.secrets-actions .secret-icon-button {
+  box-sizing:border-box;
+  width:44px!important;
+  min-width:44px!important;
+  min-height:44px!important;
+  height:44px;
+  padding:0!important;
+  border:1px solid var(--app-separator);
+  border-radius:14px;
+  color:var(--app-text);
+  background:var(--app-bg);
+}
+.secrets-actions .secret-icon-button:hover:not(:disabled) { background:var(--app-surface); }
+.secret-menu-wrap { position:relative; }
+.secret-action-menu {
+  position:absolute;
+  z-index:20;
+  inset-inline-end:0;
+  top:calc(100% + 6px);
+  display:grid;
+  min-width:172px;
+  padding:5px;
+  border:1px solid var(--app-separator);
+  border-radius:14px;
+  background:var(--app-surface);
+  box-shadow:0 14px 36px rgba(0,0,0,.3);
+}
+.secrets-actions .secret-action-menu button {
+  display:flex;
+  width:100%;
+  min-height:44px;
+  align-items:center;
+  justify-content:flex-start;
+  gap:10px;
+  padding:0 10px;
+  border:0;
+  border-radius:10px;
+  color:var(--app-text);
+  background:transparent;
+  text-align:start;
+  font:14px system-ui,-apple-system,"Segoe UI",sans-serif;
+}
+.secrets-actions .secret-action-menu button:hover:not(:disabled) { background:var(--app-bg); }
+.secrets-actions .secret-action-menu .secret-action-delete { color:var(--app-danger-text); }
+.secrets-empty-state {
+  display:grid;
+  justify-items:center;
+  gap:12px;
+  padding:34px 12px 28px;
+  color:var(--app-secondary);
+  text-align:center;
+}
+.secrets-empty-shield { width:min(156px,52vw); color:var(--app-accent); }
+.secrets-empty-shield svg { display:block; width:100%; height:auto; }
+.secrets-empty-state strong { color:var(--app-text); font-size:18px; font-weight:600; }
+.secrets-empty-state > span { max-width:270px; font-size:14px; line-height:1.5; }
+.secrets-empty-new-button { margin-top:4px; }
+.api-key-models-screen { display:grid; min-width:0; gap:14px; }
+.api-key-models-heading { display:grid; grid-template-columns:1fr auto 1fr; align-items:center; min-height:48px; }
+.api-key-models-heading h1 { grid-column:2; margin:0; color:var(--app-text); font-size:19px; font-weight:600; text-align:center; }
+.secret-screen-back {
+  display:flex;
+  min-height:44px;
+  align-items:center;
+  justify-self:start;
+  gap:7px;
+  padding:0 10px;
+  border:1px solid var(--app-separator);
+  border-radius:14px;
+  color:var(--app-text);
+  background:var(--app-surface);
+  font:14px system-ui,-apple-system,"Segoe UI",sans-serif;
+}
+.secret-model-search {
+  display:flex;
+  min-height:48px;
+  align-items:center;
+  gap:10px;
+  padding:0 12px;
+  border:1px solid var(--app-separator);
+  border-radius:15px;
+  color:var(--app-secondary);
+  background:var(--app-surface);
+}
+.secret-model-search input {
+  width:100%;
+  min-width:0;
+  height:46px;
+  border:0;
+  outline:0;
+  color:var(--app-text);
+  background:transparent;
+  font:14px system-ui,-apple-system,"Segoe UI",sans-serif;
+}
+.secret-model-list { display:grid; min-width:0; margin:0; padding:0; overflow:hidden; list-style:none; border-radius:16px; background:var(--app-surface); }
+.secret-model-list li { display:flex; min-width:0; min-height:54px; align-items:center; justify-content:space-between; gap:10px; padding:5px 8px 5px 12px; border-bottom:1px solid var(--app-separator); }
+.secret-model-list li:last-child { border-bottom:0; }
+.secret-model-list code { min-width:0; overflow-wrap:anywhere; color:var(--app-text); font:13px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+.secret-model-selected { display:grid; flex:none; width:44px; min-width:44px; height:44px; place-items:center; border:0; border-radius:50%; color:var(--app-on-accent); background:var(--app-accent); }
+.secret-model-empty { color:var(--app-secondary); font-size:14px; }
+.secret-add-model-button {
+  display:flex;
+  min-height:48px;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+  border:1px solid var(--app-separator);
+  border-radius:15px;
+  color:var(--app-text);
+  background:var(--app-surface);
+  font:14px system-ui,-apple-system,"Segoe UI",sans-serif;
+}
+.secret-manual-model-form { display:grid; gap:14px; }
+.secret-sheet-field { display:grid; gap:8px; color:var(--app-text); font-size:14px; }
+.secret-sheet-field input { box-sizing:border-box; width:100%; min-height:48px; padding:0 12px; border:1px solid var(--app-separator); border-radius:14px; color:var(--app-text); background:var(--app-surface); font:14px system-ui,-apple-system,"Segoe UI",sans-serif; }
+@media (max-width:380px) {
+  .secrets-row { row-gap:8px; }
+  .secrets-actions { box-sizing:border-box; width:100%; flex:0 0 100%; justify-content:flex-end; padding-inline-start:56px; }
+}
 .settings-screen[dir="rtl"] .settings-secrets-link .settings-preference-copy > svg { transform:none; }
 .settings-info-card {
   display:flex;

@@ -712,6 +712,103 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
+  /vault/keys/{provider}/{keyId}/models:
+    parameters:
+      - name: provider
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/ProviderId"
+      - name: keyId
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+    post:
+      operationId: addVaultKeyModel
+      tags: [vault]
+      summary: Add a Chat model to a provider API key
+      security:
+        - FirebaseBearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VaultKeyModelInput"
+      responses:
+        "200":
+          description: Updated masked key metadata.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VaultKey"
+        "400":
+          description: Invalid or unsupported model ID.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: Missing or invalid Firebase ID token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Key not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /vault/keys/{provider}/{keyId}/models/{modelId}:
+    parameters:
+      - name: provider
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/ProviderId"
+      - name: keyId
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - name: modelId
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 200
+    delete:
+      operationId: removeVaultKeyModel
+      tags: [vault]
+      summary: Remove a Chat model from a provider API key
+      security:
+        - FirebaseBearerAuth: []
+      responses:
+        "200":
+          description: Updated masked key metadata.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VaultKey"
+        "401":
+          description: Missing or invalid Firebase ID token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Key or model not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
   /vault/keys/{provider}/{keyId}/reveal:
     parameters:
       - name: provider
@@ -918,10 +1015,14 @@ components:
           type: string
           minLength: 1
           maxLength: 128
+        providerName:
+          type: string
+          minLength: 1
+          maxLength: 100
         modelName:
           type: string
           maxLength: 200
-      required: [provider, id, modelName]
+      required: [provider, id, providerName, modelName]
     ChatModelList:
       type: object
       properties:
@@ -951,6 +1052,10 @@ components:
           type: string
           minLength: 1
           maxLength: 128
+        modelName:
+          type: string
+          minLength: 1
+          maxLength: 200
         messages:
           type: array
           minItems: 1
@@ -1267,7 +1372,13 @@ components:
         cooldownUntil:
           type: ["integer", "null"]
           format: int64
-      required: [id, provider, providerName, label, modelType, modelName, usage, chatSupported, description, maskedValue, enabled, createdAt, status]
+        models:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 200
+      required: [id, provider, providerName, label, modelType, modelName, usage, chatSupported, description, maskedValue, enabled, createdAt, status, models]
     VaultKeyList:
       type: object
       properties:
@@ -1306,6 +1417,8 @@ components:
     VaultKeyUpdate:
       type: object
       properties:
+        provider:
+          $ref: "#/components/schemas/ProviderId"
         label:
           type: string
           minLength: 1
@@ -1327,6 +1440,15 @@ components:
           type: ["string", "null"]
           minLength: 1
           maxLength: 4096
+    VaultKeyModelInput:
+      type: object
+      properties:
+        modelId:
+          type: string
+          minLength: 1
+          maxLength: 200
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$"
+      required: [modelId]
     VaultKeyValue:
       type: object
       properties:

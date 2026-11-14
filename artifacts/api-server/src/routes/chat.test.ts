@@ -68,15 +68,18 @@ test("chat endpoints reject requests without an ID token", async () => {
 test("Chat lists supported user-owned models and uses only the selected owner's key", async () => {
   const reads: string[] = [];
   const used: string[] = [];
+  const selectedModels: string[] = [];
   const modelsForUser = (uid: string) => [{
     provider: "custom",
     id: `${uid}-key`,
+    providerName: "Test provider",
     modelName: "gemini-2.5-flash",
     enabled: true,
     failed: false,
     unsupported: {
       provider: "custom",
       id: `${uid}-unsupported`,
+      providerName: "Test provider",
       modelName: "other-model",
       enabled: true,
       failed: false,
@@ -98,13 +101,14 @@ test("Chat lists supported user-owned models and uses only the selected owner's 
       const { unsupported, ...supported } = modelsForUser(uid)[0]!;
       return [supported, unsupported];
     },
-    getKey: async (uid, provider, keyId) => {
+    getKey: async (uid, provider, keyId, modelName) => {
       reads.push(uid);
       if (provider !== "custom" || keyId !== `${uid}-key`) return null;
+      selectedModels.push(modelName ?? "");
       return {
         id: keyId,
         provider,
-        modelName: "gemini-2.5-flash",
+        modelName: modelName ?? "gemini-2.5-flash",
         value: uid === "user-a" ? userAKey : userBKey,
         enabled: true,
         failed: false,
@@ -119,6 +123,7 @@ test("Chat lists supported user-owned models and uses only the selected owner's 
     models: [{
       provider: "custom",
       id: "user-a-key",
+      providerName: "Test provider",
       modelName: "gemini-2.5-flash",
     }],
   });
@@ -130,6 +135,7 @@ test("Chat lists supported user-owned models and uses only the selected owner's 
       uid: "user-b",
       provider: "custom",
       keyId: "user-a-key",
+      modelName: "gemini-2.5-flash",
       messages: [{ role: "user", content: "hello" }],
     },
   });
@@ -139,6 +145,7 @@ test("Chat lists supported user-owned models and uses only the selected owner's 
   assert.ok(!completionJson.includes(userAKey) && !completionJson.includes(userBKey));
   assert.deepEqual(reads, ["user-a", "user-a"]);
   assert.deepEqual(used, [userAKey]);
+  assert.deepEqual(selectedModels, ["gemini-2.5-flash"]);
 
   const userBCrossRead = await request(app, "/api/chat/completions", {
     token: "user-a-token",
@@ -158,6 +165,7 @@ test("Chat lists supported user-owned models and uses only the selected owner's 
     models: [{
       provider: "custom",
       id: "user-b-key",
+      providerName: "Test provider",
       modelName: "gemini-2.5-flash",
     }],
   });

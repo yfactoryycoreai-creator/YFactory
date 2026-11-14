@@ -58,6 +58,7 @@ export * from './storyZipProgress';
 export * from './storyZipProgressStatus';
 export * from './vaultKey';
 export * from './vaultKeyList';
+export * from './vaultKeyModelInput';
 export * from './vaultKeyModelType';
 export * from './vaultKeyStatus';
 export * from './vaultKeyUpdate';

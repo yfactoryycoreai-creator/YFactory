@@ -34,4 +34,9 @@ export interface VaultKey {
   status: VaultKeyStatus;
   /** @nullable */
   cooldownUntil?: bigint | null;
+  /**
+     * @items.minLength 1
+     * @items.maxLength 200
+     */
+  models: string[];
 }

@@ -71,6 +71,7 @@ function createTestApp() {
         usage,
         chatSupported: usage === "chat" && Boolean(modelName?.startsWith("gemini-")),
         description,
+        models: [],
         maskedValue: `••••${value.slice(-4)}`,
         enabled: true,
         createdAt: Date.now(),
@@ -83,18 +84,23 @@ function createTestApp() {
       const stored = values.get(`${uid}:${provider}:${keyId}`);
       if (!stored) return null;
       const value = input.value?.trim() || stored.value;
+      const nextProvider = input.provider ?? provider;
       const metadata: VaultKeyMetadata = {
         ...stored.metadata,
+        provider: nextProvider,
+        providerName: nextProvider === "gemini" ? "Gemini" : stored.metadata.providerName,
         ...(input.label === undefined ? {} : { label: input.label.trim() }),
         ...(input.modelType === undefined ? {} : { modelType: input.modelType }),
         ...(input.modelName === undefined ? {} : { modelName: input.modelName }),
         ...(input.usage === undefined ? {} : { usage: input.usage }),
         ...(input.description === undefined ? {} : { description: input.description }),
+        ...(input.models === undefined ? {} : { models: input.models }),
         chatSupported: (input.usage ?? stored.metadata.usage) === "chat" &&
           (input.modelName ?? stored.metadata.modelName ?? "").startsWith("gemini-"),
         maskedValue: `••••${value.slice(-4)}`,
       };
-      values.set(`${uid}:${provider}:${keyId}`, { uid, metadata, value });
+      values.delete(`${uid}:${provider}:${keyId}`);
+      values.set(`${uid}:${nextProvider}:${keyId}`, { uid, metadata, value });
       return metadata;
     },
     revealValue: async (uid, provider, keyId) =>
@@ -245,6 +251,98 @@ test("provider registry exposes only configured adapters and saves provider-only
     method: "DELETE",
   });
   assert.equal(deleted.status, 204);
+});
+
+test("legacy keys can be assigned a provider without replacing their stored secret", async () => {
+  const app = createTestApp();
+  const created = await request(app, "/api/vault/keys", {
+    token: "user-a",
+    body: {
+      label: "Original legacy name",
+      modelType: "text",
+      value: "mock-only-legacy-secret",
+    },
+  });
+  const legacy = JSON.parse(await created.text()) as VaultKeyMetadata;
+  const edited = await request(app, `/api/vault/keys/${legacy.provider}/${legacy.id}`, {
+    token: "user-a",
+    method: "PATCH",
+    body: { provider: "gemini", value: null },
+  });
+  assert.equal(edited.status, 200);
+  const migratedText = await edited.text();
+  assert.ok(!migratedText.includes("mock-only-legacy-secret"));
+  const migrated = JSON.parse(migratedText) as VaultKeyMetadata;
+  assert.equal(migrated.provider, "gemini");
+  assert.equal(migrated.providerName, "Gemini");
+  assert.equal(migrated.label, "Original legacy name");
+  const revealed = await request(
+    app,
+    `/api/vault/keys/gemini/${legacy.id}/reveal`,
+    { token: "user-a" },
+  );
+  assert.deepEqual(await revealed.json(), { value: "mock-only-legacy-secret" });
+});
+
+test("saved model endpoints enforce authentication, ownership, and masked responses", async () => {
+  const app = createTestApp();
+  const created = await request(app, "/api/vault/keys", {
+    token: "user-a",
+    body: { provider: "gemini", value: "mock-only-model-key-secret" },
+  });
+  const key = JSON.parse(await created.text()) as VaultKeyMetadata;
+  const modelUrl = `/api/vault/keys/${key.provider}/${key.id}/models`;
+
+  const noToken = await request(app, modelUrl, {
+    method: "POST",
+    body: { modelId: "gemini-2.5-flash" },
+  });
+  assert.equal(noToken.status, 401);
+
+  const otherUser = await request(app, modelUrl, {
+    token: "user-b",
+    method: "POST",
+    body: { modelId: "gemini-2.5-flash" },
+  });
+  assert.equal(otherUser.status, 404);
+
+  const unsupported = await request(app, modelUrl, {
+    token: "user-a",
+    method: "POST",
+    body: { modelId: "not-a-gemini-model" },
+  });
+  assert.equal(unsupported.status, 400);
+  assert.deepEqual(await unsupported.json(), {
+    error: "This model is not supported by the selected provider.",
+    code: "model_not_supported",
+  });
+
+  const added = await request(app, modelUrl, {
+    token: "user-a",
+    method: "POST",
+    body: { modelId: "gemini-2.5-flash" },
+  });
+  const addedText = await added.text();
+  assert.equal(added.status, 200);
+  assert.ok(!addedText.includes("mock-only-model-key-secret"));
+  assert.deepEqual((JSON.parse(addedText) as VaultKeyMetadata).models, ["gemini-2.5-flash"]);
+  assert.deepEqual(await (await request(app, "/api/vault/keys", { token: "user-b" })).json(), {
+    keys: [],
+  });
+
+  const otherUserRemove = await request(
+    app,
+    `${modelUrl}/gemini-2.5-flash`,
+    { token: "user-b", method: "DELETE" },
+  );
+  assert.equal(otherUserRemove.status, 404);
+  const removed = await request(
+    app,
+    `${modelUrl}/gemini-2.5-flash`,
+    { token: "user-a", method: "DELETE" },
+  );
+  assert.equal(removed.status, 200);
+  assert.deepEqual((await removed.json() as VaultKeyMetadata).models, []);
 });
 
 test("provider IDs outside the adapter registry cannot be saved", async () => {

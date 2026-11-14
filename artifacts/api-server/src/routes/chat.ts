@@ -25,7 +25,12 @@ const MAX_TOTAL_LENGTH = 12_000;
 type ChatDependencies = {
   verifyIdToken: typeof verifyFirebaseIdToken;
   listKeys: (uid: string) => Promise<ChatVaultKeyMetadata[]>;
-  getKey: (uid: string, provider: string, keyId: string) => Promise<ChatVaultEntry | null>;
+  getKey: (
+    uid: string,
+    provider: string,
+    keyId: string,
+    modelName?: string,
+  ) => Promise<ChatVaultEntry | null>;
   recordFailure: (uid: string, provider: string, keyId: string, status: number | null) => Promise<void>;
   clearFailure: (uid: string, provider: string, keyId: string) => Promise<void>;
   adapters: ChatAdapterRegistry;
@@ -34,6 +39,7 @@ type ChatDependencies = {
 type ParsedChatRequest = {
   provider: string;
   keyId: string;
+  modelName?: string;
   messages: ChatMessage[];
 };
 
@@ -42,9 +48,12 @@ function parseChatRequest(body: unknown): ParsedChatRequest | null {
   const input = body as Record<string, unknown>;
   const provider = typeof input.provider === "string" ? input.provider : "";
   const keyId = typeof input.keyId === "string" ? input.keyId : "";
+  const modelName = input.modelName;
   if (
     !/^[a-z0-9][a-z0-9-]{0,63}$/.test(provider) ||
     !/^[A-Za-z0-9_-]{1,128}$/.test(keyId) ||
+    (modelName !== undefined &&
+      (typeof modelName !== "string" || !modelName.trim() || modelName.length > 200)) ||
     !Array.isArray(input.messages) ||
     input.messages.length < 1 ||
     input.messages.length > MAX_MESSAGES
@@ -67,7 +76,12 @@ function parseChatRequest(body: unknown): ParsedChatRequest | null {
   }
   if (!messages.some((message) => message.role === "user") ||
     messages[messages.length - 1]?.role !== "user") return null;
-  return { provider, keyId, messages };
+  return {
+    provider,
+    keyId,
+    ...(typeof modelName === "string" ? { modelName: modelName.trim() } : {}),
+    messages,
+  };
 }
 
 function createUserRateLimiter() {
@@ -129,7 +143,12 @@ export function createChatRouter(overrides: Partial<ChatDependencies> = {}): IRo
             (!key.cooldownUntil || key.cooldownUntil <= now) &&
             chatProviderForModel(key.modelName) !== null
           )
-          .map(({ provider, id, modelName }) => ({ provider, id, modelName })),
+          .map(({ provider, id, providerName, modelName }) => ({
+            provider,
+            id,
+            providerName,
+            modelName,
+          })),
       });
     } catch {
       res.status(503).json({ code: "timeout" satisfies ChatFailureCode });
@@ -151,7 +170,12 @@ export function createChatRouter(overrides: Partial<ChatDependencies> = {}): IRo
 
     let key: ChatVaultEntry | null;
     try {
-      key = await dependencies.getKey(uid, input.provider, input.keyId);
+      key = await dependencies.getKey(
+        uid,
+        input.provider,
+        input.keyId,
+        input.modelName,
+      );
     } catch {
       res.status(503).json({ code: "timeout" satisfies ChatFailureCode });
       return;

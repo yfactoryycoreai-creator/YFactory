@@ -14,6 +14,11 @@ export interface ChatModelOption {
      * @maxLength 128
      */
   id: string;
+  /**
+     * @minLength 1
+     * @maxLength 100
+     */
+  providerName: string;
   /** @maxLength 200 */
   modelName: string;
 }

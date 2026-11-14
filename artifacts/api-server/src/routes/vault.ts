@@ -3,8 +3,11 @@ import {
   CreateVaultKeyBody,
   CreateVaultKeyResponse,
   DeleteVaultKeyParams,
+  AddVaultKeyModelBody,
+  AddVaultKeyModelParams,
   ListVaultKeyProvidersResponse,
   ListVaultKeysResponse,
+  RemoveVaultKeyModelParams,
   RevealVaultKeyValueParams,
   RevealVaultKeyValueResponse,
   UpdateVaultKeyBody,
@@ -24,7 +27,7 @@ import {
 } from "../lib/apiKeyVault";
 import { keyPool } from "../lib/keyPool";
 import { verifyFirebaseIdToken } from "../lib/firebaseAdmin";
-import { API_KEY_PROVIDER_REGISTRY } from "../lib/chatAdapters";
+import { API_KEY_PROVIDER_REGISTRY, chatProviderForModel } from "../lib/chatAdapters";
 
 const KEY_STATUS_PROVIDERS = ["agnes", "cloudflare", "glm", "magic_hour"] as const;
 type VaultRouterDependencies = {
@@ -260,10 +263,12 @@ router.patch("/vault/keys/:provider/:keyId", async (req, res): Promise<void> => 
   const label = parsed.success ? parsed.data.label?.trim() ?? "" : "";
   const modelName = parsed.success ? parsed.data.modelName : undefined;
   const value = parsed.success ? parsed.data.value : undefined;
+  const targetProvider = parsed.success ? parsed.data.provider : undefined;
   if (
     !params.success ||
     !parsed.success ||
-    (!label && modelName === undefined && parsed.data.modelType === undefined &&
+    (!label && modelName === undefined && targetProvider === undefined &&
+      parsed.data.modelType === undefined &&
       parsed.data.description === undefined && parsed.data.usage === undefined &&
       parsed.data.value === undefined) ||
     (parsed.success && parsed.data.label !== undefined &&
@@ -282,8 +287,36 @@ router.patch("/vault/keys/:provider/:keyId", async (req, res): Promise<void> => 
     res.status(400).json({ error: "Provide valid secret details.", code: "invalid_request" });
     return;
   }
+  const targetProviderOption = targetProvider
+    ? API_KEY_PROVIDER_REGISTRY.find((provider) => provider.id === targetProvider)
+    : undefined;
+  if (targetProvider !== undefined && !targetProviderOption) {
+    res.status(400).json({
+      error: "This API key provider is not supported yet.",
+      code: "provider_not_supported",
+    });
+    return;
+  }
   try {
     const existingKeys = await dependencies.listKeys(uid);
+    const currentKey = existingKeys.find((key) =>
+      key.provider === params.data.provider && key.id === params.data.keyId
+    );
+    if (!currentKey) {
+      res.status(404).json({ error: "API key not found.", code: "key_not_found" });
+      return;
+    }
+    if (
+      targetProviderOption &&
+      currentKey.providerName !== null &&
+      targetProvider !== currentKey.provider
+    ) {
+      res.status(400).json({
+        error: "An assigned provider cannot be changed.",
+        code: "provider_read_only",
+      });
+      return;
+    }
     if (existingKeys.some((key) =>
       (key.modelName ?? key.label).trim().toLocaleLowerCase() ===
         (modelName ?? label).trim().toLocaleLowerCase() &&
@@ -303,6 +336,7 @@ router.patch("/vault/keys/:provider/:keyId", async (req, res): Promise<void> => 
         ...(parsed.data.value === undefined ? {} : { value: value?.trim() || null }),
         ...(modelName === undefined ? {} : { modelName }),
         ...(parsed.data.usage === undefined ? {} : { usage: parsed.data.usage }),
+        ...(targetProvider === undefined ? {} : { provider: targetProvider }),
       },
     );
     if (!updated) {
@@ -321,6 +355,106 @@ router.patch("/vault/keys/:provider/:keyId", async (req, res): Promise<void> => 
     });
   }
 });
+
+router.post(
+  "/vault/keys/:provider/:keyId/models",
+  async (req, res): Promise<void> => {
+    const uid = await authenticatedUid(req, res, dependencies.verifyIdToken);
+    if (!uid) return;
+    const params = AddVaultKeyModelParams.safeParse(req.params);
+    const parsed = AddVaultKeyModelBody.safeParse(req.body);
+    if (!params.success || !parsed.success) {
+      res.status(400).json({ error: "Provide a valid model ID.", code: "invalid_request" });
+      return;
+    }
+    const provider = params.data.provider;
+    const modelId = parsed.data.modelId.trim();
+    if (
+      !API_KEY_PROVIDER_REGISTRY.some((item) => item.id === provider) ||
+      chatProviderForModel(modelId) !== provider
+    ) {
+      res.status(400).json({
+        error: "This model is not supported by the selected provider.",
+        code: "model_not_supported",
+      });
+      return;
+    }
+    try {
+      const current = (await dependencies.listKeys(uid)).find((key) =>
+        key.provider === provider && key.id === params.data.keyId
+      );
+      if (!current || !current.providerName) {
+        res.status(404).json({ error: "API key not found.", code: "key_not_found" });
+        return;
+      }
+      const updated = await dependencies.updateKey(
+        uid,
+        provider,
+        params.data.keyId,
+        { models: [...new Set([...current.models, modelId])] },
+      );
+      if (!updated) {
+        res.status(404).json({ error: "API key not found.", code: "key_not_found" });
+        return;
+      }
+      res.json(UpdateVaultKeyResponse.parse(updated));
+    } catch (error) {
+      req.log.error(
+        { reason: error instanceof Error ? error.name : "unknown" },
+        "Could not add a Chat model to the API key.",
+      );
+      res.status(503).json({ error: "The model could not be saved.", code: "vault_unavailable" });
+    }
+  },
+);
+
+router.delete(
+  "/vault/keys/:provider/:keyId/models/:modelId",
+  async (req, res): Promise<void> => {
+    const uid = await authenticatedUid(req, res, dependencies.verifyIdToken);
+    if (!uid) return;
+    const params = RemoveVaultKeyModelParams.safeParse(req.params);
+    if (!params.success) {
+      res.status(400).json({ error: "The model reference is invalid.", code: "invalid_request" });
+      return;
+    }
+    const { provider, keyId, modelId } = params.data;
+    if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/.test(modelId)) {
+      res.status(400).json({ error: "The model reference is invalid.", code: "invalid_request" });
+      return;
+    }
+    try {
+      const current = (await dependencies.listKeys(uid)).find((key) =>
+        key.provider === provider && key.id === keyId
+      );
+      if (!current || !current.providerName) {
+        res.status(404).json({ error: "API key not found.", code: "key_not_found" });
+        return;
+      }
+      if (!current.models.includes(modelId)) {
+        res.status(404).json({ error: "The saved model was not found.", code: "model_not_found" });
+        return;
+      }
+      const updated = await dependencies.updateKey(
+        uid,
+        provider,
+        keyId,
+        { models: current.models.filter((model) => model !== modelId) },
+      );
+      if (!updated) {
+        res.status(404).json({ error: "API key not found.", code: "key_not_found" });
+        return;
+      }
+      res.json(UpdateVaultKeyResponse.parse(updated));
+    } catch (error) {
+      req.log.error(
+        { reason: error instanceof Error ? error.name : "unknown" },
+        "Could not remove a Chat model from the API key.",
+      );
+      res.status(503).json({ error: "The model could not be removed.", code: "vault_unavailable" });
+    }
+  },
+);
 
 const allowReveal = createRevealRateLimiter();
 
