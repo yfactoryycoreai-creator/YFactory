@@ -65,3 +65,6 @@ export * from './vaultKeyUpdateModelType';
 export * from './vaultKeyUpdateUsage';
 export * from './vaultKeyUsage';
 export * from './vaultKeyValue';
+export * from './vaultProviderList';
+export * from './vaultProviderOption';
+export * from './vaultProviderOptionAdapterStatus';

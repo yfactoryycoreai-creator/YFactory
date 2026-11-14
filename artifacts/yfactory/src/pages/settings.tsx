@@ -152,12 +152,6 @@ export default function SettingsPage({
             <span className="settings-back-spacer" aria-hidden="true" />
           </header>
           <div className="settings-content api-keys-page-content">
-            <div className="settings-heading">
-              <div>
-                <h1>{t('settings.apiKeysTitle')}</h1>
-                <p>{t('settings.secretsPageDescription')}</p>
-              </div>
-            </div>
             <SecretsPanel userId={user.uid} getIdToken={getIdToken} />
           </div>
         </div>

@@ -479,6 +479,26 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/StoryZipProgress"
+  /vault/providers:
+    get:
+      operationId: listVaultKeyProviders
+      tags: [vault]
+      summary: List providers with an available API key adapter
+      security:
+        - FirebaseBearerAuth: []
+      responses:
+        "200":
+          description: Providers currently available for API key setup.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VaultProviderList"
+        "401":
+          description: Missing or invalid Firebase ID token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
   /vault/keys:
     get:
       operationId: listVaultKeys
@@ -1191,6 +1211,25 @@ components:
         error:
           type: string
       required: [id, url, prompt, sizeBytes, storagePath, provider]
+    VaultProviderOption:
+      type: object
+      properties:
+        id:
+          $ref: "#/components/schemas/ProviderId"
+        label:
+          type: string
+        adapterStatus:
+          type: string
+          enum: [available]
+      required: [id, label, adapterStatus]
+    VaultProviderList:
+      type: object
+      properties:
+        providers:
+          type: array
+          items:
+            $ref: "#/components/schemas/VaultProviderOption"
+      required: [providers]
     VaultKey:
       type: object
       properties:
@@ -1198,6 +1237,8 @@ components:
           type: string
         provider:
           $ref: "#/components/schemas/ProviderId"
+        providerName:
+          type: ["string", "null"]
         label:
           type: string
         modelType:
@@ -1226,7 +1267,7 @@ components:
         cooldownUntil:
           type: ["integer", "null"]
           format: int64
-      required: [id, provider, label, modelType, modelName, usage, chatSupported, description, maskedValue, enabled, createdAt, status]
+      required: [id, provider, providerName, label, modelType, modelName, usage, chatSupported, description, maskedValue, enabled, createdAt, status]
     VaultKeyList:
       type: object
       properties:

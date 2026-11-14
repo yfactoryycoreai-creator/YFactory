@@ -1104,27 +1104,57 @@
 .secret-existing-note { color:var(--app-danger-text); font-size:13px; }
 .secret-icon-button { min-width:42px!important; width:42px; min-height:42px!important; }
 .api-keys-page-content { max-width:680px; }
+.secrets-panel {
+  gap:18px;
+  margin:0;
+  padding:0;
+  border:0;
+  border-radius:0;
+  background:transparent;
+  box-shadow:none;
+}
 .secrets-list { gap:10px; }
+.api-keys-title-block { display:flex; min-width:0; align-items:center; gap:12px; }
+.api-keys-title-icon {
+  display:grid;
+  width:56px;
+  height:56px;
+  flex:none;
+  place-items:center;
+  border:1px solid var(--app-separator);
+  border-radius:16px;
+  color:var(--app-accent-text);
+  background:var(--app-raised);
+}
+.api-keys-title-copy { display:grid; min-width:0; gap:5px; }
+.api-keys-title-copy h1 { margin:0; color:var(--app-text); font-size:23px; font-weight:600; }
+.api-keys-title-copy p { display:block; margin:0; color:var(--app-secondary); font-size:13px; line-height:1.45; }
+.secrets-new-button { min-height:44px; white-space:nowrap; }
 .secrets-row {
   display:flex;
   flex-wrap:wrap;
   align-items:center;
+  gap:12px;
+  min-height:84px;
   padding:14px;
   border:1px solid var(--app-separator);
   border-radius:16px;
   background:var(--app-surface);
 }
-.secret-usage-icon {
+.secret-provider-avatar {
   display:grid;
   flex:none;
-  width:42px;
-  height:42px;
+  width:52px;
+  height:52px;
   place-items:center;
   border:1px solid var(--app-separator);
-  border-radius:13px;
-  color:var(--app-accent-text);
+  border-radius:15px;
+  color:var(--app-text);
   background:var(--app-raised);
+  font-size:20px;
+  font-weight:600;
 }
+.secrets-entry { flex:1; }
 .secret-card-heading {
   display:flex;
   min-width:0;
@@ -1153,6 +1183,7 @@
   color:var(--app-accent-text);
   font-size:12px;
 }
+.secret-provider-unsupported { color:var(--app-accent-text); font-size:13px; }
 .secrets-actions { display:flex; align-items:center; gap:4px; }
 .secret-icon-button {
   width:44px!important;
@@ -1169,8 +1200,15 @@
   color:var(--app-accent-text);
 }
 .secrets-empty-shield svg { width:88px; height:88px; }
+.secrets-footer-illustration {
+  width:min(100%,180px);
+  aspect-ratio:1;
+  margin:24px auto 8px;
+  color:var(--app-accent-text);
+}
+.secrets-footer-illustration svg { display:block; width:100%; height:100%; }
 @media (max-width:380px) {
-  .secrets-row { align-items:flex-start; }
+  .secrets-row { align-items:flex-start; flex-direction:row; }
   .secrets-actions {
     box-sizing:border-box;
     width:100%;

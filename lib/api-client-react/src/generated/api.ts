@@ -53,7 +53,8 @@ import type {
   VaultKey,
   VaultKeyList,
   VaultKeyUpdate,
-  VaultKeyValue
+  VaultKeyValue,
+  VaultProviderList
 } from './api.schemas';
 
 import { customFetch } from '../custom-fetch';
@@ -1393,6 +1394,83 @@ export function useGetStoryZipDownloadProgress<TData = Awaited<ReturnType<typeof
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetStoryZipDownloadProgressQueryOptions(storyId,params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getListVaultKeyProvidersUrl = () => {
+
+
+
+
+  return `/api/vault/providers`
+}
+
+/**
+ * @summary List providers with an available API key adapter
+ */
+export const listVaultKeyProviders = async ( options?: Parameters<typeof customFetch>[1]): Promise<VaultProviderList> => {
+
+  return customFetch<VaultProviderList>(getListVaultKeyProvidersUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListVaultKeyProvidersQueryKey = () => {
+    return [
+    `/api/vault/providers`
+    ] as const;
+    }
+
+
+export const getListVaultKeyProvidersQueryOptions = <TData = Awaited<ReturnType<typeof listVaultKeyProviders>>, TError = ErrorType<ApiError>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listVaultKeyProviders>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListVaultKeyProvidersQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listVaultKeyProviders>>> = ({ signal }) => listVaultKeyProviders({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listVaultKeyProviders>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListVaultKeyProvidersQueryResult = NonNullable<Awaited<ReturnType<typeof listVaultKeyProviders>>>
+export type ListVaultKeyProvidersQueryError = ErrorType<ApiError>
+
+
+/**
+ * @summary List providers with an available API key adapter
+ */
+
+export function useListVaultKeyProviders<TData = Awaited<ReturnType<typeof listVaultKeyProviders>>, TError = ErrorType<ApiError>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listVaultKeyProviders>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListVaultKeyProvidersQueryOptions(options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

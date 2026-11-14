@@ -58,11 +58,13 @@ function createTestApp() {
       description = null,
       modelName = null,
       usage = null,
+      providerId = null,
     ) => {
       const id = `mock-key-${++nextId}`;
       const metadata: VaultKeyMetadata = {
         id,
         provider,
+        providerName: providerId === "gemini" ? "Gemini" : null,
         label: modelName ?? label.trim(),
         modelType,
         modelName,
@@ -203,6 +205,58 @@ test("new chat key metadata preserves the model name exactly and masks its value
   assert.equal(metadata.modelName, "gemini-2.5-flash");
   assert.equal(metadata.usage, "chat");
   assert.equal(metadata.chatSupported, true);
+});
+
+test("provider registry exposes only configured adapters and saves provider-only keys", async () => {
+  const app = createTestApp();
+  const providerResponse = await request(app, "/api/vault/providers", { token: "user-a" });
+  assert.deepEqual(await providerResponse.json(), {
+    providers: [{ id: "gemini", label: "Gemini", adapterStatus: "available" }],
+  });
+
+  const created = await request(app, "/api/vault/keys", {
+    token: "user-a",
+    body: { provider: "gemini", value: "mock-only-provider-key" },
+  });
+  assert.equal(created.status, 201);
+  const createdText = await created.text();
+  assert.ok(!createdText.includes("mock-only-provider-key"));
+  const key = JSON.parse(createdText) as VaultKeyMetadata;
+  assert.equal(key.providerName, "Gemini");
+  assert.equal(key.modelName, null);
+  assert.equal(key.usage, null);
+
+  const edited = await request(app, `/api/vault/keys/${key.provider}/${key.id}`, {
+    token: "user-a",
+    method: "PATCH",
+    body: { value: null },
+  });
+  assert.equal(edited.status, 200);
+  assert.equal((await edited.json() as VaultKeyMetadata).providerName, "Gemini");
+  const revealed = await request(
+    app,
+    `/api/vault/keys/${key.provider}/${key.id}/reveal`,
+    { token: "user-a" },
+  );
+  assert.deepEqual(await revealed.json(), { value: "mock-only-provider-key" });
+
+  const deleted = await request(app, `/api/vault/keys/${key.provider}/${key.id}`, {
+    token: "user-a",
+    method: "DELETE",
+  });
+  assert.equal(deleted.status, 204);
+});
+
+test("provider IDs outside the adapter registry cannot be saved", async () => {
+  const response = await request(createTestApp(), "/api/vault/keys", {
+    token: "user-a",
+    body: { provider: "unknown-provider", value: "mock-only-provider-key" },
+  });
+  assert.equal(response.status, 400);
+  assert.deepEqual(await response.json(), {
+    error: "This API key provider is not supported yet.",
+    code: "provider_not_supported",
+  });
 });
 
 test("reveal responses are non-cacheable and rate limited per verified user", async () => {

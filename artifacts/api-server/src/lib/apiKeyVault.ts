@@ -5,7 +5,7 @@ import {
   type DocumentData,
   type QueryDocumentSnapshot,
 } from "firebase-admin/firestore";
-import { chatProviderForModel } from "./chatAdapters";
+import { API_KEY_PROVIDER_REGISTRY, chatProviderForModel } from "./chatAdapters";
 import { getFirebaseAdmin, requireEncryptionKey } from "./firebaseAdmin";
 
 export const BUILT_IN_PROVIDERS = [
@@ -47,6 +47,7 @@ type EncryptedFields = {
 };
 
 type StoredKey = DocumentData & {
+  provider?: unknown;
   label?: unknown;
   modelType?: unknown;
   modelName?: unknown;
@@ -64,6 +65,7 @@ type StoredKey = DocumentData & {
 export type VaultKeyMetadata = {
   id: string;
   provider: ProviderKey;
+  providerName: string | null;
   label: string;
   modelType: SecretModelType | null;
   modelName: string | null;
@@ -251,6 +253,7 @@ function metadataFromSnapshot(
 ): VaultKeyMetadata {
   const data = snapshot.data() as StoredKey;
   const secret = decryptValue(data);
+  const storedProvider = typeof data.provider === "string" ? data.provider : null;
   const cooldownUntil = cooldownMillis(data.cooldownUntil);
   const status: ProviderKeyStatus =
     data.failureStatus === "failing"
@@ -261,6 +264,9 @@ function metadataFromSnapshot(
   return {
     id: snapshot.id,
     provider,
+    providerName: storedProvider
+      ? API_KEY_PROVIDER_REGISTRY.find((item) => item.id === storedProvider)?.label ?? null
+      : null,
     label: typeof data.label === "string" ? data.label : "API key",
     modelType: data.modelType === "images" || data.modelType === "video" || data.modelType === "text"
       ? data.modelType
@@ -399,6 +405,7 @@ export async function createVaultKey(
   description: string | null = null,
   modelName: string | null = null,
   usage: VaultKeyUsage | null = null,
+  providerId: string | null = null,
 ): Promise<VaultKeyMetadata> {
   const keyRef = userProviderKeysCollection(uid, provider).doc();
   const { db } = getFirebaseAdmin();
@@ -407,6 +414,7 @@ export async function createVaultKey(
     modelType,
     ...(modelName === null ? {} : { modelName }),
     ...(usage === null ? {} : { usage }),
+    ...(providerId === null ? {} : { provider: providerId }),
     description: description?.trim() || null,
     enabled: true,
     createdAt: FieldValue.serverTimestamp(),

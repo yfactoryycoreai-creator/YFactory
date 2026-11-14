@@ -33,6 +33,7 @@ export type StorageUsage = {
 export type VaultKey = {
   id: string;
   provider: ProviderKey;
+  providerName: string | null;
   label: string;
   modelType: SecretModelType | null;
   modelName: string | null;
@@ -44,6 +45,12 @@ export type VaultKey = {
   createdAt: number;
   status: ProviderKeyStatus;
   cooldownUntil?: number;
+};
+
+export type VaultProviderOption = {
+  id: ProviderKey;
+  label: string;
+  adapterStatus: 'available';
 };
 
 export type KeyPoolCredentialState = 'ready' | 'cooldown' | 'disabled';
@@ -99,6 +106,14 @@ export async function loadVaultKeys(idToken: string): Promise<VaultKey[]> {
   return result.keys;
 }
 
+export async function loadVaultProviders(idToken: string): Promise<VaultProviderOption[]> {
+  const result = await vaultRequest<{ providers: VaultProviderOption[] }>(
+    idToken,
+    '/api/vault/providers',
+  );
+  return result.providers.filter((provider) => provider.adapterStatus === 'available');
+}
+
 export async function loadProviders(idToken: string): Promise<ProviderConfig[]> {
   const result = await vaultRequest<{ providers: ProviderConfig[] }>(
     idToken,
@@ -122,8 +137,7 @@ export async function loadKeyPoolStatus(idToken: string): Promise<KeyPoolProvide
 export function createVaultKey(
   idToken: string,
   input: {
-    modelName: string;
-    usage: SecretUsage;
+    provider: ProviderKey;
     value: string;
   },
 ): Promise<VaultKey> {
@@ -137,8 +151,6 @@ export function updateVaultKeyMetadata(
   idToken: string,
   key: Pick<VaultKey, 'provider' | 'id'>,
   input: {
-    modelName: string;
-    usage: SecretUsage;
     value: string | null;
   },
 ): Promise<VaultKey> {

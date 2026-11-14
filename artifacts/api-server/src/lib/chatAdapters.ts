@@ -91,3 +91,11 @@ export function createGeminiChatAdapter(
 export const CHAT_ADAPTERS: ChatAdapterRegistry = {
   gemini: createGeminiChatAdapter(),
 };
+
+export const API_KEY_PROVIDER_REGISTRY = [
+  { id: "gemini", label: "Gemini", adapterStatus: "available" },
+] as const satisfies ReadonlyArray<{
+  id: ChatProvider;
+  label: string;
+  adapterStatus: "available";
+}>;

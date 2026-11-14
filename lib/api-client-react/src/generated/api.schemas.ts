@@ -389,6 +389,23 @@ export interface StoryImage {
   error?: string;
 }
 
+export type VaultProviderOptionAdapterStatus = typeof VaultProviderOptionAdapterStatus[keyof typeof VaultProviderOptionAdapterStatus];
+
+
+export const VaultProviderOptionAdapterStatus = {
+  available: 'available',
+} as const;
+
+export interface VaultProviderOption {
+  id: ProviderId;
+  label: string;
+  adapterStatus: VaultProviderOptionAdapterStatus;
+}
+
+export interface VaultProviderList {
+  providers: VaultProviderOption[];
+}
+
 /**
  * @nullable
  */
@@ -423,6 +440,8 @@ export const VaultKeyStatus = {
 export interface VaultKey {
   id: string;
   provider: ProviderId;
+  /** @nullable */
+  providerName: string | null;
   label: string;
   /** @nullable */
   modelType: VaultKeyModelType;

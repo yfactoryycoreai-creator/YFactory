@@ -373,6 +373,21 @@ export const GetStoryZipDownloadProgressResponse = zod.object({
 
 
 /**
+ * @summary List providers with an available API key adapter
+ */
+export const listVaultKeyProvidersResponseProvidersItemIdRegExp = new RegExp('^[a-z0-9][a-z0-9-]{0,63}$');
+
+
+export const ListVaultKeyProvidersResponse = zod.object({
+  "providers": zod.array(zod.object({
+  "id": zod.string().regex(listVaultKeyProvidersResponseProvidersItemIdRegExp),
+  "label": zod.string(),
+  "adapterStatus": zod.enum(['available'])
+}))
+})
+
+
+/**
  * @summary List masked API key metadata
  */
 export const listVaultKeysResponseKeysItemProviderRegExp = new RegExp('^[a-z0-9][a-z0-9-]{0,63}$');
@@ -384,6 +399,7 @@ export const ListVaultKeysResponse = zod.object({
   "keys": zod.array(zod.object({
   "id": zod.string(),
   "provider": zod.string().regex(listVaultKeysResponseKeysItemProviderRegExp),
+  "providerName": zod.string().nullable(),
   "label": zod.string(),
   "modelType": zod.union([zod.literal('images'),zod.literal('video'),zod.literal('text'),zod.literal(null)]).nullable(),
   "modelName": zod.string().max(listVaultKeysResponseKeysItemModelNameMax).nullable(),
@@ -431,6 +447,7 @@ export const createVaultKeyResponseModelNameMax = 200;
 export const CreateVaultKeyResponse = zod.object({
   "id": zod.string(),
   "provider": zod.string().regex(createVaultKeyResponseProviderRegExp),
+  "providerName": zod.string().nullable(),
   "label": zod.string(),
   "modelType": zod.union([zod.literal('images'),zod.literal('video'),zod.literal('text'),zod.literal(null)]).nullable(),
   "modelName": zod.string().max(createVaultKeyResponseModelNameMax).nullable(),
@@ -565,6 +582,7 @@ export const updateVaultKeyResponseModelNameMax = 200;
 export const UpdateVaultKeyResponse = zod.object({
   "id": zod.string(),
   "provider": zod.string().regex(updateVaultKeyResponseProviderRegExp),
+  "providerName": zod.string().nullable(),
   "label": zod.string(),
   "modelType": zod.union([zod.literal('images'),zod.literal('video'),zod.literal('text'),zod.literal(null)]).nullable(),
   "modelName": zod.string().max(updateVaultKeyResponseModelNameMax).nullable(),
@@ -626,6 +644,7 @@ export const replaceVaultKeyValueResponseModelNameMax = 200;
 export const ReplaceVaultKeyValueResponse = zod.object({
   "id": zod.string(),
   "provider": zod.string().regex(replaceVaultKeyValueResponseProviderRegExp),
+  "providerName": zod.string().nullable(),
   "label": zod.string(),
   "modelType": zod.union([zod.literal('images'),zod.literal('video'),zod.literal('text'),zod.literal(null)]).nullable(),
   "modelName": zod.string().max(replaceVaultKeyValueResponseModelNameMax).nullable(),

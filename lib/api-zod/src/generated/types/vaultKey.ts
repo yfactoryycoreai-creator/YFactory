@@ -13,6 +13,8 @@ import type { VaultKeyUsage } from './vaultKeyUsage';
 export interface VaultKey {
   id: string;
   provider: ProviderId;
+  /** @nullable */
+  providerName: string | null;
   label: string;
   /** @nullable */
   modelType: VaultKeyModelType;

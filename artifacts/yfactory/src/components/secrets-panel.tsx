@@ -6,14 +6,10 @@ import {
   Copy,
   Eye,
   EyeOff,
-  Film,
-  Image as ImageIcon,
-  KeyRound,
+  LockKeyhole,
   LoaderCircle,
-  MessageCircle,
   Pencil,
   Plus,
-  ShieldCheck,
   Trash2,
   X,
 } from 'lucide-react';
@@ -24,10 +20,11 @@ import {
   createVaultKey,
   deleteVaultKey,
   loadVaultKeys,
+  loadVaultProviders,
   revealVaultKeyValue,
   updateVaultKeyMetadata,
-  type SecretUsage,
   type VaultKey,
+  type VaultProviderOption,
 } from '@/lib/apiKeyVault';
 
 type SecretsPanelProps = {
@@ -38,23 +35,21 @@ type SecretsPanelProps = {
 type SecretFormMode = 'create' | 'edit' | null;
 
 const MAX_SECRET_COUNT = 100;
-const SECRET_NAME_PATTERN = /^[^\u0000-\u001f\u007f]{1,200}$/u;
-
 function keyOrder(left: VaultKey, right: VaultKey): number {
-  return (left.modelName ?? left.label).localeCompare(
-    right.modelName ?? right.label,
+  return (left.modelName ?? left.providerName ?? left.label).localeCompare(
+    right.modelName ?? right.providerName ?? right.label,
     undefined,
     { numeric: true },
   );
 }
 
-function UsageIcon({ keyEntry }: { keyEntry: VaultKey }) {
-  if (keyEntry.usage === 'chat' || keyEntry.modelType === 'text') {
-    return <MessageCircle size={20} aria-hidden="true" />;
-  }
-  if (keyEntry.modelType === 'images') return <ImageIcon size={20} aria-hidden="true" />;
-  if (keyEntry.modelType === 'video') return <Film size={20} aria-hidden="true" />;
-  return <KeyRound size={20} aria-hidden="true" />;
+function ProviderAvatar({ keyEntry }: { keyEntry: VaultKey }) {
+  const name = keyEntry.providerName ?? keyEntry.modelName ?? keyEntry.label;
+  return (
+    <span className="secret-provider-avatar" aria-hidden="true">
+      {Array.from(name.trim())[0]?.toLocaleUpperCase() ?? '•'}
+    </span>
+  );
 }
 
 export default function SecretsPanel({ userId, getIdToken }: SecretsPanelProps) {
@@ -65,12 +60,13 @@ export default function SecretsPanel({ userId, getIdToken }: SecretsPanelProps) 
   const [keysOwnerId, setKeysOwnerId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
+  const [providerOptions, setProviderOptions] = useState<VaultProviderOption[]>([]);
+  const [providerLoadError, setProviderLoadError] = useState('');
   const [formMode, setFormMode] = useState<SecretFormMode>(null);
   const [formOwnerId, setFormOwnerId] = useState<string | null>(null);
   const [editingKey, setEditingKey] = useState<VaultKey | null>(null);
-  const [name, setName] = useState('');
+  const [providerInput, setProviderInput] = useState('');
   const [value, setValue] = useState('');
-  const [usage, setUsage] = useState<SecretUsage | ''>('');
   const [showValue, setShowValue] = useState(false);
   const [formBusy, setFormBusy] = useState(false);
   const [formError, setFormError] = useState('');
@@ -95,9 +91,8 @@ export default function SecretsPanel({ userId, getIdToken }: SecretsPanelProps) 
     setFormMode(null);
     setFormOwnerId(null);
     setEditingKey(null);
-    setName('');
+    setProviderInput('');
     setValue('');
-    setUsage('');
     setPendingDelete(null);
     setPendingDeleteOwnerId(null);
     setLoading(true);
@@ -130,26 +125,54 @@ export default function SecretsPanel({ userId, getIdToken }: SecretsPanelProps) 
     };
   }, [getIdToken, userId, t]);
 
+  useEffect(() => {
+    let active = true;
+    setProviderOptions([]);
+    setProviderLoadError('');
+    if (!getIdToken) {
+      setProviderLoadError(t('settings.providerLoadFailed'));
+      return () => {
+        active = false;
+      };
+    }
+    void (async () => {
+      try {
+        const token = await getIdToken();
+        const options = await loadVaultProviders(token);
+        if (active) setProviderOptions(options);
+      } catch {
+        if (active) setProviderLoadError(t('settings.providerLoadFailed'));
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [getIdToken, userId, t]);
+
   useEffect(() => () => {
     if (revealTimerRef.current) clearTimeout(revealTimerRef.current);
   }, []);
 
   const visibleKeys = keysOwnerId === userId ? keys : [];
   const loadingForUser = loading || (Boolean(getIdToken) && keysOwnerId !== userId && !loadError);
-  const duplicateKey = visibleKeys.find((key) =>
-    key.modelName?.toLocaleLowerCase() === name.toLocaleLowerCase() &&
-    key.id !== editingKey?.id,
+  const providerQuery = providerInput.trim().toLocaleLowerCase();
+  const selectedProvider = providerOptions.find((provider) =>
+    provider.id.toLocaleLowerCase() === providerQuery ||
+    provider.label.toLocaleLowerCase() === providerQuery,
   );
-  const nameIsValid = SECRET_NAME_PATTERN.test(name) && Boolean(name.trim());
+  const providerMatches = providerOptions.some((provider) =>
+    provider.id.toLocaleLowerCase().includes(providerQuery) ||
+    provider.label.toLocaleLowerCase().includes(providerQuery),
+  );
+  const providerIsUnsupported = Boolean(providerQuery) && !providerMatches;
   const hasReachedSecretLimit = visibleKeys.length >= MAX_SECRET_COUNT;
 
   const resetForm = () => {
     setFormMode(null);
     setFormOwnerId(null);
     setEditingKey(null);
-    setName('');
+    setProviderInput('');
     setValue('');
-    setUsage('');
     setShowValue(false);
     setFormError('');
   };
@@ -163,8 +186,7 @@ export default function SecretsPanel({ userId, getIdToken }: SecretsPanelProps) 
 
   const openEditSecret = (key: VaultKey) => {
     setEditingKey(key);
-    setName(key.modelName ?? '');
-    setUsage(key.usage ?? '');
+    setProviderInput(key.providerName ?? '');
     setValue('');
     setShowValue(false);
     setFormError('');
@@ -175,14 +197,12 @@ export default function SecretsPanel({ userId, getIdToken }: SecretsPanelProps) 
 
   const handleSaveSecret = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (formOwnerId !== userIdRef.current) return;
+    if (formOwnerId !== userIdRef.current || !formMode) return;
     const requestedUserId = userIdRef.current;
-    if (!nameIsValid) {
-      setFormError(t('settings.secretNameInvalid'));
-      return;
-    }
-    if (!usage) {
-      setFormError(t('settings.secretUsageRequired'));
+    if (formMode === 'create' && !selectedProvider) {
+      setFormError(providerIsUnsupported
+        ? t('settings.notSupportedYet')
+        : t('settings.providerRequired'));
       return;
     }
     if (formMode === 'create' && !value.trim()) {
@@ -191,10 +211,6 @@ export default function SecretsPanel({ userId, getIdToken }: SecretsPanelProps) 
     }
     if (!getIdToken) {
       setFormError(t('settings.vaultSaveFailed'));
-      return;
-    }
-    if (duplicateKey) {
-      setFormError(t('settings.secretAlreadyExists'));
       return;
     }
     if (formMode === 'create' && hasReachedSecretLimit) {
@@ -209,8 +225,6 @@ export default function SecretsPanel({ userId, getIdToken }: SecretsPanelProps) 
       if (userIdRef.current !== requestedUserId) return;
       if (formMode === 'edit' && editingKey) {
         const updatedKey = await updateVaultKeyMetadata(token, editingKey, {
-          modelName: name,
-          usage,
           value: value.trim() || null,
         });
         if (userIdRef.current !== requestedUserId) return;
@@ -220,10 +234,12 @@ export default function SecretsPanel({ userId, getIdToken }: SecretsPanelProps) 
         if (revealedValue?.id === editingKey.id) setRevealedValue(null);
         setStatusMessage(t('settings.secretUpdated'));
       } else {
+        if (formMode !== 'create' || !selectedProvider) {
+          throw new Error('Choose a supported provider before saving.');
+        }
         const savedKey = await createVaultKey(token, {
-          modelName: name,
+          provider: selectedProvider.id,
           value: value.trim(),
-          usage,
         });
         if (userIdRef.current !== requestedUserId) return;
         setKeys((current) => [...current, savedKey].sort(keyOrder));
@@ -316,9 +332,17 @@ export default function SecretsPanel({ userId, getIdToken }: SecretsPanelProps) 
   };
 
   return (
-    <section className="secrets-panel" aria-labelledby="secrets-title">
+    <section className="secrets-panel" aria-labelledby="api-keys-title">
       <header className="secrets-panel-heading">
-        <h2 id="secrets-title">{t('settings.savedApiKeys')}</h2>
+        <div className="api-keys-title-block">
+          <span className="api-keys-title-icon" aria-hidden="true">
+            <LockKeyhole size={25} />
+          </span>
+          <div className="api-keys-title-copy">
+            <h1 id="api-keys-title">{t('settings.apiKeysTitle')}</h1>
+            <p>{t('settings.apiKeysEntryDescription')}</p>
+          </div>
+        </div>
         <button
           className="factory-primary-button secrets-new-button"
           type="button"
@@ -348,38 +372,28 @@ export default function SecretsPanel({ userId, getIdToken }: SecretsPanelProps) 
         {loadingForUser && <li className="secrets-empty">{t('settings.loadingKeys')}</li>}
         {!loadingForUser && visibleKeys.length === 0 && !loadError && (
           <li className="secrets-empty">
-            <span className="secrets-empty-shield" aria-hidden="true">
-              <svg viewBox="0 0 88 88" fill="none">
-                <path d="M44 8 70 18v21c0 18-11 31-26 40C29 70 18 57 18 39V18L44 8Z" fill="currentColor" fillOpacity=".12" />
-                <path d="M44 8 70 18v21c0 18-11 31-26 40C29 70 18 57 18 39V18L44 8Z" stroke="currentColor" strokeWidth="3" />
-                <path d="m32 43 8 8 17-18" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
-                <path d="m16 14 2 5 5 2-5 2-2 5-2-5-5-2 5-2 2-5ZM70 57l2 4 4 2-4 2-2 4-2-4-4-2 4-2 2-4Z" fill="currentColor" />
-              </svg>
-            </span>
             <strong>{t('settings.emptyKeysTitle')}</strong>
             <span>{t('settings.emptyKeys')}</span>
           </li>
         )}
         {visibleKeys.map((key) => (
           <li className="secrets-row" key={`${key.provider}:${key.id}`}>
-            <span className="secret-usage-icon" aria-hidden="true">
-              <UsageIcon keyEntry={key} />
-            </span>
+            <ProviderAvatar keyEntry={key} />
             <div className="secrets-entry">
               <div className="secret-card-heading">
-                <strong dir="ltr">{key.modelName ?? key.label}</strong>
+                <strong dir="ltr">{key.modelName ?? key.providerName ?? key.label}</strong>
                 <span className="secret-model-badge">
                   {key.usage
                     ? t(`settings.usage${key.usage[0].toUpperCase()}${key.usage.slice(1)}`)
-                    : key.modelType
+                    : key.modelName && key.modelType
                       ? t(`settings.modelTypes.${key.modelType}`)
-                      : t('settings.modelTypeUnspecified')}
+                      : t('settings.noModelsYet')}
                 </span>
               </div>
               <code dir="ltr">
                 {revealedValue?.id === key.id ? revealedValue.value : key.maskedValue}
               </code>
-              {(!key.modelName || !key.usage) && (
+              {!key.modelName && !key.providerName && (
                 <small className="secret-form-hint">{t('settings.editToFinishSetup')}</small>
               )}
               {key.usage === 'chat' && !key.chatSupported && (
@@ -449,6 +463,17 @@ export default function SecretsPanel({ userId, getIdToken }: SecretsPanelProps) 
         ))}
       </ul>
 
+      <div className="secrets-footer-illustration" aria-hidden="true">
+        <svg viewBox="0 0 160 160" fill="none">
+          <path d="M80 12 130 32v39c0 34-20 58-50 77C50 129 30 105 30 71V32L80 12Z" fill="currentColor" fillOpacity=".12" />
+          <path d="M80 12 130 32v39c0 34-20 58-50 77C50 129 30 105 30 71V32L80 12Z" stroke="currentColor" strokeWidth="5" />
+          <rect x="58" y="72" width="44" height="36" rx="8" fill="currentColor" />
+          <path d="M68 72V59a12 12 0 0 1 24 0v13" stroke="currentColor" strokeWidth="7" strokeLinecap="round" />
+          <circle cx="80" cy="88" r="4" fill="var(--app-bg)" />
+          <path d="M80 92v7" stroke="var(--app-bg)" strokeWidth="4" strokeLinecap="round" />
+        </svg>
+      </div>
+
       <DialogPrimitive.Root
         open={formMode !== null && formOwnerId === userId}
         onOpenChange={(nextOpen) => {
@@ -465,7 +490,9 @@ export default function SecretsPanel({ userId, getIdToken }: SecretsPanelProps) 
             dir={isRtl ? 'rtl' : 'ltr'}
             onOpenAutoFocus={(event) => {
               event.preventDefault();
-              document.getElementById('secret-name-input')?.focus();
+              document.getElementById(
+                formMode === 'edit' ? 'secret-key-value-input' : 'secret-provider-input',
+              )?.focus();
             }}
           >
             <form onSubmit={(event) => void handleSaveSecret(event)}>
@@ -485,48 +512,54 @@ export default function SecretsPanel({ userId, getIdToken }: SecretsPanelProps) 
                 </DialogPrimitive.Close>
               </header>
               <label className="secret-sheet-field">
-                <span>{t('settings.modelName')}</span>
-                <input
-                  id="secret-name-input"
-                  value={name}
-                  required
-                  maxLength={200}
-                  placeholder={t('settings.modelNamePlaceholder')}
-                  autoComplete="off"
-                  spellCheck={false}
-                  dir="ltr"
-                  onChange={(event) => {
-                    setName(event.currentTarget.value);
-                    setFormError('');
-                  }}
-                  aria-invalid={Boolean(formError && !nameIsValid)}
-                  data-testid="input-api-key-model-name"
-                />
-              </label>
-              {name && !nameIsValid && (
-                <p className="secret-error-line" role="alert">{t('settings.secretNameInvalid')}</p>
-              )}
-              <label className="secret-sheet-field">
-                <span>{t('settings.usage')}</span>
-                <select
-                  className="secret-model-select"
-                  value={usage}
-                  required
-                  onChange={(event) => {
-                    setUsage(event.currentTarget.value as SecretUsage | '');
-                    setFormError('');
-                  }}
-                  aria-invalid={Boolean(formError && !usage)}
-                  data-testid="select-api-key-usage"
-                >
-                  <option value="">{t('settings.selectUsage')}</option>
-                  <option value="chat">{t('settings.usageChat')}</option>
-                </select>
+                <span>{t('settings.provider')}</span>
+                {formMode === 'edit' ? (
+                  <input
+                    value={editingKey?.providerName ?? t('settings.providerNotSet')}
+                    readOnly
+                    dir="ltr"
+                    data-testid="input-api-key-provider-readonly"
+                  />
+                ) : (
+                  <>
+                    <input
+                      id="secret-provider-input"
+                      value={providerInput}
+                      list="api-key-provider-options"
+                      required
+                      maxLength={100}
+                      placeholder={t('settings.providerPlaceholder')}
+                      autoComplete="off"
+                      spellCheck={false}
+                      dir="ltr"
+                      onChange={(event) => {
+                        setProviderInput(event.currentTarget.value);
+                        setFormError('');
+                      }}
+                      aria-invalid={Boolean(formError && !selectedProvider)}
+                      data-testid="input-api-key-provider"
+                    />
+                    <datalist id="api-key-provider-options">
+                      {providerOptions.map((provider) => (
+                        <option key={provider.id} value={provider.label} />
+                      ))}
+                    </datalist>
+                    {providerIsUnsupported && (
+                      <small className="secret-provider-unsupported">
+                        {t('settings.notSupportedYet')}
+                      </small>
+                    )}
+                    {providerLoadError && (
+                      <small className="secret-error-line" role="alert">{providerLoadError}</small>
+                    )}
+                  </>
+                )}
               </label>
               <label className="secret-sheet-field">
                 <span>{t('settings.apiKeyValue')}</span>
                 <span className="secret-value-input-wrap">
                   <input
+                    id="secret-key-value-input"
                     type={showValue ? 'text' : 'password'}
                     value={value}
                     required={formMode === 'create'}
@@ -558,11 +591,6 @@ export default function SecretsPanel({ userId, getIdToken }: SecretsPanelProps) 
                   </small>
                 )}
               </label>
-              {duplicateKey && (
-                <div className="secret-existing-note" role="alert">
-                  {t('settings.secretAlreadyExists')}
-                </div>
-              )}
               {formError && <p className="secret-error-line" role="alert">{formError}</p>}
               <div className="secret-sheet-actions">
                 <DialogPrimitive.Close asChild>
@@ -579,11 +607,9 @@ export default function SecretsPanel({ userId, getIdToken }: SecretsPanelProps) 
                   type="submit"
                   disabled={
                     formBusy ||
-                    !nameIsValid ||
-                    !usage ||
+                    (formMode === 'create' && !selectedProvider) ||
                     (formMode === 'create' && !value.trim()) ||
                     !getIdToken ||
-                    Boolean(duplicateKey) ||
                     (formMode === 'create' && hasReachedSecretLimit)
                   }
                   aria-busy={formBusy}
