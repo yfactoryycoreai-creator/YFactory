@@ -919,9 +919,6 @@
   gap:12px;
   border-bottom:1px solid var(--app-separator);
 }
-.settings-preference-row[hidden],
-.settings-preference-link[hidden],
-.settings-info-card[hidden] { display:none !important; }
 .settings-preference-copy {
   display:flex;
   min-width:0;

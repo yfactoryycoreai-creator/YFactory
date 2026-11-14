@@ -278,7 +278,7 @@ export default function ChatScreen({ onBack, getIdToken, onOpenSecrets }: ChatSc
             </select>
           </label>
         </div>
-        <div className="chat-header-actions" hidden>
+        <div className="chat-header-actions">
           <button
             type="button"
             className="chat-icon-button chat-soon-control"
@@ -340,7 +340,7 @@ export default function ChatScreen({ onBack, getIdToken, onOpenSecrets }: ChatSc
                 <p className="chat-greeting-help">{t("chat:help")}</p>
             </div>
 
-            <div className="chat-quick-actions" aria-label={t("chat:title")} hidden>
+            <div className="chat-quick-actions" aria-label={t("chat:title")}>
               {actionKeys.map(({ key, icon, fill }) => (
                 <button
                   type="button"
@@ -359,7 +359,7 @@ export default function ChatScreen({ onBack, getIdToken, onOpenSecrets }: ChatSc
               ))}
             </div>
 
-            <section className="chat-ideas" data-testid="chat-suggested-ideas" hidden>
+            <section className="chat-ideas" data-testid="chat-suggested-ideas">
               <button
                 type="button"
                 className="chat-ideas-toggle"
@@ -417,7 +417,6 @@ export default function ChatScreen({ onBack, getIdToken, onOpenSecrets }: ChatSc
           <button
             type="button"
             className="chat-composer-tool chat-plus"
-            hidden
             onClick={(event) => openSheet(event.currentTarget)}
             aria-label={t("chat:addToConversation")}
             aria-haspopup="dialog"
@@ -425,7 +424,7 @@ export default function ChatScreen({ onBack, getIdToken, onOpenSecrets }: ChatSc
           >
             <Plus aria-hidden="true" />
           </button>
-          <div className="chat-composer-media-tools" hidden>
+          <div className="chat-composer-media-tools">
             <button type="button" className="chat-composer-tool" disabled title={t("chat:comingSoon")} aria-label={`${t("chat:image")} — ${t("chat:comingSoon")}`} data-testid="button-chat-image">
               <Image aria-hidden="true" />
             </button>
@@ -463,15 +462,14 @@ export default function ChatScreen({ onBack, getIdToken, onOpenSecrets }: ChatSc
             {t(`chat:${failureCode}`)}
           </p>
         )}
-        <p className="chat-footer-note" data-testid="status-chat-connected" hidden>
+        <p className="chat-footer-note" data-testid="status-chat-connected">
           <BookOpen aria-hidden="true" />
           <span>{t("chat:footerConnected")}</span>
         </p>
       </footer>
 
       {sheetOpen && (
-          <div
-            hidden
+        <div
           className={`chat-sheet-backdrop ${fullListOpen ? "chat-sheet-backdrop-expanded" : ""}`}
           onMouseDown={(event) => {
             if (event.target === event.currentTarget) {

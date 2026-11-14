@@ -186,11 +186,7 @@ export default function SettingsPage({
             </div>
             <span className="settings-back-spacer" aria-hidden="true" />
           </header>
-          <section
-            className="settings-info-card"
-            hidden={isPremium}
-            data-testid={`settings-info-${settingsSubview}`}
-          >
+          <section className="settings-info-card" data-testid={`settings-info-${settingsSubview}`}>
             <span className="settings-info-icon" aria-hidden="true">
               {isPremium ? <Sparkles size={24} /> : <Info size={24} />}
             </span>
@@ -257,7 +253,7 @@ export default function SettingsPage({
           </section>
 
           <section className="settings-preferences-panel" aria-label={t('settings.language')}>
-            <div className="settings-preference-row" hidden>
+            <div className="settings-preference-row">
               <div className="settings-preference-copy">
                 <Globe2 size={19} aria-hidden="true" />
                 <strong>{t('settings.language')}</strong>
@@ -297,7 +293,7 @@ export default function SettingsPage({
           </section>
 
           <section className="settings-preferences-panel" aria-label={t('settings.preferences')}>
-            <div className="settings-preference-row" hidden>
+            <div className="settings-preference-row">
               <div className="settings-preference-copy">
                 <Bell size={19} aria-hidden="true" />
                 <strong>{t('settings.notifications')}</strong>
@@ -353,7 +349,6 @@ export default function SettingsPage({
               className="settings-preference-link"
               type="button"
               onClick={() => setSettingsSubview('premium')}
-              hidden
               data-testid="button-premium-features"
             >
               <span className="settings-preference-copy">
