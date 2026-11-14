@@ -383,7 +383,7 @@ export default function SecretsPanel({ userId, getIdToken }: SecretsPanelProps) 
               <div className="secret-card-heading">
                 <strong dir="ltr">{key.modelName ?? key.providerName ?? key.label}</strong>
                 <span className="secret-model-badge">
-                  {key.usage
+                  {key.modelName && key.usage
                     ? t(`settings.usage${key.usage[0].toUpperCase()}${key.usage.slice(1)}`)
                     : key.modelName && key.modelType
                       ? t(`settings.modelTypes.${key.modelType}`)
