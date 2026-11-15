@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
+import { createPortal } from 'react-dom';
 import {
   ArrowLeft,
   Check,
@@ -35,7 +36,7 @@ import {
 type SecretsPanelProps = {
   userId: string | null;
   getIdToken?: () => Promise<string>;
-  initialModelTarget?: Pick<VaultKey, 'provider' | 'id'> | null;
+  initialModelTarget?: { provider: string; id: string } | null;
 };
 
 type SecretFormMode = 'create' | 'edit' | null;
@@ -88,15 +89,70 @@ export default function SecretsPanel({
   const [revealingId, setRevealingId] = useState<string | null>(null);
   const [actionError, setActionError] = useState('');
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [menuPosition, setMenuPosition] = useState<{ top: number; left: number; width: number } | null>(null);
+  const [providerSetupKey, setProviderSetupKey] = useState<VaultKey | null>(null);
   const [activeModelsTarget, setActiveModelsTarget] =
-    useState<Pick<VaultKey, 'provider' | 'id'> | null>(null);
+    useState<{ provider: string; id: string } | null>(null);
   const [modelSearch, setModelSearch] = useState('');
   const [manualModelOpen, setManualModelOpen] = useState(false);
   const [manualModelId, setManualModelId] = useState('');
   const [modelBusy, setModelBusy] = useState(false);
   const [modelError, setModelError] = useState('');
   const handledInitialTargetRef = useRef<string | null>(null);
+  const menuButtonRefs = useRef(new Map<string, HTMLButtonElement>());
+  const actionMenuRef = useRef<HTMLDivElement | null>(null);
   const userIdRef = useRef(userId);
+
+  const closeKeyMenu = () => {
+    setOpenMenuId(null);
+    setMenuPosition(null);
+  };
+
+  const toggleKeyMenu = (menuId: string) => {
+    if (openMenuId === menuId) {
+      closeKeyMenu();
+      return;
+    }
+    const button = menuButtonRefs.current.get(menuId);
+    if (!button) return;
+    const rect = button.getBoundingClientRect();
+    const width = Math.min(184, Math.max(0, window.innerWidth - 24));
+    const menuHeight = 4 * 44 + 12;
+    const isMenuRtl = isRtl;
+    const preferredLeft = isMenuRtl ? rect.left : rect.right - width;
+    const left = Math.max(12, Math.min(preferredLeft, window.innerWidth - width - 12));
+    const top = window.innerHeight - rect.bottom >= menuHeight + 12
+      ? rect.bottom + 6
+      : Math.max(12, rect.top - menuHeight - 6);
+    setMenuPosition({ top, left, width });
+    setOpenMenuId(menuId);
+  };
+
+  useEffect(() => {
+    if (!openMenuId) return;
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (
+        target instanceof Node &&
+        (menuButtonRefs.current.get(openMenuId)?.contains(target) ||
+          actionMenuRef.current?.contains(target))
+      ) return;
+      closeKeyMenu();
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeKeyMenu();
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    window.addEventListener('resize', closeKeyMenu);
+    window.addEventListener('scroll', closeKeyMenu, true);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('resize', closeKeyMenu);
+      window.removeEventListener('scroll', closeKeyMenu, true);
+    };
+  }, [openMenuId]);
   userIdRef.current = userId;
 
   useEffect(() => {
@@ -112,7 +168,8 @@ export default function SecretsPanel({
     setProviderInput('');
     setValue('');
     setActiveModelsTarget(null);
-    setOpenMenuId(null);
+    closeKeyMenu();
+    setProviderSetupKey(null);
     setManualModelOpen(false);
     setManualModelId('');
     setPendingDelete(null);
@@ -228,14 +285,14 @@ export default function SecretsPanel({
   const openNewSecret = () => {
     resetForm();
     setActiveModelsTarget(null);
-    setOpenMenuId(null);
+    closeKeyMenu();
     setStatusMessage('');
     setFormOwnerId(userId);
     setFormMode('create');
   };
 
   const openModels = (key: VaultKey) => {
-    setOpenMenuId(null);
+    closeKeyMenu();
     setModelSearch('');
     setManualModelOpen(false);
     setManualModelId('');
@@ -248,7 +305,7 @@ export default function SecretsPanel({
   };
 
   const openEditSecret = (key: VaultKey) => {
-    setOpenMenuId(null);
+    closeKeyMenu();
     setEditingKey(key);
     setProviderInput(key.providerName ?? '');
     setValue('');
@@ -257,6 +314,15 @@ export default function SecretsPanel({
     setStatusMessage('');
     setFormOwnerId(userId);
     setFormMode('edit');
+  };
+
+  const handleShowModels = (key: VaultKey) => {
+    closeKeyMenu();
+    if (!key.providerName) {
+      setProviderSetupKey(key);
+      return;
+    }
+    openModels(key);
   };
 
   const replaceKey = (previous: VaultKey, updated: VaultKey) => {
@@ -661,13 +727,30 @@ export default function SecretsPanel({
                     aria-label={t('settings.apiKeyActions')}
                     aria-haspopup="menu"
                     aria-expanded={openMenuId === menuId}
-                    onClick={() => setOpenMenuId((current) => current === menuId ? null : menuId)}
+                    ref={(node) => {
+                      if (node) menuButtonRefs.current.set(menuId, node);
+                      else menuButtonRefs.current.delete(menuId);
+                    }}
+                    onClick={() => toggleKeyMenu(menuId)}
                     data-testid={`button-api-key-menu-${key.id}`}
                   >
                     <MoreVertical size={18} aria-hidden="true" />
                   </button>
-                  {openMenuId === menuId && (
-                    <div className="secret-action-menu" role="menu">
+                  {openMenuId === menuId && menuPosition && typeof document !== 'undefined' &&
+                    createPortal(
+                    <div
+                      ref={actionMenuRef}
+                      className="secret-action-menu"
+                      role="menu"
+                      dir={isRtl ? 'rtl' : 'ltr'}
+                      style={{
+                        position: 'fixed',
+                        top: menuPosition.top,
+                        left: menuPosition.left,
+                        width: menuPosition.width,
+                        zIndex: 10000,
+                      }}
+                    >
                       <button
                         type="button"
                         role="menuitem"
@@ -679,8 +762,7 @@ export default function SecretsPanel({
                       <button
                         type="button"
                         role="menuitem"
-                        disabled={!key.providerName}
-                        onClick={() => openModels(key)}
+                        onClick={() => handleShowModels(key)}
                       >
                         <Layers size={17} aria-hidden="true" />
                         {t('settings.showModels')}
@@ -690,7 +772,7 @@ export default function SecretsPanel({
                         role="menuitem"
                         disabled={!getIdToken || revealingId === key.id}
                         onClick={() => {
-                          setOpenMenuId(null);
+                          closeKeyMenu();
                           void copySecretValue(key);
                         }}
                       >
@@ -703,7 +785,7 @@ export default function SecretsPanel({
                         role="menuitem"
                         disabled={!getIdToken || deletingId === key.id}
                         onClick={() => {
-                          setOpenMenuId(null);
+                          closeKeyMenu();
                           setPendingDelete(key);
                           setPendingDeleteOwnerId(userId);
                           deleteDialogRef.current?.open(
@@ -714,7 +796,8 @@ export default function SecretsPanel({
                         <Trash2 size={17} aria-hidden="true" />
                         {t('settings.deleteAction')}
                       </button>
-                    </div>
+                    </div>,
+                    document.body,
                   )}
                 </div>
               </div>
@@ -883,6 +966,47 @@ export default function SecretsPanel({
         </DialogPrimitive.Portal>
       </DialogPrimitive.Root>
 
+      <DialogPrimitive.Root
+        open={Boolean(providerSetupKey)}
+        onOpenChange={(open) => {
+          if (!open) setProviderSetupKey(null);
+        }}
+      >
+        <DialogPrimitive.Portal>
+          <DialogPrimitive.Overlay className="confirmation-overlay" />
+          <DialogPrimitive.Content
+            className="confirmation-dialog secret-provider-needed"
+            dir={isRtl ? 'rtl' : 'ltr'}
+          >
+            <DialogPrimitive.Title className="confirmation-title">
+              {t('settings.providerFirstTitle')}
+            </DialogPrimitive.Title>
+            <DialogPrimitive.Description className="confirmation-copy">
+              {t('settings.providerFirstDescription')}
+            </DialogPrimitive.Description>
+            <div className="secret-sheet-actions">
+              <button
+                className="confirmation-button confirmation-cancel"
+                type="button"
+                onClick={() => setProviderSetupKey(null)}
+              >
+                {t('settings.cancel')}
+              </button>
+              <button
+                className="confirmation-button confirmation-secret-save"
+                type="button"
+                onClick={() => {
+                  const key = providerSetupKey;
+                  setProviderSetupKey(null);
+                  if (key) openEditSecret(key);
+                }}
+              >
+                {t('settings.apiKeyMenuEdit')}
+              </button>
+            </div>
+          </DialogPrimitive.Content>
+        </DialogPrimitive.Portal>
+      </DialogPrimitive.Root>
       <ConfirmActionDialog
         ref={deleteDialogRef}
         title={t('settings.deleteSecretTitle')}

@@ -1225,8 +1225,10 @@
 .secrets-list { gap:10px; }
 .secrets-row {
   box-sizing:border-box;
+  align-items:center;
   min-width:0;
   min-height:72px;
+  flex-direction:row;
   gap:12px;
   padding:10px 12px;
   border:1px solid var(--app-separator);
@@ -1279,13 +1281,13 @@
 .secrets-actions .secret-icon-button:hover:not(:disabled) { background:var(--app-surface); }
 .secret-menu-wrap { position:relative; }
 .secret-action-menu {
-  position:absolute;
-  z-index:20;
-  inset-inline-end:0;
-  top:calc(100% + 6px);
+  box-sizing:border-box;
+  z-index:10000;
   display:grid;
   min-width:172px;
+  max-height:calc(100dvh - 24px);
   padding:5px;
+  overflow-y:auto;
   border:1px solid var(--app-separator);
   border-radius:14px;
   background:var(--app-surface);
@@ -1380,7 +1382,7 @@
 .secret-sheet-field { display:grid; gap:8px; color:var(--app-text); font-size:14px; }
 .secret-sheet-field input { box-sizing:border-box; width:100%; min-height:48px; padding:0 12px; border:1px solid var(--app-separator); border-radius:14px; color:var(--app-text); background:var(--app-surface); font:14px system-ui,-apple-system,"Segoe UI",sans-serif; }
 @media (max-width:380px) {
-  .secrets-row { row-gap:8px; }
+  .secrets-row { align-items:center; flex-direction:row; row-gap:8px; }
   .secrets-actions { box-sizing:border-box; width:100%; flex:0 0 100%; justify-content:flex-end; padding-inline-start:56px; }
 }
 .settings-screen[dir="rtl"] .settings-secrets-link .settings-preference-copy > svg { transform:none; }
