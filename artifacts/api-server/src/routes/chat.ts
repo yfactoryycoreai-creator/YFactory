@@ -9,18 +9,24 @@ import {
 } from "../lib/apiKeyVault";
 import {
   CHAT_ADAPTERS,
+  ChatAbortError,
   chatProviderForModel,
   type ChatAdapterRegistry,
   type ChatMessage,
 } from "../lib/chatAdapters";
 import { verifyFirebaseIdToken } from "../lib/firebaseAdmin";
-import { ChatServiceError, completeWithRotation, type ChatFailureCode } from "../lib/chatService";
+import {
+  ChatServiceError,
+  completeWithRotation,
+  streamWithRotation,
+  type ChatFailureCode,
+} from "../lib/chatService";
 
 const RATE_WINDOW_MS = 60_000;
-const RATE_LIMIT = 10;
-const MAX_MESSAGES = 12;
-const MAX_MESSAGE_LENGTH = 4_000;
-const MAX_TOTAL_LENGTH = 12_000;
+const RATE_LIMIT = 20;
+const MAX_MESSAGES = 40;
+const MAX_MESSAGE_LENGTH = 8_000;
+const MAX_TOTAL_LENGTH = 32_000;
 
 type ChatDependencies = {
   verifyIdToken: typeof verifyFirebaseIdToken;
@@ -100,6 +106,14 @@ function createUserRateLimiter() {
   };
 }
 
+function statusForFailureCode(code: ChatFailureCode): number {
+  if (code === "bad_prompt") return 400;
+  if (code === "model_not_found" || code === "missing_key") return 404;
+  if (code === "auth_failed") return 401;
+  if (code === "rate_limited") return 429;
+  return 503;
+}
+
 export function createChatRouter(overrides: Partial<ChatDependencies> = {}): IRouter {
   const dependencies: ChatDependencies = {
     verifyIdToken: verifyFirebaseIdToken,
@@ -155,17 +169,25 @@ export function createChatRouter(overrides: Partial<ChatDependencies> = {}): IRo
     }
   });
 
-  router.post("/chat/completions", async (req, res): Promise<void> => {
+  const resolveValidatedChatTarget = async (
+    req: Request,
+    res: Response,
+  ): Promise<{
+    uid: string;
+    input: ParsedChatRequest;
+    key: ChatVaultEntry;
+    adapter: NonNullable<ReturnType<typeof chatProviderForModel>>;
+  } | null> => {
     const uid = await authenticatedUid(req, res);
-    if (!uid) return;
+    if (!uid) return null;
     const input = parseChatRequest(req.body);
     if (!input) {
       res.status(400).json({ code: "bad_prompt" satisfies ChatFailureCode });
-      return;
+      return null;
     }
     if (!allowRequest(uid)) {
       res.status(429).json({ code: "rate_limited" satisfies ChatFailureCode });
-      return;
+      return null;
     }
 
     let key: ChatVaultEntry | null;
@@ -178,25 +200,32 @@ export function createChatRouter(overrides: Partial<ChatDependencies> = {}): IRo
       );
     } catch {
       res.status(503).json({ code: "timeout" satisfies ChatFailureCode });
-      return;
+      return null;
     }
     if (!key || !key.enabled) {
       res.status(404).json({ code: "missing_key" satisfies ChatFailureCode });
-      return;
+      return null;
     }
     const adapter = chatProviderForModel(key.modelName);
     if (!adapter) {
       res.status(404).json({ code: "model_not_found" satisfies ChatFailureCode });
-      return;
+      return null;
     }
     if (key.failed) {
       res.status(401).json({ code: "auth_failed" satisfies ChatFailureCode });
-      return;
+      return null;
     }
     if (key.cooldownUntil && key.cooldownUntil > Date.now()) {
       res.status(429).json({ code: "rate_limited" satisfies ChatFailureCode });
-      return;
+      return null;
     }
+    return { uid, input, key, adapter };
+  };
+
+  router.post("/chat/completions", async (req, res): Promise<void> => {
+    const target = await resolveValidatedChatTarget(req, res);
+    if (!target) return;
+    const { uid, input, key, adapter } = target;
 
     try {
       const reply = await completeWithRotation({
@@ -213,16 +242,61 @@ export function createChatRouter(overrides: Partial<ChatDependencies> = {}): IRo
       res.json({ reply });
     } catch (error) {
       const code = error instanceof ChatServiceError ? error.code : "timeout";
-      const status = code === "bad_prompt"
-        ? 400
-        : code === "model_not_found" || code === "missing_key"
-          ? 404
-          : code === "auth_failed"
-            ? 401
-            : code === "rate_limited"
-              ? 429
-              : 503;
-      res.status(status).json({ code });
+      res.status(statusForFailureCode(code)).json({ code });
+    }
+  });
+
+  router.post("/chat/completions/stream", async (req, res): Promise<void> => {
+    const target = await resolveValidatedChatTarget(req, res);
+    if (!target) return;
+    const { uid, input, key, adapter } = target;
+
+    res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+    res.flushHeaders();
+
+    const abortController = new AbortController();
+    const handleClose = () => {
+      if (!res.writableEnded) {
+        abortController.abort();
+      }
+    };
+    req.on("close", handleClose);
+
+    const writeEvent = (payload: Record<string, unknown>) => {
+      if (res.writableEnded || abortController.signal.aborted) return;
+      res.write(`data: ${JSON.stringify(payload)}\n\n`);
+    };
+
+    try {
+      await streamWithRotation({
+        provider: adapter,
+        model: key.modelName,
+        messages: input.messages,
+        keys: [{ id: key.id, value: key.value }],
+        adapters: dependencies.adapters,
+        signal: abortController.signal,
+        onChunk: (delta) => {
+          writeEvent({ type: "delta", content: delta });
+        },
+        onFailure: (keyId, status) =>
+          dependencies.recordFailure(uid, key.provider, keyId, status),
+        onSuccess: (keyId) =>
+          dependencies.clearFailure(uid, key.provider, keyId),
+      });
+      writeEvent({ type: "done" });
+    } catch (error) {
+      if (!(error instanceof ChatAbortError) && !abortController.signal.aborted) {
+        const code = error instanceof ChatServiceError ? error.code : "timeout";
+        writeEvent({ type: "error", code });
+      }
+    } finally {
+      req.off("close", handleClose);
+      if (!res.writableEnded) {
+        res.end();
+      }
     }
   });
 
