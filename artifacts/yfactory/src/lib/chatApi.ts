@@ -5,7 +5,18 @@ export type ChatModelOption = {
   modelName: string;
 };
 export type ChatRole = 'system' | 'user' | 'assistant';
-export type ChatMessageInput = { role: ChatRole; content: string };
+
+export type ChatImageAttachment = {
+  mimeType: 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif';
+  dataUrl: string;
+};
+
+export type ChatMessageInput = {
+  role: ChatRole;
+  content: string;
+  images?: ChatImageAttachment[];
+};
+
 export type ChatFailureCode =
   | 'missing_key'
   | 'rate_limited'
@@ -16,6 +27,16 @@ export type ChatFailureCode =
 
 export type StoredChatFeedback = 'like' | 'dislike' | null;
 
+export type StoredChatAttachmentMeta = {
+  name: string;
+  kind: 'image' | 'file' | 'story';
+};
+
+export type StoredGeneratedImageRef = {
+  url: string;
+  provider: string;
+};
+
 export type StoredChatMessage = {
   id: string;
   role: 'user' | 'assistant';
@@ -23,6 +44,8 @@ export type StoredChatMessage = {
   modelName?: string;
   feedback?: StoredChatFeedback;
   stopped?: boolean;
+  attachments?: StoredChatAttachmentMeta[];
+  generatedImages?: StoredGeneratedImageRef[];
   createdAt: number;
 };
 
@@ -71,7 +94,9 @@ function parseFailureCode(payload: unknown): ChatFailureCode {
   if (
     typeof payload === 'object' &&
     payload !== null &&
-    failureCodes.includes((payload as { code?: ChatFailureCode }).code as ChatFailureCode)
+    failureCodes.includes(
+      (payload as { code?: ChatFailureCode }).code as ChatFailureCode,
+    )
   ) {
     return (payload as { code: ChatFailureCode }).code;
   }
@@ -81,19 +106,27 @@ function parseFailureCode(payload: unknown): ChatFailureCode {
 async function request<T>(
   idToken: string,
   path: string,
-  options: { method?: 'GET' | 'POST' | 'PATCH' | 'DELETE'; body?: unknown } = {},
+  options: {
+    method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
+    body?: unknown;
+  } = {},
 ): Promise<T> {
-  const method = options.method ?? (options.body === undefined ? 'GET' : 'POST');
+  const method =
+    options.method ?? (options.body === undefined ? 'GET' : 'POST');
   let response: Response;
   try {
     response = await fetch(path, {
       method,
       headers: {
         Authorization: `Bearer ${idToken}`,
-        ...(options.body === undefined ? {} : { 'Content-Type': 'application/json' }),
+        ...(options.body === undefined
+          ? {}
+          : { 'Content-Type': 'application/json' }),
       },
       cache: 'no-store',
-      ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
+      ...(options.body === undefined
+        ? {}
+        : { body: JSON.stringify(options.body) }),
     });
   } catch {
     throw new ChatApiError('timeout');
@@ -108,7 +141,9 @@ async function request<T>(
   return payload as T;
 }
 
-export async function loadChatModels(idToken: string): Promise<ChatModelOption[]> {
+export async function loadChatModels(
+  idToken: string,
+): Promise<ChatModelOption[]> {
   const result = await request<{ models: ChatModelOption[] }>(
     idToken,
     '/api/chat/models',
@@ -160,7 +195,10 @@ export async function streamChatCompletion(
       signal: options.signal,
     });
   } catch (error) {
-    if (options.signal?.aborted || (error instanceof DOMException && error.name === 'AbortError')) {
+    if (
+      options.signal?.aborted ||
+      (error instanceof DOMException && error.name === 'AbortError')
+    ) {
       throw new ChatStreamAbortedError();
     }
     throw new ChatApiError('timeout');
@@ -175,7 +213,9 @@ export async function streamChatCompletion(
   if (contentType.includes('application/json') || !response.body) {
     const payload: unknown = await response.json().catch(() => null);
     const reply =
-      typeof payload === 'object' && payload !== null && typeof (payload as { reply?: unknown }).reply === 'string'
+      typeof payload === 'object' &&
+      payload !== null &&
+      typeof (payload as { reply?: unknown }).reply === 'string'
         ? (payload as { reply: string }).reply
         : '';
     if (!reply) throw new ChatApiError('timeout');
@@ -200,7 +240,11 @@ export async function streamChatCompletion(
       return;
     }
     if (typeof parsed !== 'object' || parsed === null) return;
-    const event = parsed as { type?: unknown; content?: unknown; code?: unknown };
+    const event = parsed as {
+      type?: unknown;
+      content?: unknown;
+      code?: unknown;
+    };
     if (event.type === 'delta' && typeof event.content === 'string') {
       accumulated += event.content;
       options.onDelta(event.content);
@@ -227,7 +271,10 @@ export async function streamChatCompletion(
       }
     }
   } catch (error) {
-    if (options.signal?.aborted || (error instanceof DOMException && error.name === 'AbortError')) {
+    if (
+      options.signal?.aborted ||
+      (error instanceof DOMException && error.name === 'AbortError')
+    ) {
       throw new ChatStreamAbortedError();
     }
     if (error instanceof ChatApiError) throw error;

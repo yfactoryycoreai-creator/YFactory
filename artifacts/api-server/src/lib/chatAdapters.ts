@@ -1,5 +1,59 @@
 export type ChatRole = "system" | "user" | "assistant";
-export type ChatMessage = { role: ChatRole; content: string };
+export type ChatImageAttachment = {
+  mimeType: "image/jpeg" | "image/png" | "image/webp" | "image/gif";
+  dataUrl: string;
+};
+
+export type ChatMessage = {
+  role: ChatRole;
+  content: string;
+  images?: ChatImageAttachment[];
+};
+
+function toOpenAiMessages(messages: ChatMessage[]) {
+  return messages.map((msg) => {
+    if (!msg.images || msg.images.length === 0 || msg.role !== "user") {
+      return { role: msg.role, content: msg.content };
+    }
+    return {
+      role: msg.role,
+      content: [
+        { type: "text", text: msg.content },
+        ...msg.images.map((img) => ({
+          type: "image_url",
+          image_url: { url: img.dataUrl },
+        })),
+      ],
+    };
+  });
+}
+
+function toAnthropicMessages(messages: ChatMessage[]) {
+  return messages
+    .filter((item) => item.role !== "system")
+    .map((item) => {
+      if (!item.images || item.images.length === 0 || item.role !== "user") {
+        return { role: item.role, content: item.content };
+      }
+      const blocks: Array<Record<string, unknown>> = [];
+      for (const img of item.images) {
+        const commaIdx = img.dataUrl.indexOf(",");
+        const base64Data = commaIdx > 0 ? img.dataUrl.slice(commaIdx + 1) : "";
+        if (base64Data) {
+          blocks.push({
+            type: "image",
+            source: {
+              type: "base64",
+              media_type: img.mimeType,
+              data: base64Data,
+            },
+          });
+        }
+      }
+      blocks.push({ type: "text", text: item.content });
+      return { role: item.role, content: blocks };
+    });
+}
 
 export type ChatProvider =
   | "gemini"
@@ -332,7 +386,7 @@ export function createOpenAiCompatibleChatAdapter(
               Authorization: `Bearer ${apiKey}`,
               "Content-Type": "application/json",
             },
-            body: JSON.stringify({ model: targetModel, messages }),
+            body: JSON.stringify({ model: targetModel, messages: toOpenAiMessages(messages) }),
             signal: controller.signal,
           });
         } catch {
@@ -364,7 +418,7 @@ export function createOpenAiCompatibleChatAdapter(
               "Content-Type": "application/json",
               Accept: "text/event-stream",
             },
-            body: JSON.stringify({ model: targetModel, messages, stream: true }),
+            body: JSON.stringify({ model: targetModel, messages: toOpenAiMessages(messages), stream: true }),
             signal: controller.signal,
           });
         } catch {
@@ -474,9 +528,7 @@ export function createAnthropicChatAdapter(
       .filter((item) => item.role === "system")
       .map((item) => item.content)
       .join("\n\n");
-    const conversationMessages = messages
-      .filter((item) => item.role !== "system")
-      .map((item) => ({ role: item.role, content: item.content }));
+    const conversationMessages = toAnthropicMessages(messages);
     return {
       model: targetModel,
       max_tokens: 4096,

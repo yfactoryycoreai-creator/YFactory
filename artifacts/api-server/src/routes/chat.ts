@@ -12,6 +12,7 @@ import {
   ChatAbortError,
   chatProviderForModel,
   type ChatAdapterRegistry,
+  type ChatImageAttachment,
   type ChatMessage,
 } from "../lib/chatAdapters";
 import { verifyFirebaseIdToken } from "../lib/firebaseAdmin";
@@ -25,8 +26,16 @@ import {
 const RATE_WINDOW_MS = 60_000;
 const RATE_LIMIT = 20;
 const MAX_MESSAGES = 40;
-const MAX_MESSAGE_LENGTH = 8_000;
-const MAX_TOTAL_LENGTH = 32_000;
+const MAX_MESSAGE_LENGTH = 24_000;
+const MAX_TOTAL_LENGTH = 64_000;
+const MAX_IMAGES_PER_MESSAGE = 4;
+const MAX_IMAGE_DATA_URL_LENGTH = 4_500_000;
+const ALLOWED_IMAGE_MIME = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+]);
 
 type ChatDependencies = {
   verifyIdToken: typeof verifyFirebaseIdToken;
@@ -37,7 +46,12 @@ type ChatDependencies = {
     keyId: string,
     modelName?: string,
   ) => Promise<ChatVaultEntry | null>;
-  recordFailure: (uid: string, provider: string, keyId: string, status: number | null) => Promise<void>;
+  recordFailure: (
+    uid: string,
+    provider: string,
+    keyId: string,
+    status: number | null,
+  ) => Promise<void>;
   clearFailure: (uid: string, provider: string, keyId: string) => Promise<void>;
   adapters: ChatAdapterRegistry;
 };
@@ -49,6 +63,30 @@ type ParsedChatRequest = {
   messages: ChatMessage[];
 };
 
+function parseImages(raw: unknown): ChatImageAttachment[] | null {
+  if (raw === undefined) return [];
+  if (!Array.isArray(raw) || raw.length > MAX_IMAGES_PER_MESSAGE) return null;
+  const parsed: ChatImageAttachment[] = [];
+  for (const item of raw) {
+    if (typeof item !== "object" || item === null) return null;
+    const obj = item as Record<string, unknown>;
+    const mimeType = typeof obj.mimeType === "string" ? obj.mimeType : "";
+    const dataUrl = typeof obj.dataUrl === "string" ? obj.dataUrl : "";
+    if (
+      !ALLOWED_IMAGE_MIME.has(mimeType) ||
+      !dataUrl.startsWith(`data:${mimeType};base64,`) ||
+      dataUrl.length > MAX_IMAGE_DATA_URL_LENGTH
+    ) {
+      return null;
+    }
+    parsed.push({
+      mimeType: mimeType as ChatImageAttachment["mimeType"],
+      dataUrl,
+    });
+  }
+  return parsed;
+}
+
 function parseChatRequest(body: unknown): ParsedChatRequest | null {
   if (typeof body !== "object" || body === null) return null;
   const input = body as Record<string, unknown>;
@@ -59,11 +97,15 @@ function parseChatRequest(body: unknown): ParsedChatRequest | null {
     !/^[a-z0-9][a-z0-9-]{0,63}$/.test(provider) ||
     !/^[A-Za-z0-9_-]{1,128}$/.test(keyId) ||
     (modelName !== undefined &&
-      (typeof modelName !== "string" || !modelName.trim() || modelName.length > 200)) ||
+      (typeof modelName !== "string" ||
+        !modelName.trim() ||
+        modelName.length > 200)) ||
     !Array.isArray(input.messages) ||
     input.messages.length < 1 ||
     input.messages.length > MAX_MESSAGES
-  ) return null;
+  ) {
+    return null;
+  }
 
   const messages: ChatMessage[] = [];
   let totalLength = 0;
@@ -71,17 +113,31 @@ function parseChatRequest(body: unknown): ParsedChatRequest | null {
     if (typeof item !== "object" || item === null) return null;
     const message = item as Record<string, unknown>;
     if (
-      (message.role !== "system" && message.role !== "user" && message.role !== "assistant") ||
+      (message.role !== "system" &&
+        message.role !== "user" &&
+        message.role !== "assistant") ||
       typeof message.content !== "string" ||
       !message.content.trim() ||
       message.content.length > MAX_MESSAGE_LENGTH
-    ) return null;
+    ) {
+      return null;
+    }
+    const images = parseImages(message.images);
+    if (images === null) return null;
     totalLength += message.content.length;
     if (totalLength > MAX_TOTAL_LENGTH) return null;
-    messages.push({ role: message.role, content: message.content });
+    messages.push({
+      role: message.role,
+      content: message.content,
+      ...(images.length > 0 ? { images } : {}),
+    });
   }
-  if (!messages.some((message) => message.role === "user") ||
-    messages[messages.length - 1]?.role !== "user") return null;
+  if (
+    !messages.some((message) => message.role === "user") ||
+    messages[messages.length - 1]?.role !== "user"
+  ) {
+    return null;
+  }
   return {
     provider,
     keyId,
@@ -114,7 +170,9 @@ function statusForFailureCode(code: ChatFailureCode): number {
   return 503;
 }
 
-export function createChatRouter(overrides: Partial<ChatDependencies> = {}): IRouter {
+export function createChatRouter(
+  overrides: Partial<ChatDependencies> = {},
+): IRouter {
   const dependencies: ChatDependencies = {
     verifyIdToken: verifyFirebaseIdToken,
     listKeys: listChatVaultKeys,
@@ -127,8 +185,13 @@ export function createChatRouter(overrides: Partial<ChatDependencies> = {}): IRo
   const router: IRouter = Router();
   const allowRequest = createUserRateLimiter();
 
-  const authenticatedUid = async (req: Request, res: Response): Promise<string | null> => {
-    const token = (req.get("authorization") ?? "").match(/^Bearer\s+(.+)$/i)?.[1];
+  const authenticatedUid = async (
+    req: Request,
+    res: Response,
+  ): Promise<string | null> => {
+    const token = (req.get("authorization") ?? "").match(
+      /^Bearer\s+(.+)$/i,
+    )?.[1];
     if (!token) {
       res.status(401).json({ code: "auth_failed" satisfies ChatFailureCode });
       return null;
@@ -137,7 +200,7 @@ export function createChatRouter(overrides: Partial<ChatDependencies> = {}): IRo
       const uid = await dependencies.verifyIdToken(token);
       if (uid) return uid;
     } catch {
-      // Authentication errors do not expose Firebase configuration or token details.
+      // Do not expose Firebase config or token details.
     }
     res.status(401).json({ code: "auth_failed" satisfies ChatFailureCode });
     return null;
@@ -151,11 +214,12 @@ export function createChatRouter(overrides: Partial<ChatDependencies> = {}): IRo
       const now = Date.now();
       res.json({
         models: keys
-          .filter((key) =>
-            key.enabled &&
-            !key.failed &&
-            (!key.cooldownUntil || key.cooldownUntil <= now) &&
-            chatProviderForModel(key.modelName) !== null
+          .filter(
+            (key) =>
+              key.enabled &&
+              !key.failed &&
+              (!key.cooldownUntil || key.cooldownUntil <= now) &&
+              chatProviderForModel(key.modelName) !== null,
           )
           .map(({ provider, id, providerName, modelName }) => ({
             provider,
@@ -208,7 +272,9 @@ export function createChatRouter(overrides: Partial<ChatDependencies> = {}): IRo
     }
     const adapter = chatProviderForModel(key.modelName);
     if (!adapter) {
-      res.status(404).json({ code: "model_not_found" satisfies ChatFailureCode });
+      res
+        .status(404)
+        .json({ code: "model_not_found" satisfies ChatFailureCode });
       return null;
     }
     if (key.failed) {

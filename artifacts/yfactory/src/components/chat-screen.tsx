@@ -3,12 +3,14 @@ import {
   useEffect,
   useRef,
   useState,
+  type ChangeEvent,
   type FormEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import { useTranslation } from "react-i18next";
 import {
+  AlertCircle,
   ArrowDown,
   ArrowLeft,
   BookOpen,
@@ -20,6 +22,7 @@ import {
   Clock,
   Code2,
   Copy,
+  Download,
   FileCode2,
   FileText,
   Folder,
@@ -32,8 +35,10 @@ import {
   LoaderCircle,
   MessageSquare,
   Mic,
+  MicOff,
   MoreHorizontal,
   MoreVertical,
+  Paperclip,
   Pencil,
   Pin,
   PinOff,
@@ -57,7 +62,9 @@ import {
   X,
 } from "lucide-react";
 import "./chat-screen.css";
+import { useAuth } from "@/auth/AuthProvider";
 import ChatMarkdown from "@/components/chat-markdown";
+import ChatStoryPicker from "@/components/chat-story-picker";
 import {
   ChatApiError,
   ChatStreamAbortedError,
@@ -70,18 +77,39 @@ import {
   updateChatConversation,
   type ChatConversationSummary,
   type ChatFailureCode,
+  type ChatImageAttachment,
   type ChatMessageInput,
   type ChatModelOption,
+  type StoredChatAttachmentMeta,
   type StoredChatFeedback,
   type StoredChatMessage,
+  type StoredGeneratedImageRef,
 } from "@/lib/chatApi";
+import {
+  buildFileContextSuffix,
+  buildStorySystemPrompt,
+  formatFileSize,
+  isImageFile,
+  isVoiceInputSupported,
+  makeAttachmentId,
+  MAX_PENDING_ATTACHMENTS,
+  processFileAttachment,
+  processImageAttachment,
+  startVoiceRecognition,
+  type PendingAttachment,
+} from "@/lib/chatAttachments";
 import {
   buildConversationPlainText,
   exportAsDocx,
   exportAsMarkdown,
   exportAsPdf,
 } from "@/lib/chatExport";
+import {
+  generateImages,
+  ImageGenerationError,
+} from "@/lib/imageApi";
 import { loadVaultKeys, type VaultKey } from "@/lib/apiKeyVault";
+import type { StoryRecord } from "@/lib/stories";
 
 type ChatScreenProps = {
   onBack: () => void;
@@ -97,6 +125,9 @@ type ChatMessage = {
   modelName?: string;
   feedback?: StoredChatFeedback;
   stopped?: boolean;
+  attachments?: StoredChatAttachmentMeta[];
+  previewImages?: string[];
+  generatedImages?: StoredGeneratedImageRef[];
   createdAt: number;
 };
 
@@ -153,6 +184,7 @@ type UiStrings = {
   confirmDel: string;
   stopGen: string;
   generating: string;
+  generatingImg: string;
   stoppedNote: string;
   retry: string;
   saveSend: string;
@@ -189,6 +221,22 @@ type UiStrings = {
   untitled: string;
   saveErr: string;
   openingConv: string;
+  imgModePlaceholder: string;
+  imgModeBadge: string;
+  imgGenDone: string;
+  imgGenFail: string;
+  downloadImg: string;
+  storyAttached: string;
+  attLimit: string;
+  attProcessing: string;
+  attTooLarge: string;
+  attUnsupported: string;
+  attEmpty: string;
+  attReadErr: string;
+  voiceListening: string;
+  voiceUnsupported: string;
+  voiceError: string;
+  imgOnlyPrompt: string;
 };
 
 function getUiStrings(lang: string): UiStrings {
@@ -220,6 +268,7 @@ function getUiStrings(lang: string): UiStrings {
       confirmDel: `تأكيد الحذف`,
       stopGen: `إيقاف التوليد`,
       generating: `جارٍ التوليد...`,
+      generatingImg: `جارٍ توليد الصورة...`,
       stoppedNote: `تم إيقاف التوليد.`,
       retry: `إعادة المحاولة`,
       saveSend: `حفظ وإرسال`,
@@ -257,6 +306,22 @@ function getUiStrings(lang: string): UiStrings {
       untitled: `محادثة جديدة`,
       saveErr: `تعذّر حفظ التغييرات.`,
       openingConv: `جارٍ فتح المحادثة...`,
+      imgModePlaceholder: `صف الصورة التي تريد توليدها...`,
+      imgModeBadge: `وضع توليد الصور`,
+      imgGenDone: `تم توليد الصورة بنجاح.`,
+      imgGenFail: `تعذّر توليد الصورة حالياً. تحقق من مزوّد الصور وحاول مجدداً.`,
+      downloadImg: `تنزيل الصورة`,
+      storyAttached: `قصة مرتبطة`,
+      attLimit: `الحد الأقصى 4 مرفقات في الرسالة الواحدة.`,
+      attProcessing: `جارٍ التجهيز...`,
+      attTooLarge: `حجم الملف كبير جداً.`,
+      attUnsupported: `نوع الملف غير مدعوم. ارفع صوراً أو ملفات نصية/كود.`,
+      attEmpty: `الملف فارغ.`,
+      attReadErr: `فشل قراءة الملف.`,
+      voiceListening: `جارٍ الاستماع... تكلّم الآن`,
+      voiceUnsupported: `الإدخال الصوتي غير مدعوم في هذا المتصفح.`,
+      voiceError: `تعذّر التقاط الصوت. تحقق من إذن الميكروفون.`,
+      imgOnlyPrompt: `حلّل المرفقات المرسلة.`,
     };
   }
   if (lang.startsWith("fr")) {
@@ -287,6 +352,7 @@ function getUiStrings(lang: string): UiStrings {
       confirmDel: `Supprimer`,
       stopGen: `Arrêter`,
       generating: `Génération...`,
+      generatingImg: `Génération de l'image...`,
       stoppedNote: `Génération arrêtée.`,
       retry: `Réessayer`,
       saveSend: `Enregistrer`,
@@ -324,6 +390,22 @@ function getUiStrings(lang: string): UiStrings {
       untitled: `Nouveau chat`,
       saveErr: `Erreur de sauvegarde.`,
       openingConv: `Ouverture...`,
+      imgModePlaceholder: `Décrivez l'image à générer...`,
+      imgModeBadge: `Mode image`,
+      imgGenDone: `Image générée avec succès.`,
+      imgGenFail: `Impossible de générer l'image.`,
+      downloadImg: `Télécharger`,
+      storyAttached: `Histoire liée`,
+      attLimit: `Maximum 4 pièces jointes par message.`,
+      attProcessing: `Préparation...`,
+      attTooLarge: `Fichier trop volumineux.`,
+      attUnsupported: `Format non pris en charge.`,
+      attEmpty: `Fichier vide.`,
+      attReadErr: `Erreur de lecture.`,
+      voiceListening: `Écoute en cours...`,
+      voiceUnsupported: `La dictée vocale n'est pas prise en charge.`,
+      voiceError: `Erreur micro. Vérifiez les permissions.`,
+      imgOnlyPrompt: `Analyse les pièces jointes.`,
     };
   }
   if (lang.startsWith("es")) {
@@ -354,6 +436,7 @@ function getUiStrings(lang: string): UiStrings {
       confirmDel: `Eliminar`,
       stopGen: `Detener`,
       generating: `Generando...`,
+      generatingImg: `Generando imagen...`,
       stoppedNote: `Generación detenida.`,
       retry: `Reintentar`,
       saveSend: `Guardar y enviar`,
@@ -391,6 +474,22 @@ function getUiStrings(lang: string): UiStrings {
       untitled: `Nuevo chat`,
       saveErr: `Error al guardar.`,
       openingConv: `Abriendo...`,
+      imgModePlaceholder: `Describe la imagen que quieres generar...`,
+      imgModeBadge: `Modo imagen`,
+      imgGenDone: `Imagen generada con éxito.`,
+      imgGenFail: `No se pudo generar la imagen.`,
+      downloadImg: `Descargar`,
+      storyAttached: `Historia vinculada`,
+      attLimit: `Máximo 4 archivos por mensaje.`,
+      attProcessing: `Preparando...`,
+      attTooLarge: `Archivo demasiado grande.`,
+      attUnsupported: `Tipo de archivo no compatible.`,
+      attEmpty: `Archivo vacío.`,
+      attReadErr: `Error al leer el archivo.`,
+      voiceListening: `Escuchando...`,
+      voiceUnsupported: `La entrada de voz no es compatible aquí.`,
+      voiceError: `Error de micrófono. Revisa los permisos.`,
+      imgOnlyPrompt: `Analiza los archivos adjuntos.`,
     };
   }
   return {
@@ -420,6 +519,7 @@ function getUiStrings(lang: string): UiStrings {
     confirmDel: `Delete`,
     stopGen: `Stop generation`,
     generating: `Generating...`,
+    generatingImg: `Generating image...`,
     stoppedNote: `Generation stopped.`,
     retry: `Retry`,
     saveSend: `Save & Send`,
@@ -457,6 +557,22 @@ function getUiStrings(lang: string): UiStrings {
     untitled: `New chat`,
     saveErr: `Could not save changes.`,
     openingConv: `Opening conversation...`,
+    imgModePlaceholder: `Describe the image you want to generate...`,
+    imgModeBadge: `Image mode`,
+    imgGenDone: `Image generated successfully.`,
+    imgGenFail: `Image generation failed. Please try again.`,
+    downloadImg: `Download`,
+    storyAttached: `Story linked`,
+    attLimit: `Maximum 4 attachments per message.`,
+    attProcessing: `Preparing...`,
+    attTooLarge: `File is too large.`,
+    attUnsupported: `Unsupported file type. Use images or text/code.`,
+    attEmpty: `File is empty.`,
+    attReadErr: `Could not read file.`,
+    voiceListening: `Listening... speak now`,
+    voiceUnsupported: `Voice input is not supported in this browser.`,
+    voiceError: `Microphone error. Check permissions.`,
+    imgOnlyPrompt: `Analyze the attached items.`,
   };
 }
 
@@ -494,15 +610,40 @@ function makeMsgId(): string {
   return `m_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function buildCtx(list: ChatMessage[]): ChatMessageInput[] {
-  return list
+function buildCtx(
+  list: ChatMessage[],
+  story: StoryRecord | null,
+  lastImages?: ChatImageAttachment[],
+  lastFileSuffix?: string,
+): ChatMessageInput[] {
+  const base: ChatMessageInput[] = list
     .filter((m) => m.text.trim().length > 0)
     .map((m) => ({ role: m.role, content: m.text }))
     .slice(-MAX_CTX);
+
+  if (base.length > 0) {
+    const last = base[base.length - 1]!;
+    if (last.role === "user") {
+      if (lastFileSuffix) {
+        last.content = `${last.content}${lastFileSuffix}`;
+      }
+      if (lastImages && lastImages.length > 0) {
+        last.images = lastImages;
+      }
+    }
+  }
+
+  if (story) {
+    return [
+      { role: "system", content: buildStorySystemPrompt(story) },
+      ...base,
+    ];
+  }
+  return base;
 }
 
 function speechLang(text: string, fallback: string): string {
-  if (/[؀-ۿ]/.test(text)) return "ar-SA";
+  if (/[\u0600-\u06FF]/.test(text)) return "ar-SA";
   if (fallback.startsWith("fr")) return "fr-FR";
   if (fallback.startsWith("es")) return "es-ES";
   return "en-US";
@@ -540,6 +681,16 @@ function toStored(list: ChatMessage[]): StoredChatMessage[] {
     ...(m.modelName ? { modelName: m.modelName } : {}),
     feedback: m.feedback ?? null,
     ...(m.stopped ? { stopped: true } : {}),
+    ...(m.attachments && m.attachments.length > 0
+      ? { attachments: m.attachments }
+      : {}),
+    ...(m.generatedImages && m.generatedImages.length > 0
+      ? {
+          generatedImages: m.generatedImages.filter((g) =>
+            g.url.startsWith("https://"),
+          ),
+        }
+      : {}),
     createdAt: m.createdAt,
   }));
 }
@@ -552,12 +703,22 @@ function sortConvs(
   );
 }
 
+function attachmentErrLabel(code: string | undefined, ui: UiStrings): string {
+  if (code === "image_too_large" || code === "file_too_large") {
+    return ui.attTooLarge;
+  }
+  if (code === "unsupported_file_type") return ui.attUnsupported;
+  if (code === "empty_file") return ui.attEmpty;
+  return ui.attReadErr;
+}
+
 export default function ChatScreen({
   onBack,
   getIdToken,
   onOpenSecrets,
   onOpenModels,
 }: ChatScreenProps) {
+  const { user } = useAuth();
   const { t, i18n } = useTranslation();
   const locale = i18n.resolvedLanguage ?? i18n.language;
   const isRtl = locale.startsWith("ar");
@@ -568,6 +729,7 @@ export default function ChatScreen({
   const [sheetOpen, setSheetOpen] = useState(false);
   const [fullListOpen, setFullListOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [storyPickerOpen, setStoryPickerOpen] = useState(false);
   const [convsOpen, setConvsOpen] = useState(false);
   const [convSearch, setConvSearch] = useState("");
 
@@ -589,12 +751,19 @@ export default function ChatScreen({
   const [sending, setSending] = useState(false);
   const [streamId, setStreamId] = useState<string | null>(null);
   const [failCode, setFailCode] = useState<ChatFailureCode | "">("");
+  const [customErr, setCustomErr] = useState("");
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [speakId, setSpeakId] = useState<string | null>(null);
   const [toast, setToast] = useState("");
   const [editId, setEditId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
   const [showDown, setShowDown] = useState(false);
+
+  const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
+  const [attachedStory, setAttachedStory] = useState<StoryRecord | null>(null);
+  const [imgGenMode, setImgGenMode] = useState(false);
+  const [listening, setListening] = useState(false);
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
   const [menu, setMenu] = useState<FloatingMenuState>(null);
   const [delConfirm, setDelConfirm] = useState<ConfirmDeleteState>(null);
@@ -604,8 +773,13 @@ export default function ChatScreen({
   const [homeModal, setHomeModal] = useState(false);
 
   const abortRef = useRef<AbortController | null>(null);
+  const stopVoiceRef = useRef<(() => void) | null>(null);
+  const attCtrlRef = useRef(new Map<string, AbortController>());
   const installRef = useRef<BeforeInstallPromptEvent | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const cameraRef = useRef<HTMLInputElement>(null);
+  const photoRef = useRef<HTMLInputElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
   const threadRef = useRef<HTMLElement>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -636,6 +810,9 @@ export default function ChatScreen({
 
   useEffect(() => () => {
     abortRef.current?.abort();
+    stopVoiceRef.current?.();
+    attCtrlRef.current.forEach((ctrl) => ctrl.abort());
+    attCtrlRef.current.clear();
     if (toastRef.current) clearTimeout(toastRef.current);
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
       window.speechSynthesis.cancel();
@@ -669,6 +846,7 @@ export default function ChatScreen({
       setMenu(null);
       setEditId(null);
       setFailCode("");
+      setCustomErr("");
       try {
         const auth = tokOverride ?? (await getIdToken!());
         const d = await getChatConversation(auth, convId);
@@ -684,6 +862,8 @@ export default function ChatScreen({
             modelName: m.modelName,
             feedback: m.feedback ?? null,
             stopped: m.stopped,
+            attachments: m.attachments,
+            generatedImages: m.generatedImages,
             createdAt: m.createdAt,
           })),
         );
@@ -838,6 +1018,155 @@ export default function ChatScreen({
     [getIdToken, selModel, ui.untitled],
   );
 
+  const runAttachmentTask = useCallback(
+    async (item: PendingAttachment) => {
+      const ctrl = new AbortController();
+      attCtrlRef.current.set(item.id, ctrl);
+      try {
+        if (item.kind === "image") {
+          const res = await processImageAttachment(item.file, ctrl.signal);
+          if (ctrl.signal.aborted) return;
+          setAttachments((prev) =>
+            prev.map((a) =>
+              a.id === item.id
+                ? {
+                    ...a,
+                    status: "ready",
+                    image: res.image,
+                    previewUrl: res.previewUrl,
+                    error: undefined,
+                  }
+                : a,
+            ),
+          );
+        } else {
+          const content = await processFileAttachment(item.file, ctrl.signal);
+          if (ctrl.signal.aborted) return;
+          setAttachments((prev) =>
+            prev.map((a) =>
+              a.id === item.id
+                ? {
+                    ...a,
+                    status: "ready",
+                    textContent: content,
+                    error: undefined,
+                  }
+                : a,
+            ),
+          );
+        }
+      } catch (err) {
+        if (ctrl.signal.aborted) return;
+        const code = err instanceof Error ? err.message : "read_failed";
+        setAttachments((prev) =>
+          prev.map((a) =>
+            a.id === item.id ? { ...a, status: "error", error: code } : a,
+          ),
+        );
+      } finally {
+        attCtrlRef.current.delete(item.id);
+      }
+    },
+    [],
+  );
+
+  const enqueueFiles = (
+    fileList: FileList | null,
+    forcedKind?: "image" | "file",
+  ) => {
+    if (!fileList || fileList.length === 0) return;
+    const files = Array.from(fileList);
+    const available = MAX_PENDING_ATTACHMENTS - attachments.length;
+    if (available <= 0) {
+      showToast(ui.attLimit);
+      return;
+    }
+    const picked = files.slice(0, available);
+    if (files.length > available) showToast(ui.attLimit);
+
+    const newItems: PendingAttachment[] = picked.map((file) => ({
+      id: makeAttachmentId(),
+      kind: forcedKind ?? (isImageFile(file) ? "image" : "file"),
+      name: file.name || "attachment",
+      sizeBytes: file.size,
+      status: "processing",
+      file,
+    }));
+    setAttachments((prev) => [...prev, ...newItems]);
+    for (const item of newItems) {
+      void runAttachmentTask(item);
+    }
+  };
+
+  const onFileInputChange = (
+    e: ChangeEvent<HTMLInputElement>,
+    forcedKind?: "image" | "file",
+  ) => {
+    enqueueFiles(e.currentTarget.files, forcedKind);
+    e.currentTarget.value = "";
+  };
+
+  const removeAttachment = (id: string) => {
+    const ctrl = attCtrlRef.current.get(id);
+    if (ctrl) {
+      ctrl.abort();
+      attCtrlRef.current.delete(id);
+    }
+    setAttachments((prev) => prev.filter((a) => a.id !== id));
+  };
+
+  const retryAttachment = (id: string) => {
+    const target = attachments.find((a) => a.id === id);
+    if (!target) return;
+    const reset: PendingAttachment = {
+      ...target,
+      status: "processing",
+      error: undefined,
+    };
+    setAttachments((prev) => prev.map((a) => (a.id === id ? reset : a)));
+    void runAttachmentTask(reset);
+  };
+
+  const toggleVoiceInput = () => {
+    if (listening) {
+      stopVoiceRef.current?.();
+      stopVoiceRef.current = null;
+      setListening(false);
+      return;
+    }
+    if (!isVoiceInputSupported()) {
+      showToast(ui.voiceUnsupported);
+      return;
+    }
+    const baseDraft = draft.trim();
+    setListening(true);
+    const stopFn = startVoiceRecognition({
+      lang: locale,
+      onTranscript: (spoken, isFinal) => {
+        const merged = baseDraft ? `${baseDraft} ${spoken}` : spoken;
+        setDraft(merged);
+        if (isFinal) {
+          requestAnimationFrame(() => inputRef.current?.focus());
+        }
+      },
+      onError: () => {
+        setListening(false);
+        stopVoiceRef.current = null;
+        showToast(ui.voiceError);
+      },
+      onEnd: () => {
+        setListening(false);
+        stopVoiceRef.current = null;
+      },
+    });
+    if (!stopFn) {
+      setListening(false);
+      showToast(ui.voiceUnsupported);
+      return;
+    }
+    stopVoiceRef.current = stopFn;
+  };
+
   const handleModelSelect = (entry: ChatModelOption) => {
     const k = modelKey(entry);
     setSelModelKey(k);
@@ -869,6 +1198,8 @@ export default function ChatScreen({
 
   const startNewChat = () => {
     abortRef.current?.abort();
+    stopVoiceRef.current?.();
+    setListening(false);
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
       window.speechSynthesis.cancel();
       setSpeakId(null);
@@ -880,7 +1211,10 @@ export default function ChatScreen({
     setConvProject(null);
     setMessages([]);
     setDraft("");
+    setAttachments([]);
+    setImgGenMode(false);
     setFailCode("");
+    setCustomErr("");
     setEditId(null);
     setMenu(null);
     setConvsOpen(false);
@@ -975,11 +1309,103 @@ export default function ChatScreen({
     setSheetOpen(true);
   };
 
+  const triggerSheetOption = (opt: string) => {
+    setSheetOpen(false);
+    setFullListOpen(false);
+    if (opt === "camera") {
+      cameraRef.current?.click();
+    } else if (opt === "photos") {
+      photoRef.current?.click();
+    } else if (opt === "files") {
+      fileRef.current?.click();
+    } else if (opt === "myStories") {
+      setStoryPickerOpen(true);
+    }
+  };
+
   const stopGen = () => {
     abortRef.current?.abort();
   };
 
-  const runStream = async (hist: ChatMessage[]) => {
+  const runImageGeneration = async (
+    hist: ChatMessage[],
+    promptText: string,
+  ) => {
+    if (sending) return;
+    if (!getIdToken) {
+      setFailCode("auth_failed");
+      return;
+    }
+    const aid = makeMsgId();
+    const ats = Date.now();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+    autoScrollRef.current = true;
+    setFailCode("");
+    setCustomErr("");
+    setSending(true);
+    setStreamId(aid);
+
+    setMessages([
+      ...hist,
+      {
+        id: aid,
+        role: "assistant",
+        text: "",
+        modelName: "Image Generator",
+        feedback: null,
+        createdAt: ats,
+      },
+    ]);
+
+    let finalMsgs: ChatMessage[] = hist;
+    try {
+      const tok = await getIdToken();
+      const res = await generateImages(tok, null, promptText, 1, ctrl.signal);
+      if (ctrl.signal.aborted) {
+        finalMsgs = hist;
+        setMessages(hist);
+      } else {
+        const imgs: StoredGeneratedImageRef[] = res.images.map((item) => ({
+          url: item.imageData,
+          provider: item.provider,
+        }));
+        finalMsgs = [
+          ...hist,
+          {
+            id: aid,
+            role: "assistant",
+            text: ui.imgGenDone,
+            modelName: res.images[0]?.provider ?? "Image Generator",
+            generatedImages: imgs,
+            feedback: null,
+            createdAt: ats,
+          },
+        ];
+        setMessages(finalMsgs);
+      }
+    } catch (err) {
+      finalMsgs = hist;
+      setMessages(hist);
+      if (!ctrl.signal.aborted) {
+        setCustomErr(
+          err instanceof ImageGenerationError ? err.message : ui.imgGenFail,
+        );
+      }
+    } finally {
+      if (abortRef.current === ctrl) abortRef.current = null;
+      setSending(false);
+      setStreamId(null);
+      await persistMsgs(finalMsgs, selModel);
+      requestAnimationFrame(() => inputRef.current?.focus());
+    }
+  };
+
+  const runStream = async (
+    hist: ChatMessage[],
+    imgs?: ChatImageAttachment[],
+    fileSuffix?: string,
+  ) => {
     if (sending) return;
     if (models.length === 0 || !selModel) {
       setFailCode("missing_key");
@@ -989,7 +1415,7 @@ export default function ChatScreen({
       setFailCode("auth_failed");
       return;
     }
-    const reqMsgs = buildCtx(hist);
+    const reqMsgs = buildCtx(hist, attachedStory, imgs, fileSuffix);
     if (
       reqMsgs.length === 0 ||
       reqMsgs[reqMsgs.length - 1]?.role !== "user"
@@ -1003,6 +1429,7 @@ export default function ChatScreen({
     abortRef.current = ctrl;
     autoScrollRef.current = true;
     setFailCode("");
+    setCustomErr("");
     setSending(true);
     setStreamId(aid);
 
@@ -1086,23 +1513,68 @@ export default function ChatScreen({
     }
   };
 
+  const hasProcessingAtt = attachments.some((a) => a.status === "processing");
+  const readyAttachments = attachments.filter((a) => a.status === "ready");
+
   const submitDraft = async () => {
-    const text = draft.trim();
-    if (!text || sending) return;
+    if (sending || hasProcessingAtt) return;
+    const rawText = draft.trim();
+
+    if (imgGenMode) {
+      if (!rawText) return;
+      const uMsg: ChatMessage = {
+        id: makeMsgId(),
+        role: "user",
+        text: rawText,
+        createdAt: Date.now(),
+      };
+      setDraft("");
+      setEditId(null);
+      setMenu(null);
+      await runImageGeneration([...messages, uMsg], rawText);
+      return;
+    }
+
+    if (!rawText && readyAttachments.length === 0) return;
     if (models.length === 0 || !selModel) {
       setFailCode("missing_key");
       return;
     }
+
+    const displayText = rawText || ui.imgOnlyPrompt;
+    const readyImgs = readyAttachments
+      .filter((a) => a.kind === "image" && a.image)
+      .map((a) => a.image!);
+    const previewImgs = readyAttachments
+      .filter((a) => a.kind === "image" && a.previewUrl)
+      .map((a) => a.previewUrl!);
+    const fileSuffix = buildFileContextSuffix(readyAttachments);
+
+    const attMeta: StoredChatAttachmentMeta[] = [
+      ...readyAttachments.map((a) => ({ kind: a.kind, name: a.name })),
+      ...(attachedStory
+        ? [
+            {
+              kind: "story" as const,
+              name: attachedStory.storyName || ui.storyAttached,
+            },
+          ]
+        : []),
+    ];
+
     const uMsg: ChatMessage = {
       id: makeMsgId(),
       role: "user",
-      text,
+      text: displayText,
+      ...(attMeta.length > 0 ? { attachments: attMeta } : {}),
+      ...(previewImgs.length > 0 ? { previewImages: previewImgs } : {}),
       createdAt: Date.now(),
     };
     setDraft("");
+    setAttachments([]);
     setEditId(null);
     setMenu(null);
-    await runStream([...messages, uMsg]);
+    await runStream([...messages, uMsg], readyImgs, fileSuffix);
   };
 
   const onSubmitForm = (e: FormEvent<HTMLFormElement>) => {
@@ -1149,6 +1621,17 @@ export default function ChatScreen({
     }
   };
 
+  const downloadGenImage = (url: string, idx: number) => {
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `yfactory-image-${idx + 1}.png`;
+    a.target = "_blank";
+    a.rel = "noopener";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
+
   const readAloud = (msg: ChatMessage) => {
     if (typeof window === "undefined" || !("speechSynthesis" in window)) {
       return;
@@ -1181,8 +1664,14 @@ export default function ChatScreen({
     setMenu(null);
     const idx = messages.findIndex((m) => m.id === aid);
     if (idx <= 0) return;
+    const target = messages[idx];
     const base = messages.slice(0, idx);
-    if (base[base.length - 1]?.role !== "user") return;
+    const prevUser = base[base.length - 1];
+    if (!prevUser || prevUser.role !== "user") return;
+    if (target?.generatedImages && target.generatedImages.length > 0) {
+      await runImageGeneration(base, prevUser.text);
+      return;
+    }
     await runStream(base);
   };
 
@@ -1196,7 +1685,12 @@ export default function ChatScreen({
       }
     }
     if (idx < 0) return;
-    await runStream(messages.slice(0, idx + 1));
+    const base = messages.slice(0, idx + 1);
+    if (imgGenMode) {
+      await runImageGeneration(base, messages[idx]!.text);
+      return;
+    }
+    await runStream(base);
   };
 
   const startEdit = (msg: ChatMessage) => {
@@ -1217,6 +1711,10 @@ export default function ChatScreen({
     ];
     setEditId(null);
     setEditText("");
+    if (imgGenMode) {
+      await runImageGeneration(next, trimmed);
+      return;
+    }
     await runStream(next);
   };
 
@@ -1407,30 +1905,64 @@ export default function ChatScreen({
   };
 
   const ideaKeys = ["idea1", "idea2", "idea3"] as const;
-  const actionKeys = [
-    { key: "useStories", icon: <BookOpen aria-hidden="true" />, fill: true },
-    { key: "generateImage", icon: <Image aria-hidden="true" />, fill: true },
-    { key: "analyzeImage", icon: <Scan aria-hidden="true" />, fill: false },
-    { key: "browseWeb", icon: <Globe aria-hidden="true" />, fill: false },
+  const quickActionItems = [
+    {
+      key: "useStories",
+      icon: <BookOpen aria-hidden="true" />,
+      enabled: true,
+      onClick: () => setStoryPickerOpen(true),
+    },
+    {
+      key: "generateImage",
+      icon: <Image aria-hidden="true" />,
+      enabled: true,
+      onClick: () => {
+        setImgGenMode(true);
+        requestAnimationFrame(() => inputRef.current?.focus());
+      },
+    },
+    {
+      key: "analyzeImage",
+      icon: <Scan aria-hidden="true" />,
+      enabled: true,
+      onClick: () => {
+        setImgGenMode(false);
+        photoRef.current?.click();
+      },
+    },
+    {
+      key: "browseWeb",
+      icon: <Globe aria-hidden="true" />,
+      enabled: false,
+      onClick: () => undefined,
+    },
   ] as const;
+
   const allOptions = [
-    "camera",
-    "photos",
-    "files",
-    "webSearch",
-    "connectors",
-    "myStories",
-    "skills",
-    "memory",
-    "more",
+    { key: "camera", enabled: true },
+    { key: "photos", enabled: true },
+    { key: "files", enabled: true },
+    { key: "webSearch", enabled: false },
+    { key: "connectors", enabled: false },
+    { key: "myStories", enabled: true },
+    { key: "skills", enabled: false },
+    { key: "memory", enabled: false },
+    { key: "more", enabled: true },
   ] as const;
 
   const canRetry = Boolean(
-    failCode &&
-      failCode !== "missing_key" &&
-      models.length > 0 &&
+    (customErr || (failCode && failCode !== "missing_key")) &&
+      (imgGenMode || models.length > 0) &&
       messages.some((m) => m.role === "user"),
   );
+  const canSendNow =
+    !hasProcessingAtt &&
+    (imgGenMode
+      ? draft.trim().length > 0
+      : (draft.trim().length > 0 || readyAttachments.length > 0) &&
+        models.length > 0 &&
+        Boolean(selModel));
+
   const statusCls = modelsBusy
     ? "is-loading"
     : selModel
@@ -1511,6 +2043,32 @@ export default function ChatScreen({
       aria-label={t("chat:title")}
       data-testid="chat-screen"
     >
+      {/* Hidden native inputs for Camera, Photos, and Text/Code Files */}
+      <input
+        ref={cameraRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="chat-hidden-input"
+        onChange={(e) => onFileInputChange(e, "image")}
+      />
+      <input
+        ref={photoRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp,image/gif"
+        multiple
+        className="chat-hidden-input"
+        onChange={(e) => onFileInputChange(e, "image")}
+      />
+      <input
+        ref={fileRef}
+        type="file"
+        accept={[".txt", ".md", ".csv", ".json", ".xml", ".yaml", ".html", ".css", ".js", ".ts", ".tsx", ".py", ".sql", ".log", "text/*"].join(",")}
+        multiple
+        className="chat-hidden-input"
+        onChange={(e) => onFileInputChange(e, "file")}
+      />
+
       <header className="chat-header">
         <div className="chat-header-top">
           <button
@@ -1707,28 +2265,29 @@ export default function ChatScreen({
             data-testid="chat-thread"
           >
             {((!modelsBusy && models.length === 0) ||
-              failCode === "missing_key") && (
-              <div className="chat-key-setup" role="status">
-                {failCode && failCode !== "missing_key" ? (
-                  <p>{t(`chat:${failCode}`)}</p>
-                ) : (
-                  <p>
-                    {setupKey
-                      ? t("chat:noChatModels")
-                      : t("chat:missing_key")}
-                  </p>
-                )}
-                <button
-                  type="button"
-                  onClick={() =>
-                    setupKey ? onOpenModels(setupKey) : onOpenSecrets()
-                  }
-                  data-testid="button-chat-open-api-keys"
-                >
-                  {setupKey ? t("chat:openModels") : t("chat:openSecrets")}
-                </button>
-              </div>
-            )}
+              failCode === "missing_key") &&
+              !imgGenMode && (
+                <div className="chat-key-setup" role="status">
+                  {failCode && failCode !== "missing_key" ? (
+                    <p>{t(`chat:${failCode}`)}</p>
+                  ) : (
+                    <p>
+                      {setupKey
+                        ? t("chat:noChatModels")
+                        : t("chat:missing_key")}
+                    </p>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setupKey ? onOpenModels(setupKey) : onOpenSecrets()
+                    }
+                    data-testid="button-chat-open-api-keys"
+                  >
+                    {setupKey ? t("chat:openModels") : t("chat:openSecrets")}
+                  </button>
+                </div>
+              )}
 
             {switching ? (
               <div className="chat-conversations-empty">
@@ -1815,23 +2374,21 @@ export default function ChatScreen({
                   className="chat-quick-actions"
                   aria-label={t("chat:title")}
                 >
-                  {actionKeys.map(({ key, icon, fill }) => (
+                  {quickActionItems.map(({ key, icon, enabled, onClick }) => (
                     <button
                       type="button"
                       className="chat-action"
                       key={key}
-                      disabled={!fill}
-                      title={!fill ? t("chat:comingSoon") : undefined}
+                      disabled={!enabled}
+                      title={!enabled ? t("chat:comingSoon") : undefined}
                       data-testid={`button-chat-action-${key}`}
-                      onClick={() =>
-                        fill && fillDraft(t(`chat:actions.${key}`))
-                      }
+                      onClick={onClick}
                     >
                       <span className="chat-action-icon">{icon}</span>
                       <span className="chat-action-label">
                         {t(`chat:actions.${key}`)}
                       </span>
-                      {!fill && <small>{t("chat:comingSoon")}</small>}
+                      {!enabled && <small>{t("chat:comingSoon")}</small>}
                     </button>
                   ))}
                 </div>
@@ -1920,15 +2477,51 @@ export default function ChatScreen({
                             </div>
                           </div>
                         ) : (
-                          <button
-                            type="button"
-                            className="chat-user-bubble chat-user-bubble-btn"
-                            onClick={(e) => openUserMenu(e, msg)}
-                            aria-haspopup="menu"
-                            aria-label={ui.moreOpts}
-                          >
-                            <p dir="auto">{msg.text}</p>
-                          </button>
+                          <>
+                            {msg.previewImages &&
+                              msg.previewImages.length > 0 && (
+                                <div className="chat-user-img-grid">
+                                  {msg.previewImages.map((src, i) => (
+                                    <button
+                                      type="button"
+                                      key={i}
+                                      className="chat-user-img-thumb"
+                                      onClick={() => setLightboxUrl(src)}
+                                    >
+                                      <img src={src} alt="" loading="lazy" />
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+                            {msg.attachments && msg.attachments.length > 0 && (
+                              <div className="chat-user-att-chips">
+                                {msg.attachments.map((att, i) => (
+                                  <span
+                                    className="chat-msg-att-chip"
+                                    key={`${att.name}-${i}`}
+                                  >
+                                    {att.kind === "story" ? (
+                                      <BookOpen size={11} aria-hidden="true" />
+                                    ) : att.kind === "image" ? (
+                                      <Image size={11} aria-hidden="true" />
+                                    ) : (
+                                      <Paperclip size={11} aria-hidden="true" />
+                                    )}
+                                    <span>{att.name}</span>
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                            <button
+                              type="button"
+                              className="chat-user-bubble chat-user-bubble-btn"
+                              onClick={(e) => openUserMenu(e, msg)}
+                              aria-haspopup="menu"
+                              aria-label={ui.moreOpts}
+                            >
+                              <p dir="auto">{msg.text}</p>
+                            </button>
+                          </>
                         )}
                       </article>
                     );
@@ -1965,15 +2558,62 @@ export default function ChatScreen({
                               size={16}
                               aria-hidden="true"
                             />
-                            <span>{ui.generating}</span>
+                            <span>
+                              {msg.modelName === "Image Generator"
+                                ? ui.generatingImg
+                                : ui.generating}
+                            </span>
                           </div>
                         ) : (
-                          <ChatMarkdown
-                            content={msg.text}
-                            copyLabel={ui.copy}
-                            copiedLabel={ui.copied}
-                            streaming={isStr}
-                          />
+                          <>
+                            {msg.generatedImages &&
+                              msg.generatedImages.length > 0 && (
+                                <div className="chat-gen-images-grid">
+                                  {msg.generatedImages.map((img, i) => (
+                                    <div
+                                      className="chat-gen-image-card"
+                                      key={`${img.url.slice(0, 24)}-${i}`}
+                                    >
+                                      <button
+                                        type="button"
+                                        className="chat-gen-image-btn"
+                                        onClick={() => setLightboxUrl(img.url)}
+                                      >
+                                        <img
+                                          src={img.url}
+                                          alt={msg.text}
+                                          loading="lazy"
+                                        />
+                                      </button>
+                                      <div className="chat-gen-image-bar">
+                                        <span dir="ltr">{img.provider}</span>
+                                        <button
+                                          type="button"
+                                          className="chat-gen-dl-btn"
+                                          onClick={() =>
+                                            downloadGenImage(img.url, i)
+                                          }
+                                        >
+                                          <Download
+                                            size={13}
+                                            aria-hidden="true"
+                                          />
+                                          <span>{ui.downloadImg}</span>
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            {msg.text.trim().length > 0 && (
+                              <ChatMarkdown
+                                content={msg.text}
+                                copyLabel={ui.copy}
+                                copiedLabel={ui.copied}
+                                streaming={isStr}
+                              />
+                            )}
+                          </>
                         )}
                         {msg.stopped && (
                           <p className="chat-stopped-note">
@@ -2093,6 +2733,137 @@ export default function ChatScreen({
                 {toast}
               </div>
             )}
+            {listening && (
+              <div className="chat-voice-banner" role="status">
+                <span className="chat-voice-dot" aria-hidden="true" />
+                <span>{ui.voiceListening}</span>
+                <button
+                  type="button"
+                  onClick={toggleVoiceInput}
+                  aria-label={ui.stopReading}
+                >
+                  <X size={14} aria-hidden="true" />
+                </button>
+              </div>
+            )}
+
+            {(attachments.length > 0 || attachedStory || imgGenMode) && (
+              <div className="chat-pending-strip">
+                {imgGenMode && (
+                  <span className="chat-pending-pill is-amber">
+                    <Image size={13} aria-hidden="true" />
+                    <span>{ui.imgModeBadge}</span>
+                    <button
+                      type="button"
+                      onClick={() => setImgGenMode(false)}
+                      aria-label={ui.cancel}
+                    >
+                      <X size={13} aria-hidden="true" />
+                    </button>
+                  </span>
+                )}
+                {attachedStory && (
+                  <span className="chat-pending-pill is-story">
+                    <BookOpen size={13} aria-hidden="true" />
+                    <span dir="auto">
+                      {attachedStory.storyName || ui.storyAttached}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setAttachedStory(null)}
+                      aria-label={ui.cancel}
+                    >
+                      <X size={13} aria-hidden="true" />
+                    </button>
+                  </span>
+                )}
+                {attachments.map((att) => (
+                  <div
+                    key={att.id}
+                    className={`chat-att-card is-${att.status}`}
+                  >
+                    {att.kind === "image" && att.previewUrl ? (
+                      <img
+                        className="chat-att-thumb"
+                        src={att.previewUrl}
+                        alt={att.name}
+                      />
+                    ) : (
+                      <span className="chat-att-icon" aria-hidden="true">
+                        {att.status === "processing" ? (
+                          <LoaderCircle
+                            className="loading-spinner"
+                            size={15}
+                          />
+                        ) : att.status === "error" ? (
+                          <AlertCircle size={15} />
+                        ) : (
+                          <FileText size={15} />
+                        )}
+                      </span>
+                    )}
+                    <div className="chat-att-meta">
+                      <strong dir="ltr">{att.name}</strong>
+                      <small>
+                        {att.status === "processing"
+                          ? ui.attProcessing
+                          : att.status === "error"
+                            ? attachmentErrLabel(att.error, ui)
+                            : formatFileSize(att.sizeBytes)}
+                      </small>
+                    </div>
+                    {att.status === "error" && (
+                      <button
+                        type="button"
+                        className="chat-att-btn"
+                        onClick={() => retryAttachment(att.id)}
+                        aria-label={ui.retry}
+                        title={ui.retry}
+                      >
+                        <RotateCcw size={13} aria-hidden="true" />
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="chat-att-btn"
+                      onClick={() => removeAttachment(att.id)}
+                      aria-label={ui.cancel}
+                    >
+                      <X size={13} aria-hidden="true" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="chat-mode-pills">
+              <button
+                type="button"
+                className={`chat-mode-pill ${imgGenMode ? "is-active" : ""}`}
+                onClick={() => {
+                  setImgGenMode((on) => !on);
+                  requestAnimationFrame(() => inputRef.current?.focus());
+                }}
+                disabled={sending}
+                data-testid="button-chat-pill-image"
+              >
+                <Image size={14} aria-hidden="true" />
+                <span>{t("chat:actions.generateImage")}</span>
+              </button>
+              <button
+                type="button"
+                className={`chat-mode-pill ${
+                  attachedStory ? "is-active" : ""
+                }`}
+                onClick={() => setStoryPickerOpen(true)}
+                disabled={sending}
+                data-testid="button-chat-pill-stories"
+              >
+                <BookOpen size={14} aria-hidden="true" />
+                <span>{t("chat:options.myStories")}</span>
+              </button>
+            </div>
+
             <form
               className="chat-composer"
               onSubmit={onSubmitForm}
@@ -2112,8 +2883,9 @@ export default function ChatScreen({
                 <button
                   type="button"
                   className="chat-composer-tool"
-                  disabled
-                  title={t("chat:comingSoon")}
+                  disabled={sending}
+                  onClick={() => photoRef.current?.click()}
+                  title={t("chat:image")}
                   aria-label={t("chat:image")}
                   data-testid="button-chat-image"
                 >
@@ -2122,8 +2894,9 @@ export default function ChatScreen({
                 <button
                   type="button"
                   className="chat-composer-tool chat-file-tool"
-                  disabled
-                  title={t("chat:comingSoon")}
+                  disabled={sending}
+                  onClick={() => fileRef.current?.click()}
+                  title={t("chat:options.files")}
                   aria-label={t("chat:options.files")}
                   data-testid="button-chat-files"
                 >
@@ -2131,13 +2904,20 @@ export default function ChatScreen({
                 </button>
                 <button
                   type="button"
-                  className="chat-composer-tool chat-mic-tool"
-                  disabled
-                  title={t("chat:comingSoon")}
+                  className={`chat-composer-tool chat-mic-tool ${
+                    listening ? "is-recording" : ""
+                  }`}
+                  disabled={sending}
+                  onClick={toggleVoiceInput}
+                  title={t("chat:mic")}
                   aria-label={t("chat:mic")}
                   data-testid="button-chat-mic"
                 >
-                  <Mic aria-hidden="true" />
+                  {listening ? (
+                    <MicOff aria-hidden="true" />
+                  ) : (
+                    <Mic aria-hidden="true" />
+                  )}
                 </button>
               </div>
               <textarea
@@ -2146,7 +2926,11 @@ export default function ChatScreen({
                 onChange={(e) => setDraft(e.target.value)}
                 onKeyDown={onComposerKey}
                 maxLength={8000}
-                placeholder={t("chat:composerPlaceholder")}
+                placeholder={
+                  imgGenMode
+                    ? ui.imgModePlaceholder
+                    : t("chat:composerPlaceholder")
+                }
                 rows={1}
                 dir="auto"
                 aria-label={t("chat:composerPlaceholder")}
@@ -2167,7 +2951,7 @@ export default function ChatScreen({
                 <button
                   type="submit"
                   className="chat-send-button"
-                  disabled={!draft.trim() || models.length === 0 || !selModel}
+                  disabled={!canSendNow}
                   aria-label={t("chat:send")}
                   data-testid="button-chat-send"
                 >
@@ -2175,14 +2959,15 @@ export default function ChatScreen({
                 </button>
               )}
             </form>
-            {failCode && failCode !== "missing_key" && models.length > 0 && (
+            {(customErr ||
+              (failCode && failCode !== "missing_key" && models.length > 0)) && (
               <div
                 className="chat-failure-row"
                 role="alert"
                 data-testid="chat-failure-code"
               >
                 <p className="chat-failure-message">
-                  {t(`chat:${failCode}`)}
+                  {customErr || t(`chat:${failCode}`)}
                 </p>
                 {canRetry && (
                   <button
@@ -2200,10 +2985,49 @@ export default function ChatScreen({
             )}
             <p className="chat-footer-note" data-testid="status-chat-connected">
               <BookOpen aria-hidden="true" />
-              <span>{t("chat:footerConnected")}</span>
+              <span>
+                {attachedStory
+                  ? `${ui.storyAttached}: ${attachedStory.storyName}`
+                  : t("chat:footerConnected")}
+              </span>
             </p>
           </footer>
         </>
+      )}
+
+      <ChatStoryPicker
+        open={storyPickerOpen}
+        uid={user?.uid ?? null}
+        selectedStoryId={attachedStory?.id ?? null}
+        locale={locale}
+        onClose={() => setStoryPickerOpen(false)}
+        onSelect={(story) => {
+          setAttachedStory(story);
+          setImgGenMode(false);
+          requestAnimationFrame(() => inputRef.current?.focus());
+        }}
+        onClear={() => setAttachedStory(null)}
+      />
+
+      {lightboxUrl && (
+        <div
+          className="chat-modal-backdrop chat-lightbox-backdrop"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setLightboxUrl(null);
+          }}
+        >
+          <div className="chat-lightbox-box">
+            <button
+              type="button"
+              className="chat-icon-button chat-lightbox-close"
+              onClick={() => setLightboxUrl(null)}
+              aria-label={t("chat:close")}
+            >
+              <X aria-hidden="true" />
+            </button>
+            <img src={lightboxUrl} alt="" />
+          </div>
+        </div>
       )}
 
       {pickerOpen && (
@@ -2543,9 +3367,7 @@ export default function ChatScreen({
               <button
                 type="button"
                 role="menuitem"
-                onClick={() =>
-                  void togglePin(menuConv.id, menuConv.pinned)
-                }
+                onClick={() => void togglePin(menuConv.id, menuConv.pinned)}
               >
                 {menuConv.pinned ? (
                   <PinOff size={16} aria-hidden="true" />
@@ -2828,61 +3650,67 @@ export default function ChatScreen({
             </div>
             {!fullListOpen ? (
               <div className="chat-attachment-grid">
-                {allOptions.map((opt) =>
-                  opt === "more" ? (
+                {allOptions.map(({ key, enabled }) =>
+                  key === "more" ? (
                     <button
                       type="button"
                       className="chat-attachment-option"
-                      key={opt}
+                      key={key}
                       onClick={() => setFullListOpen(true)}
                       data-testid="button-chat-option-more"
                     >
                       <span className="chat-option-icon">
-                        {iconForOption(opt)}
+                        {iconForOption(key)}
                       </span>
-                      <span>{t(`chat:options.${opt}`)}</span>
+                      <span>{t(`chat:options.${key}`)}</span>
                     </button>
                   ) : (
                     <button
                       type="button"
                       className="chat-attachment-option"
-                      key={opt}
-                      disabled
-                      title={t("chat:comingSoon")}
-                      data-testid={`button-chat-option-${opt}`}
+                      key={key}
+                      disabled={!enabled}
+                      onClick={() => enabled && triggerSheetOption(key)}
+                      title={!enabled ? t("chat:comingSoon") : undefined}
+                      data-testid={`button-chat-option-${key}`}
                     >
                       <span className="chat-option-icon">
-                        {iconForOption(opt)}
+                        {iconForOption(key)}
                       </span>
-                      <span>{t(`chat:options.${opt}`)}</span>
-                      <small>{t("chat:comingSoon")}</small>
+                      <span>{t(`chat:options.${key}`)}</span>
+                      {!enabled && <small>{t("chat:comingSoon")}</small>}
                     </button>
                   ),
                 )}
               </div>
             ) : (
               <div className="chat-option-list" data-testid="chat-all-options">
-                {allOptions.map((opt) => (
-                  <button
-                    type="button"
-                    className="chat-option-row"
-                    key={opt}
-                    disabled
-                    title={t("chat:comingSoon")}
-                    data-testid={`button-chat-full-option-${opt}`}
-                  >
-                    <span className="chat-option-icon">
-                      {iconForOption(opt)}
-                    </span>
-                    <span className="chat-option-name">
-                      {t(`chat:options.${opt}`)}
-                    </span>
-                    <span className="chat-coming-soon">
-                      {t("chat:comingSoon")}
-                    </span>
-                    <ChevronRight aria-hidden="true" />
-                  </button>
-                ))}
+                {allOptions
+                  .filter((item) => item.key !== "more")
+                  .map(({ key, enabled }) => (
+                    <button
+                      type="button"
+                      className="chat-option-row"
+                      key={key}
+                      disabled={!enabled}
+                      onClick={() => enabled && triggerSheetOption(key)}
+                      title={!enabled ? t("chat:comingSoon") : undefined}
+                      data-testid={`button-chat-full-option-${key}`}
+                    >
+                      <span className="chat-option-icon">
+                        {iconForOption(key)}
+                      </span>
+                      <span className="chat-option-name">
+                        {t(`chat:options.${key}`)}
+                      </span>
+                      {!enabled && (
+                        <span className="chat-coming-soon">
+                          {t("chat:comingSoon")}
+                        </span>
+                      )}
+                      <ChevronRight aria-hidden="true" />
+                    </button>
+                  ))}
               </div>
             )}
           </section>
