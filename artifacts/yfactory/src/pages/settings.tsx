@@ -14,12 +14,14 @@ import {
   Moon,
   Sparkles,
   ShieldCheck,
+  Sun,
   Trash2,
   UserRound,
 } from 'lucide-react';
 import ConfirmActionDialog, {
   type ConfirmActionDialogHandle,
 } from '@/components/confirm-action-dialog';
+import LanguagePickerDialog from '@/components/language-picker-dialog';
 import SecretsPanel from '@/components/secrets-panel';
 import {
   loadKeyPoolStatus,
@@ -28,9 +30,23 @@ import {
   type KeyPoolProviderStatus,
 } from '@/lib/apiKeyVault';
 import {
+  getNotificationAvailability,
+  readAppTheme,
+  readNotificationsEnabled,
+  toggleAppNotifications,
+  writeAppTheme,
+  type AppTheme,
+  type NotificationAvailability,
+} from '@/lib/appPreferences';
+import {
   readChatAutoNavigate,
   writeChatAutoNavigate,
 } from '@/lib/chatAgent';
+import {
+  changeAppLanguage,
+  findLanguageOption,
+  isRtlLanguage,
+} from '@/lib/languages';
 import './auth-pages.css';
 
 export type SettingsUser = {
@@ -57,6 +73,83 @@ function formatBytes(bytes: number): string {
   return `${bytes} B`;
 }
 
+function getExtraSettingsCopy(lang: string) {
+  if (lang.startsWith('ar')) {
+    return {
+      autoNavTitle: `الانتقال التلقائي من الشات`,
+      autoNavOn: `ينقلك تلقائياً لصفحة الصور أو قصصي عند تنفيذ الأمر`,
+      autoNavOff: `تبقى داخل الشات أثناء التوليد والتنفيذ`,
+      themeDark: `الوضع الداكن`,
+      themeLight: `الوضع الفاتح`,
+      themeHintDark: `مظهر داكن مريح مع لمسات ذهبية`,
+      themeHintLight: `مظهر فاتح واضح للقراءة النهارية`,
+      notifOn: `مفعّلة — تصلك تنبيهات عند اكتمال التوليد`,
+      notifOff: `تنبيهك عند اكتمال توليد الصور والمشاهد`,
+      notifDenied: `محظورة من إعدادات المتصفح`,
+      notifUnsupported: `غير مدعومة في هذا المتصفح`,
+      notifTestTitle: `YFactory AI`,
+      notifTestBody: `تم تفعيل الإشعارات بنجاح.`,
+      aboutDetails: `منصة ويب متكاملة لإنتاج القصص والصور والمحادثة بالذكاء الاصطناعي بنظام مفاتيح المستخدم المشفّرة (BYOK).`,
+      premiumDetails: `تعمل المنصة حالياً بنظام BYOK (تضيف مفاتيحك الخاصة وتتحكم بتكلفتك مباشرةً). خطط الاشتراك والمزايا المتقدمة ستتوفر عند الإطلاق الرسمي.`,
+    };
+  }
+  if (lang.startsWith('fr')) {
+    return {
+      autoNavTitle: `Navigation auto depuis le chat`,
+      autoNavOn: `Ouvre Images ou Mes histoires lors d'une action`,
+      autoNavOff: `Reste dans le chat pendant l'exécution`,
+      themeDark: `Mode sombre`,
+      themeLight: `Mode clair`,
+      themeHintDark: `Interface sombre avec accents dorés`,
+      themeHintLight: `Interface claire et lumineuse`,
+      notifOn: `Activées — alertes à la fin des générations`,
+      notifOff: `Être alerté quand vos images sont prêtes`,
+      notifDenied: `Bloqué dans les paramètres du navigateur`,
+      notifUnsupported: `Non pris en charge sur ce navigateur`,
+      notifTestTitle: `YFactory AI`,
+      notifTestBody: `Les notifications sont maintenant activées.`,
+      aboutDetails: `Plateforme web unifiée pour le chat IA, les images et vos histoires avec gestion chiffrée de vos clés API (BYOK).`,
+      premiumDetails: `YFactory fonctionne en mode BYOK avec vos propres clés API. Les formules avancées arriveront lors du lancement public.`,
+    };
+  }
+  if (lang.startsWith('es')) {
+    return {
+      autoNavTitle: `Navegación auto desde Chat`,
+      autoNavOn: `Abre Imagen o Mis historias al ejecutar acciones`,
+      autoNavOff: `Permanecer en Chat durante la generación`,
+      themeDark: `Modo oscuro`,
+      themeLight: `Modo claro`,
+      themeHintDark: `Tema oscuro elegante con detalles dorados`,
+      themeHintLight: `Tema claro y nítido para el día`,
+      notifOn: `Activadas — avisos al completar generaciones`,
+      notifOff: `Recibe avisos cuando tus imágenes estén listas`,
+      notifDenied: `Bloqueadas en el navegador`,
+      notifUnsupported: `No compatible en este navegador`,
+      notifTestTitle: `YFactory AI`,
+      notifTestBody: `Las notificaciones están activadas.`,
+      aboutDetails: `Plataforma web integrada de chat IA, imágenes e historias con almacenamiento cifrado de tus claves API (BYOK).`,
+      premiumDetails: `YFactory funciona con tus propias claves API (BYOK). Los planes avanzados estarán disponibles en el lanzamiento público.`,
+    };
+  }
+  return {
+    autoNavTitle: `Auto-navigate from Chat`,
+    autoNavOn: `Jump to Image or My Stories when Chat runs an action`,
+    autoNavOff: `Stay inside Chat while actions run`,
+    themeDark: `Dark Mode`,
+    themeLight: `Light Mode`,
+    themeHintDark: `Dark workspace with gold accents`,
+    themeHintLight: `Bright light theme across all pages`,
+    notifOn: `Enabled — alerts when generations finish`,
+    notifOff: `Notify when image or story generation completes`,
+    notifDenied: `Blocked in browser permissions`,
+    notifUnsupported: `Unsupported in this browser`,
+    notifTestTitle: `YFactory AI`,
+    notifTestBody: `Notifications are now enabled.`,
+    aboutDetails: `Unified web studio for AI chat, image generation, and story production powered by encrypted BYOK user API keys.`,
+    premiumDetails: `YFactory runs on BYOK (bring your own API keys). Subscription plans and expanded key slots will launch with the public release.`,
+  };
+}
+
 export default function SettingsPage({
   user,
   getIdToken,
@@ -68,7 +161,10 @@ export default function SettingsPage({
 }: SettingsPageProps) {
   const { t, i18n } = useTranslation();
   const locale = i18n.resolvedLanguage ?? i18n.language;
-  const isRtl = locale === 'ar';
+  const isRtl = isRtlLanguage(locale);
+  const currentLang = findLanguageOption(locale);
+  const extraCopy = getExtraSettingsCopy(locale);
+
   const [storageUsage, setStorageUsage] = useState<{
     configured: boolean;
     usedBytes: number | null;
@@ -79,7 +175,13 @@ export default function SettingsPage({
   const [keyPoolStatusError, setKeyPoolStatusError] = useState('');
   const [cloudinaryEnabled, setCloudinaryEnabled] = useState(true);
   const [chatAutoNavigate, setChatAutoNavigate] = useState<boolean>(readChatAutoNavigate);
+  const [theme, setTheme] = useState<AppTheme>(readAppTheme);
+  const [notificationsEnabled, setNotificationsEnabled] = useState<boolean>(readNotificationsEnabled);
+  const [notifStatus, setNotifStatus] = useState<NotificationAvailability>(getNotificationAvailability);
+  const [notifBusy, setNotifBusy] = useState(false);
+  const [languagePickerOpen, setLanguagePickerOpen] = useState(false);
   const [settingsSubview, setSettingsSubview] = useState<'about' | 'premium' | 'api-keys' | null>(initialSubview);
+
   const signOutDialogRef = useRef<ConfirmActionDialogHandle | null>(null);
   const deleteAccountDialogRef = useRef<ConfirmActionDialogHandle | null>(null);
   const displayName = user.displayName || user.email || t('settings.creator');
@@ -89,29 +191,7 @@ export default function SettingsPage({
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase())
     .join('');
-  const chatAutoNavCopy = locale.startsWith('ar')
-    ? {
-        title: `الانتقال التلقائي من الشات`,
-        hintOn: `ينقلك تلقائياً لصفحة الصور أو قصصي عند تنفيذ الأمر`,
-        hintOff: `تبقى داخل الشات أثناء التوليد والتنفيذ`,
-      }
-    : locale.startsWith('fr')
-      ? {
-          title: `Navigation auto depuis le chat`,
-          hintOn: `Ouvre Images ou Mes histoires lors d'une action`,
-          hintOff: `Reste dans le chat pendant l'exécution`,
-        }
-      : locale.startsWith('es')
-        ? {
-            title: `Navegación auto desde Chat`,
-            hintOn: `Abre Imagen o Mis historias al ejecutar acciones`,
-            hintOff: `Permanecer en Chat durante la generación`,
-          }
-        : {
-            title: `Auto-navigate from Chat`,
-            hintOn: `Jump to Image or My Stories when Chat runs an action`,
-            hintOff: `Stay inside Chat while actions run`,
-          };
+
   const toggleChatAutoNavigate = () => {
     setChatAutoNavigate((current) => {
       const next = !current;
@@ -120,8 +200,27 @@ export default function SettingsPage({
     });
   };
 
-  const changeLanguage = (language: 'en' | 'ar' | 'fr' | 'es') => {
-    void i18n.changeLanguage(language);
+  const handleToggleTheme = () => {
+    setTheme((current) => {
+      const next: AppTheme = current === 'dark' ? 'light' : 'dark';
+      writeAppTheme(next);
+      return next;
+    });
+  };
+
+  const handleToggleNotifications = async () => {
+    if (notifBusy || notifStatus === 'unsupported') return;
+    setNotifBusy(true);
+    try {
+      const result = await toggleAppNotifications(!notificationsEnabled, {
+        title: extraCopy.notifTestTitle,
+        body: extraCopy.notifTestBody,
+      });
+      setNotificationsEnabled(result.enabled);
+      setNotifStatus(result.status);
+    } finally {
+      setNotifBusy(false);
+    }
   };
 
   useEffect(() => {
@@ -158,7 +257,7 @@ export default function SettingsPage({
         }
         setStorageUsage(usageResult.value);
         setStorageUsageError('');
-      } catch (loadError) {
+      } catch {
         if (active) {
           setStorageUsageError(t('settings.storageLoadFailed'));
           setKeyPoolStatusError(t('settings.keyPoolLoadFailed'));
@@ -228,13 +327,24 @@ export default function SettingsPage({
               {isPremium ? <Sparkles size={24} /> : <Info size={24} />}
             </span>
             <h1>{isPremium ? t('settings.premiumFeatures') : t('settings.aboutYFactory')}</h1>
-            <p>{isPremium ? t('settings.premiumDescription') : t('settings.aboutDescription')}</p>
-            {isPremium && <span className="settings-coming-soon">{t('settings.comingSoon')}</span>}
+            <p>{isPremium ? extraCopy.premiumDetails : extraCopy.aboutDetails}</p>
+            <span className="settings-status-pill">
+              {isPremium ? t('settings.comingSoon') : 'YFactory AI · Web Studio'}
+            </span>
           </section>
         </div>
       </main>
     );
   }
+
+  const notifHint =
+    notifStatus === 'unsupported'
+      ? extraCopy.notifUnsupported
+      : notifStatus === 'denied'
+        ? extraCopy.notifDenied
+        : notificationsEnabled
+          ? extraCopy.notifOn
+          : extraCopy.notifOff;
 
   return (
     <main className="auth-screen settings-screen" dir={isRtl ? 'rtl' : 'ltr'}>
@@ -295,19 +405,16 @@ export default function SettingsPage({
                 <Globe2 size={19} aria-hidden="true" />
                 <strong>{t('settings.language')}</strong>
               </div>
-              <select
-                className="settings-language-select"
-                aria-label={t('settings.language')}
-                dir={isRtl ? 'rtl' : 'ltr'}
-                value={locale}
-                onChange={(event) => changeLanguage(event.currentTarget.value as 'en' | 'ar' | 'fr' | 'es')}
+              <button
+                type="button"
+                className="settings-language-trigger"
+                onClick={() => setLanguagePickerOpen(true)}
+                aria-haspopup="dialog"
                 data-testid="select-language"
               >
-                <option value="en">{t('settings.languageEnglish')}</option>
-                <option value="ar">{t('settings.languageArabic')}</option>
-                <option value="fr">{t('settings.languageFrench')}</option>
-                <option value="es">{t('settings.languageSpanish')}</option>
-              </select>
+                <span dir="auto">{currentLang.nativeName}</span>
+                <ChevronDown size={16} aria-hidden="true" />
+              </button>
             </div>
           </section>
 
@@ -334,26 +441,19 @@ export default function SettingsPage({
               <div className="settings-preference-copy">
                 <ArrowUpRight size={19} aria-hidden="true" />
                 <span className="settings-secrets-link-copy">
-                  <strong>{chatAutoNavCopy.title}</strong>
+                  <strong>{extraCopy.autoNavTitle}</strong>
                   <small>
-                    {chatAutoNavigate
-                      ? chatAutoNavCopy.hintOn
-                      : chatAutoNavCopy.hintOff}
+                    {chatAutoNavigate ? extraCopy.autoNavOn : extraCopy.autoNavOff}
                   </small>
                 </span>
               </div>
               <div className="settings-preference-state">
                 <button
                   type="button"
-                  className={
-                    chatAutoNavigate
-                      ? 'settings-disabled-switch is-on'
-                      : 'settings-disabled-switch'
-                  }
-                  style={{ cursor: 'pointer', opacity: 1 }}
+                  className={chatAutoNavigate ? 'settings-switch is-on' : 'settings-switch'}
                   role="switch"
                   aria-checked={chatAutoNavigate}
-                  aria-label={chatAutoNavCopy.title}
+                  aria-label={extraCopy.autoNavTitle}
                   onClick={toggleChatAutoNavigate}
                   data-testid="toggle-chat-auto-navigate"
                 >
@@ -361,46 +461,62 @@ export default function SettingsPage({
                 </button>
               </div>
             </div>
+
             <div className="settings-preference-row">
               <div className="settings-preference-copy">
                 <Bell size={19} aria-hidden="true" />
-                <strong>{t('settings.notifications')}</strong>
+                <span className="settings-secrets-link-copy">
+                  <strong>{t('settings.notifications')}</strong>
+                  <small>{notifHint}</small>
+                </span>
               </div>
               <div className="settings-preference-state">
-                <span className="settings-coming-soon">{t('settings.comingSoon')}</span>
                 <button
                   type="button"
-                  className="settings-disabled-switch"
+                  className={notificationsEnabled ? 'settings-switch is-on' : 'settings-switch'}
                   role="switch"
-                  aria-checked="false"
-                  aria-label={`${t('settings.notifications')} — ${t('settings.comingSoon')}`}
-                  disabled
+                  aria-checked={notificationsEnabled}
+                  aria-label={t('settings.notifications')}
+                  disabled={notifBusy || notifStatus === 'unsupported'}
+                  onClick={() => void handleToggleNotifications()}
                   data-testid="toggle-notifications"
                 >
                   <span />
                 </button>
               </div>
             </div>
+
             <div className="settings-preference-row">
               <div className="settings-preference-copy">
-                <Moon size={19} aria-hidden="true" />
-                <strong>{t('settings.darkMode')}</strong>
+                {theme === 'dark' ? (
+                  <Moon size={19} aria-hidden="true" />
+                ) : (
+                  <Sun size={19} aria-hidden="true" />
+                )}
+                <span className="settings-secrets-link-copy">
+                  <strong>
+                    {theme === 'dark' ? extraCopy.themeDark : extraCopy.themeLight}
+                  </strong>
+                  <small>
+                    {theme === 'dark' ? extraCopy.themeHintDark : extraCopy.themeHintLight}
+                  </small>
+                </span>
               </div>
               <div className="settings-preference-state">
-                <span className="settings-coming-soon">{t('settings.comingSoon')}</span>
                 <button
                   type="button"
-                  className="settings-disabled-switch is-on"
+                  className={theme === 'dark' ? 'settings-switch is-on' : 'settings-switch'}
                   role="switch"
-                  aria-checked="true"
-                  aria-label={`${t('settings.darkMode')} — ${t('settings.comingSoon')}`}
-                  disabled
+                  aria-checked={theme === 'dark'}
+                  aria-label={t('settings.darkMode')}
+                  onClick={handleToggleTheme}
                   data-testid="toggle-dark-mode"
                 >
                   <span />
                 </button>
               </div>
             </div>
+
             <button
               className="settings-preference-link"
               type="button"
@@ -519,6 +635,14 @@ export default function SettingsPage({
           <span>{t('settings.creatorWorkspace')}</span>
         </footer>
       </div>
+
+      <LanguagePickerDialog
+        open={languagePickerOpen}
+        currentCode={currentLang.code}
+        onClose={() => setLanguagePickerOpen(false)}
+        onSelect={(lang) => changeAppLanguage(lang.code)}
+      />
+
       <ConfirmActionDialog
         ref={signOutDialogRef}
         title={t('confirmation.signOutTitle')}

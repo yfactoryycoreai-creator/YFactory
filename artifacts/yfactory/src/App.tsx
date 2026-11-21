@@ -36,6 +36,14 @@ import LoginPage from '@/pages/login';
 import SettingsPage from '@/pages/settings';
 import NotFound from '@/pages/not-found';
 import ChatScreen from '@/components/chat-screen';
+import LanguagePickerDialog from '@/components/language-picker-dialog';
+import { notifyUserIfEnabled } from '@/lib/appPreferences';
+import {
+  applyDocumentLanguage,
+  changeAppLanguage,
+  findLanguageOption,
+  isRtlLanguage,
+} from '@/lib/languages';
 import {
   type ChatAgentRunResult,
   type ImageAgentCommand,
@@ -137,6 +145,7 @@ function Home() {
     useState<GeneratorSettings>(readGeneratorSettings);
   const [noticeKey, setNoticeKey] = useState('');
   const [profileOpen, setProfileOpen] = useState(false);
+  const [languagePickerOpen, setLanguagePickerOpen] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [storiesOpen, setStoriesOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
@@ -159,7 +168,8 @@ function Home() {
   const imageEditInputRef = useRef<HTMLInputElement>(null);
   const imageGenerationAbortRef = useRef<AbortController | null>(null);
   const profileMenuRef = useRef<HTMLDivElement>(null);
-  const isRtl = locale === 'ar';
+  const isRtl = isRtlLanguage(locale);
+  const currentLanguage = findLanguageOption(locale);
   const characterLimit = 20_000;
   const isCurrentGenerateLoading = isImageGenerating || isImageEditing;
   const statusMessage = noticeKey ? t(noticeKey) : '';
@@ -369,6 +379,7 @@ function Home() {
           );
         } else {
           setNoticeKey('status.imageBatchReady');
+          notifyUserIfEnabled('YFactory AI', t('status.imageBatchReady'));
         }
         return {
           ok: true,
@@ -715,31 +726,17 @@ function Home() {
           <span className="brand-mark" aria-hidden="true">Y</span><span>YFactory</span>
         </div>
         <div className="header-tools">
-          <Select
-            dir={isRtl ? 'rtl' : 'ltr'}
-            value={locale}
-            onValueChange={(language) => {
-              document.documentElement.lang = language;
-              document.documentElement.dir = language === 'ar' ? 'rtl' : 'ltr';
-              void i18n.changeLanguage(language);
-              setNoticeKey('');
-            }}
+          <button
+            type="button"
+            className="locale-trigger"
+            aria-label={t('labels.language')}
+            aria-haspopup="dialog"
+            data-testid="select-language"
+            onClick={() => setLanguagePickerOpen(true)}
           >
-            <SelectTrigger
-              className="locale-trigger"
-              aria-label={t('labels.language')}
-              data-testid="select-language"
-            >
-              <Globe2 size={16} aria-hidden="true" />
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent className="custom-select-content locale-content">
-              <SelectItem className="custom-select-item" value="en">English</SelectItem>
-              <SelectItem className="custom-select-item" value="ar">العربية</SelectItem>
-              <SelectItem className="custom-select-item" value="fr">Français</SelectItem>
-              <SelectItem className="custom-select-item" value="es">Español</SelectItem>
-            </SelectContent>
-          </Select>
+            <Globe2 size={16} aria-hidden="true" />
+            <span>{currentLanguage.nativeName}</span>
+          </button>
           <div className="profile-menu-wrap" ref={profileMenuRef}>
             <button
               className="profile-button"
@@ -1194,6 +1191,15 @@ function Home() {
           </ErrorBoundary>
         )}
       </main>
+      <LanguagePickerDialog
+        open={languagePickerOpen}
+        currentCode={currentLanguage.code}
+        onClose={() => setLanguagePickerOpen(false)}
+        onSelect={(lang) => {
+          changeAppLanguage(lang.code);
+          setNoticeKey('');
+        }}
+      />
     </div>
   );
 }
@@ -1391,12 +1397,10 @@ function App() {
 function LocaleDirectionSync() {
   const { i18n } = useTranslation();
   const locale = i18n.resolvedLanguage ?? i18n.language;
-  const isRtl = locale === 'ar';
 
   useEffect(() => {
-    document.documentElement.lang = locale;
-    document.documentElement.dir = isRtl ? 'rtl' : 'ltr';
-  }, [locale, isRtl]);
+    applyDocumentLanguage(locale);
+  }, [locale]);
 
   return null;
 }
