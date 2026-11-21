@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import { LoaderCircle } from 'lucide-react';
+import { isRtlLanguage } from '@/lib/languages';
 import './auth-pages.css';
 
 export type LoginPageProps = {
@@ -15,7 +16,7 @@ export default function LoginPage({
   onGoogleSignIn,
 }: LoginPageProps) {
   const { t, i18n } = useTranslation();
-  const isRtl = (i18n.resolvedLanguage ?? i18n.language) === 'ar';
+  const isRtl = isRtlLanguage(i18n.resolvedLanguage ?? i18n.language);
   const isConfigError = error === 'firebase-config' || error === 'auth/firebase-config';
   const isUnauthorizedDomain = error === 'auth/unauthorized-domain';
 

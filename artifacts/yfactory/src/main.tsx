@@ -1,6 +1,7 @@
 import { createRoot } from 'react-dom/client';
 
 import './i18n';
+import '@/locales';
 import { applyAppTheme, readAppTheme } from '@/lib/appPreferences';
 import { initLanguageDirectionSync } from '@/lib/languages';
 import App from './App';
