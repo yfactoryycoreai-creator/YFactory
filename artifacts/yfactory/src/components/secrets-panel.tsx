@@ -32,6 +32,7 @@ import {
   type VaultKey,
   type VaultProviderOption,
 } from '@/lib/apiKeyVault';
+import { isRtlLanguage } from '@/lib/languages';
 
 type SecretsPanelProps = {
   userId: string | null;
@@ -64,7 +65,7 @@ export default function SecretsPanel({
   initialModelTarget,
 }: SecretsPanelProps) {
   const { t, i18n } = useTranslation();
-  const isRtl = (i18n.resolvedLanguage ?? i18n.language).startsWith('ar');
+  const isRtl = isRtlLanguage(i18n.resolvedLanguage ?? i18n.language);
   const deleteDialogRef = useRef<ConfirmActionDialogHandle | null>(null);
   const [keys, setKeys] = useState<VaultKey[]>([]);
   const [keysOwnerId, setKeysOwnerId] = useState<string | null>(null);

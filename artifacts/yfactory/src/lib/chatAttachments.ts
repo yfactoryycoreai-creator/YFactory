@@ -256,6 +256,49 @@ export function isVoiceInputSupported(): boolean {
   return getSpeechCtor() !== null;
 }
 
+const SPEECH_LOCALE_MAP: Record<string, string> = {
+  ar: 'ar-SA',
+  en: 'en-US',
+  fr: 'fr-FR',
+  es: 'es-ES',
+  de: 'de-DE',
+  it: 'it-IT',
+  pt: 'pt-BR',
+  tr: 'tr-TR',
+  ru: 'ru-RU',
+  ur: 'ur-PK',
+  fa: 'fa-IR',
+  'zh-cn': 'zh-CN',
+  'zh-tw': 'zh-TW',
+  zh: 'zh-CN',
+  ja: 'ja-JP',
+  ko: 'ko-KR',
+  hi: 'hi-IN',
+  id: 'id-ID',
+  bn: 'bn-BD',
+};
+
+export function resolveSpeechLocale(lang: string, sampleText?: string): string {
+  const lower = lang.trim().toLowerCase();
+  const base = lower.split('-')[0] ?? 'en';
+  if (sampleText) {
+    if (/[\u0600-\u06FF]/.test(sampleText)) {
+      if (base === 'ur') return 'ur-PK';
+      if (base === 'fa') return 'fa-IR';
+      return 'ar-SA';
+    }
+    if (/[\u3040-\u30FF]/.test(sampleText)) return 'ja-JP';
+    if (/[\uAC00-\uD7AF]/.test(sampleText)) return 'ko-KR';
+    if (/[\u4E00-\u9FFF]/.test(sampleText)) {
+      return lower === 'zh-tw' ? 'zh-TW' : 'zh-CN';
+    }
+    if (/[\u0900-\u097F]/.test(sampleText)) return 'hi-IN';
+    if (/[\u0980-\u09FF]/.test(sampleText)) return 'bn-BD';
+    if (/[\u0400-\u04FF]/.test(sampleText)) return 'ru-RU';
+  }
+  return SPEECH_LOCALE_MAP[lower] ?? SPEECH_LOCALE_MAP[base] ?? 'en-US';
+}
+
 export function startVoiceRecognition(options: {
   lang: string;
   onTranscript: (text: string, isFinal: boolean) => void;
@@ -266,13 +309,7 @@ export function startVoiceRecognition(options: {
   if (!Ctor) return null;
 
   const recognition = new Ctor();
-  recognition.lang = options.lang.startsWith('ar')
-    ? 'ar-SA'
-    : options.lang.startsWith('fr')
-      ? 'fr-FR'
-      : options.lang.startsWith('es')
-        ? 'es-ES'
-        : 'en-US';
+  recognition.lang = resolveSpeechLocale(options.lang);
   recognition.continuous = false;
   recognition.interimResults = true;
 

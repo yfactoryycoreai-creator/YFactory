@@ -110,6 +110,7 @@ import {
   MAX_PENDING_ATTACHMENTS,
   processFileAttachment,
   processImageAttachment,
+  resolveSpeechLocale,
   startVoiceRecognition,
   type PendingAttachment,
 } from "@/lib/chatAttachments";
@@ -120,6 +121,8 @@ import {
   exportAsPdf,
 } from "@/lib/chatExport";
 
+import { getChatUiStrings, type ChatUiStrings } from "@/lib/chatUiStrings";
+import { isRtlLanguage } from "@/lib/languages";
 import { loadVaultKeys, type VaultKey } from "@/lib/apiKeyVault";
 import type { StoryRecord } from "@/lib/stories";
 
@@ -179,440 +182,6 @@ type TextModalState =
 const MODEL_STORE_KEY = "yfactory.chat.selectedModel";
 const CONV_STORE_KEY = "yfactory.chat.activeConversationId";
 const MAX_CTX = 40;
-
-type UiStrings = {
-  newChat: string;
-  convsTitle: string;
-  searchConvs: string;
-  pinned: string;
-  recent: string;
-  noConvs: string;
-  noResults: string;
-  loadingConvs: string;
-  copy: string;
-  copied: string;
-  share: string;
-  shared: string;
-  readAloud: string;
-  stopReading: string;
-  like: string;
-  dislike: string;
-  regenerate: string;
-  editRequest: string;
-  del: string;
-  delMsgTitle: string;
-  delMsgDesc: string;
-  delConvTitle: string;
-  delConvDesc: string;
-  confirmDel: string;
-  stopGen: string;
-  generating: string;
-  generatingImg: string;
-  stoppedNote: string;
-  retry: string;
-  saveSend: string;
-  save: string;
-  cancel: string;
-  modelReady: string;
-  modelLoading: string;
-  modelOff: string;
-  chooseModel: string;
-  manageKeys: string;
-  pin: string;
-  unpin: string;
-  rename: string;
-  renameTitle: string;
-  renameHint: string;
-  addProject: string;
-  projectTitle: string;
-  projectHint: string;
-  clearProject: string;
-  addHome: string;
-  homeTitle: string;
-  homeSteps: string;
-  homeDone: string;
-  expPdf: string;
-  expMd: string;
-  expDocx: string;
-  expDone: string;
-  moreOpts: string;
-  scrollDown: string;
-  justNow: string;
-  minsAgo: (n: number) => string;
-  hrsAgo: (n: number) => string;
-  daysAgo: (n: number) => string;
-  untitled: string;
-  saveErr: string;
-  openingConv: string;
-  imgModePlaceholder: string;
-  imgModeBadge: string;
-  storyModePlaceholder: string;
-  storyModeBadge: string;
-  linkStoryBtn: string;
-  imgGenDone: string;
-  imgGenFail: string;
-  downloadImg: string;
-  storyAttached: string;
-  attLimit: string;
-  attProcessing: string;
-  attTooLarge: string;
-  attUnsupported: string;
-  attEmpty: string;
-  attReadErr: string;
-  voiceListening: string;
-  voiceUnsupported: string;
-  voiceError: string;
-  imgOnlyPrompt: string;
-};
-
-function getUiStrings(lang: string): UiStrings {
-  if (lang.startsWith("ar")) {
-    return {
-      newChat: `محادثة جديدة`,
-      convsTitle: `المحادثات`,
-      searchConvs: `ابحث في المحادثات...`,
-      pinned: `مثبّتة`,
-      recent: `الأخيرة`,
-      noConvs: `لا توجد محادثات محفوظة بعد.`,
-      noResults: `لا توجد نتائج مطابقة.`,
-      loadingConvs: `جارٍ تحميل المحادثات...`,
-      copy: `نسخ`,
-      copied: `تم النسخ`,
-      share: `مشاركة`,
-      shared: `تم نسخ النص للمشاركة`,
-      readAloud: `قراءة بصوت عالٍ`,
-      stopReading: `إيقاف القراءة`,
-      like: `أعجبني`,
-      dislike: `لم يعجبني`,
-      regenerate: `إعادة التوليد`,
-      editRequest: `تعديل الطلب`,
-      del: `حذف`,
-      delMsgTitle: `حذف الرسالة؟`,
-      delMsgDesc: `هل أنت متأكد من حذف هذه الرسالة؟`,
-      delConvTitle: `حذف المحادثة؟`,
-      delConvDesc: `سيتم حذف المحادثة ورسائلها نهائياً.`,
-      confirmDel: `تأكيد الحذف`,
-      stopGen: `إيقاف التوليد`,
-      generating: `جارٍ التوليد...`,
-      generatingImg: `جارٍ توليد الصورة...`,
-      stoppedNote: `تم إيقاف التوليد.`,
-      retry: `إعادة المحاولة`,
-      saveSend: `حفظ وإرسال`,
-      save: `حفظ`,
-      cancel: `إلغاء`,
-      modelReady: `متاح`,
-      modelLoading: `جارٍ التحميل...`,
-      modelOff: `غير مهيأ`,
-      chooseModel: `اختيار النموذج`,
-      manageKeys: `إدارة مفاتيح API والنماذج`,
-      pin: `تثبيت`,
-      unpin: `إلغاء التثبيت`,
-      rename: `إعادة تسمية`,
-      renameTitle: `إعادة تسمية المحادثة`,
-      renameHint: `أدخل عنوان المحادثة...`,
-      addProject: `إضافة إلى مشروع`,
-      projectTitle: `المشروع`,
-      projectHint: `اسم المشروع...`,
-      clearProject: `إزالة المشروع`,
-      addHome: `إضافة للشاشة الرئيسية`,
-      homeTitle: `إضافة للشاشة الرئيسية`,
-      homeSteps:
-        `افتح قائمة المتصفح واختر الإضافة إلى الشاشة الرئيسية.`,
-      homeDone: `حسناً`,
-      expPdf: `تصدير PDF`,
-      expMd: `تصدير Markdown`,
-      expDocx: `تصدير DOCX`,
-      expDone: `تم تنزيل الملف بنجاح`,
-      moreOpts: `المزيد من الخيارات`,
-      scrollDown: `النزول للأسفل`,
-      justNow: `الآن`,
-      minsAgo: (n) => `منذ ${n} د`,
-      hrsAgo: (n) => `منذ ${n} س`,
-      daysAgo: (n) => `منذ ${n} ي`,
-      untitled: `محادثة جديدة`,
-      saveErr: `تعذّر حفظ التغييرات.`,
-      openingConv: `جارٍ فتح المحادثة...`,
-      imgModePlaceholder: `صف الصورة التي تريد توليدها...`,
-      imgModeBadge: `وكيل توليد الصور`,
-      storyModePlaceholder: `اكتب فكرة القصة، عدد الصور، وملامح الشخصيات...`,
-      storyModeBadge: `وكيل قصصي`,
-      linkStoryBtn: `ربط قصة موجودة`,
-      imgGenDone: `تم توليد الصورة بنجاح.`,
-      imgGenFail: `تعذّر توليد الصورة حالياً. تحقق من مزوّد الصور وحاول مجدداً.`,
-      downloadImg: `تنزيل الصورة`,
-      storyAttached: `قصة مرتبطة`,
-      attLimit: `الحد الأقصى 4 مرفقات في الرسالة الواحدة.`,
-      attProcessing: `جارٍ التجهيز...`,
-      attTooLarge: `حجم الملف كبير جداً.`,
-      attUnsupported: `نوع الملف غير مدعوم. ارفع صوراً أو ملفات نصية/كود.`,
-      attEmpty: `الملف فارغ.`,
-      attReadErr: `فشل قراءة الملف.`,
-      voiceListening: `جارٍ الاستماع... تكلّم الآن`,
-      voiceUnsupported: `الإدخال الصوتي غير مدعوم في هذا المتصفح.`,
-      voiceError: `تعذّر التقاط الصوت. تحقق من إذن الميكروفون.`,
-      imgOnlyPrompt: `حلّل المرفقات المرسلة.`,
-    };
-  }
-  if (lang.startsWith("fr")) {
-    return {
-      newChat: `Nouveau chat`,
-      convsTitle: `Conversations`,
-      searchConvs: `Rechercher...`,
-      pinned: `Épinglées`,
-      recent: `Récentes`,
-      noConvs: `Aucune conversation.`,
-      noResults: `Aucun résultat.`,
-      loadingConvs: `Chargement...`,
-      copy: `Copier`,
-      copied: `Copié`,
-      share: `Partager`,
-      shared: `Copié pour partager`,
-      readAloud: `Lire à haute voix`,
-      stopReading: `Arrêter`,
-      like: `J'aime`,
-      dislike: `Je n'aime pas`,
-      regenerate: `Régénérer`,
-      editRequest: `Modifier`,
-      del: `Supprimer`,
-      delMsgTitle: `Supprimer le message ?`,
-      delMsgDesc: `Voulez-vous supprimer ce message ?`,
-      delConvTitle: `Supprimer la discussion ?`,
-      delConvDesc: `Cette discussion sera supprimée.`,
-      confirmDel: `Supprimer`,
-      stopGen: `Arrêter`,
-      generating: `Génération...`,
-      generatingImg: `Génération de l'image...`,
-      stoppedNote: `Génération arrêtée.`,
-      retry: `Réessayer`,
-      saveSend: `Enregistrer`,
-      save: `Enregistrer`,
-      cancel: `Annuler`,
-      modelReady: `Prêt`,
-      modelLoading: `Chargement...`,
-      modelOff: `Indisponible`,
-      chooseModel: `Choisir un modèle`,
-      manageKeys: `Gérer les clés API`,
-      pin: `Épingler`,
-      unpin: `Désépingler`,
-      rename: `Renommer`,
-      renameTitle: `Renommer`,
-      renameHint: `Titre...`,
-      addProject: `Ajouter au projet`,
-      projectTitle: `Projet`,
-      projectHint: `Nom du projet...`,
-      clearProject: `Retirer`,
-      addHome: `Ajouter à l'accueil`,
-      homeTitle: `Ajouter à l'accueil`,
-      homeSteps:
-        `Ouvrez le menu du navigateur et choisissez Ajouter.`,
-      homeDone: `Compris`,
-      expPdf: `Exporter PDF`,
-      expMd: `Exporter Markdown`,
-      expDocx: `Exporter DOCX`,
-      expDone: `Fichier téléchargé`,
-      moreOpts: `Plus d'options`,
-      scrollDown: `Aller en bas`,
-      justNow: `À l'instant`,
-      minsAgo: (n) => `il y a ${n} min`,
-      hrsAgo: (n) => `il y a ${n} h`,
-      daysAgo: (n) => `il y a ${n} j`,
-      untitled: `Nouveau chat`,
-      saveErr: `Erreur de sauvegarde.`,
-      openingConv: `Ouverture...`,
-      imgModePlaceholder: `Décrivez l'image à générer...`,
-      imgModeBadge: `Agent image`,
-      storyModePlaceholder: `Décrivez histoire, nb images et personnages...`,
-      storyModeBadge: `Agent histoires`,
-      linkStoryBtn: `Lier une histoire`,
-      imgGenDone: `Image générée avec succès.`,
-      imgGenFail: `Impossible de générer l'image.`,
-      downloadImg: `Télécharger`,
-      storyAttached: `Histoire liée`,
-      attLimit: `Maximum 4 pièces jointes par message.`,
-      attProcessing: `Préparation...`,
-      attTooLarge: `Fichier trop volumineux.`,
-      attUnsupported: `Format non pris en charge.`,
-      attEmpty: `Fichier vide.`,
-      attReadErr: `Erreur de lecture.`,
-      voiceListening: `Écoute en cours...`,
-      voiceUnsupported: `La dictée vocale n'est pas prise en charge.`,
-      voiceError: `Erreur micro. Vérifiez les permissions.`,
-      imgOnlyPrompt: `Analyse les pièces jointes.`,
-    };
-  }
-  if (lang.startsWith("es")) {
-    return {
-      newChat: `Nuevo chat`,
-      convsTitle: `Conversaciones`,
-      searchConvs: `Buscar...`,
-      pinned: `Fijadas`,
-      recent: `Recientes`,
-      noConvs: `Sin conversaciones.`,
-      noResults: `Sin resultados.`,
-      loadingConvs: `Cargando...`,
-      copy: `Copiar`,
-      copied: `Copiado`,
-      share: `Compartir`,
-      shared: `Copiado para compartir`,
-      readAloud: `Leer en voz alta`,
-      stopReading: `Detener`,
-      like: `Me gusta`,
-      dislike: `No me gusta`,
-      regenerate: `Regenerar`,
-      editRequest: `Editar`,
-      del: `Eliminar`,
-      delMsgTitle: `¿Eliminar mensaje?`,
-      delMsgDesc: `¿Seguro que deseas eliminar este mensaje?`,
-      delConvTitle: `¿Eliminar chat?`,
-      delConvDesc: `Esta conversación se eliminará.`,
-      confirmDel: `Eliminar`,
-      stopGen: `Detener`,
-      generating: `Generando...`,
-      generatingImg: `Generando imagen...`,
-      stoppedNote: `Generación detenida.`,
-      retry: `Reintentar`,
-      saveSend: `Guardar y enviar`,
-      save: `Guardar`,
-      cancel: `Cancelar`,
-      modelReady: `Disponible`,
-      modelLoading: `Cargando...`,
-      modelOff: `No disponible`,
-      chooseModel: `Elegir modelo`,
-      manageKeys: `Gestionar claves API`,
-      pin: `Fijar`,
-      unpin: `Desfijar`,
-      rename: `Renombrar`,
-      renameTitle: `Renombrar`,
-      renameHint: `Título...`,
-      addProject: `Añadir a proyecto`,
-      projectTitle: `Proyecto`,
-      projectHint: `Nombre del proyecto...`,
-      clearProject: `Quitar`,
-      addHome: `Añadir a inicio`,
-      homeTitle: `Añadir a inicio`,
-      homeSteps:
-        `Abre el menú del navegador y elige Añadir a inicio.`,
-      homeDone: `Entendido`,
-      expPdf: `Exportar PDF`,
-      expMd: `Exportar Markdown`,
-      expDocx: `Exportar DOCX`,
-      expDone: `Archivo descargado`,
-      moreOpts: `Más opciones`,
-      scrollDown: `Ir al final`,
-      justNow: `Ahora`,
-      minsAgo: (n) => `hace ${n} min`,
-      hrsAgo: (n) => `hace ${n} h`,
-      daysAgo: (n) => `hace ${n} d`,
-      untitled: `Nuevo chat`,
-      saveErr: `Error al guardar.`,
-      openingConv: `Abriendo...`,
-      imgModePlaceholder: `Describe la imagen que quieres generar...`,
-      imgModeBadge: `Agente imagen`,
-      storyModePlaceholder: `Describe historia, nº imágenes y personajes...`,
-      storyModeBadge: `Agente historias`,
-      linkStoryBtn: `Vincular historia`,
-      imgGenDone: `Imagen generada con éxito.`,
-      imgGenFail: `No se pudo generar la imagen.`,
-      downloadImg: `Descargar`,
-      storyAttached: `Historia vinculada`,
-      attLimit: `Máximo 4 archivos por mensaje.`,
-      attProcessing: `Preparando...`,
-      attTooLarge: `Archivo demasiado grande.`,
-      attUnsupported: `Tipo de archivo no compatible.`,
-      attEmpty: `Archivo vacío.`,
-      attReadErr: `Error al leer el archivo.`,
-      voiceListening: `Escuchando...`,
-      voiceUnsupported: `La entrada de voz no es compatible aquí.`,
-      voiceError: `Error de micrófono. Revisa los permisos.`,
-      imgOnlyPrompt: `Analiza los archivos adjuntos.`,
-    };
-  }
-  return {
-    newChat: `New chat`,
-    convsTitle: `Conversations`,
-    searchConvs: `Search conversations...`,
-    pinned: `Pinned`,
-    recent: `Recent`,
-    noConvs: `No saved conversations yet.`,
-    noResults: `No matching conversations.`,
-    loadingConvs: `Loading conversations...`,
-    copy: `Copy`,
-    copied: `Copied`,
-    share: `Share`,
-    shared: `Copied to share`,
-    readAloud: `Read aloud`,
-    stopReading: `Stop reading`,
-    like: `Like`,
-    dislike: `Dislike`,
-    regenerate: `Regenerate`,
-    editRequest: `Edit request`,
-    del: `Delete`,
-    delMsgTitle: `Delete message?`,
-    delMsgDesc: `Are you sure you want to delete this message?`,
-    delConvTitle: `Delete conversation?`,
-    delConvDesc: `This conversation will be permanently deleted.`,
-    confirmDel: `Delete`,
-    stopGen: `Stop generation`,
-    generating: `Generating...`,
-    generatingImg: `Generating image...`,
-    stoppedNote: `Generation stopped.`,
-    retry: `Retry`,
-    saveSend: `Save & Send`,
-    save: `Save`,
-    cancel: `Cancel`,
-    modelReady: `Ready`,
-    modelLoading: `Loading...`,
-    modelOff: `Unavailable`,
-    chooseModel: `Choose model`,
-    manageKeys: `Manage API Keys & Models`,
-    pin: `Pin`,
-    unpin: `Unpin`,
-    rename: `Rename`,
-    renameTitle: `Rename conversation`,
-    renameHint: `Conversation title...`,
-    addProject: `Add to project`,
-    projectTitle: `Project`,
-    projectHint: `Project name...`,
-    clearProject: `Remove project`,
-    addHome: `Add to home screen`,
-    homeTitle: `Add to Home Screen`,
-    homeSteps:
-      `Open browser menu and tap Add to Home screen.`,
-    homeDone: `Got it`,
-    expPdf: `Export PDF`,
-    expMd: `Export Markdown`,
-    expDocx: `Export DOCX`,
-    expDone: `File downloaded`,
-    moreOpts: `More options`,
-    scrollDown: `Scroll to bottom`,
-    justNow: `Just now`,
-    minsAgo: (n) => `${n}m ago`,
-    hrsAgo: (n) => `${n}h ago`,
-    daysAgo: (n) => `${n}d ago`,
-    untitled: `New chat`,
-    saveErr: `Could not save changes.`,
-    openingConv: `Opening conversation...`,
-    imgModePlaceholder: `Describe the image you want to generate...`,
-    imgModeBadge: `Image Agent`,
-    storyModePlaceholder: `Describe story, scene count & character traits...`,
-    storyModeBadge: `Stories Agent`,
-    linkStoryBtn: `Link existing story`,
-    imgGenDone: `Image generated successfully.`,
-    imgGenFail: `Image generation failed. Please try again.`,
-    downloadImg: `Download`,
-    storyAttached: `Story linked`,
-    attLimit: `Maximum 4 attachments per message.`,
-    attProcessing: `Preparing...`,
-    attTooLarge: `File is too large.`,
-    attUnsupported: `Unsupported file type. Use images or text/code.`,
-    attEmpty: `File is empty.`,
-    attReadErr: `Could not read file.`,
-    voiceListening: `Listening... speak now`,
-    voiceUnsupported: `Voice input is not supported in this browser.`,
-    voiceError: `Microphone error. Check permissions.`,
-    imgOnlyPrompt: `Analyze the attached items.`,
-  };
-}
 
 const iconForOption = (name: string) => {
   switch (name) {
@@ -691,13 +260,10 @@ function buildCtx(
 }
 
 function speechLang(text: string, fallback: string): string {
-  if (/[\u0600-\u06FF]/.test(text)) return "ar-SA";
-  if (fallback.startsWith("fr")) return "fr-FR";
-  if (fallback.startsWith("es")) return "es-ES";
-  return "en-US";
+  return resolveSpeechLocale(fallback, text);
 }
 
-function relTime(ts: number, ui: UiStrings): string {
+function relTime(ts: number, ui: ChatUiStrings): string {
   const sec = Math.max(0, Math.floor((Date.now() - ts) / 1000));
   if (sec < 60) return ui.justNow;
   const min = Math.floor(sec / 60);
@@ -751,7 +317,7 @@ function sortConvs(
   );
 }
 
-function attachmentErrLabel(code: string | undefined, ui: UiStrings): string {
+function attachmentErrLabel(code: string | undefined, ui: ChatUiStrings): string {
   if (code === "image_too_large" || code === "file_too_large") {
     return ui.attTooLarge;
   }
@@ -773,8 +339,8 @@ export default function ChatScreen({
   const { user } = useAuth();
   const { t, i18n } = useTranslation();
   const locale = i18n.resolvedLanguage ?? i18n.language;
-  const isRtl = locale.startsWith("ar");
-  const ui = getUiStrings(locale);
+  const isRtl = isRtlLanguage(locale);
+  const ui = getChatUiStrings(locale);
 
   const [draft, setDraft] = useState("");
   const [ideasOpen, setIdeasOpen] = useState(true);

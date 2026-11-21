@@ -478,3 +478,85 @@
   color: var(--app-secondary);
   font-size: 13px;
 }
+/* === Batch 6: Final Light Mode Polish (API Keys / Secrets, Agent Cards, RTL & Keyboard Safety) === */
+
+:root[data-theme="light"] .secret-form-sheet,
+:root[data-theme="light"] .secret-suggestions,
+:root[data-theme="light"] .secrets-empty-state,
+:root[data-theme="light"] .secret-model-list,
+:root[data-theme="light"] .secret-manual-model-form,
+:root[data-theme="light"] .story-action-sheet,
+:root[data-theme="light"] .chat-agent-card,
+:root[data-theme="light"] .chat-att-card,
+:root[data-theme="light"] .chat-gen-image-card {
+  background: var(--app-surface);
+  border-color: var(--app-separator);
+  color: var(--app-text);
+}
+
+:root[data-theme="light"] .secret-sheet-field input,
+:root[data-theme="light"] .secret-sheet-field select,
+:root[data-theme="light"] .secret-sheet-field textarea,
+:root[data-theme="light"] .secret-model-search input,
+:root[data-theme="light"] .secret-manual-model-form input,
+:root[data-theme="light"] .chat-dialog-input,
+:root[data-theme="light"] .chat-conversations-search,
+:root[data-theme="light"] .chat-model-picker-trigger {
+  background: var(--app-raised);
+  border-color: var(--app-separator);
+  color: var(--app-text);
+}
+
+:root[data-theme="light"] .secret-model-badge,
+:root[data-theme="light"] .chat-agent-chip,
+:root[data-theme="light"] .chat-agent-trait,
+:root[data-theme="light"] .chat-msg-att-chip {
+  background: var(--app-raised);
+  border-color: var(--app-separator);
+  color: var(--app-secondary);
+}
+
+:root[data-theme="light"] .chat-agent-open-btn,
+:root[data-theme="light"] .chat-new-chat-cta {
+  color: #ffffff;
+}
+
+:root[data-theme="light"] .chat-user-bubble {
+  background: color-mix(in srgb, var(--chat-amber) 14%, #ffffff);
+  border-color: color-mix(in srgb, var(--chat-amber) 34%, var(--chat-line));
+}
+
+:root[data-theme="light"] .auth-orbit {
+  opacity: 0.22;
+}
+
+/* Global RTL Directional Icon Mirroring (Arabic, Urdu, Persian) */
+[dir="rtl"] .secret-screen-back svg,
+[dir="rtl"] .factory-back svg,
+[dir="rtl"] .chat-back svg {
+  transform: rotate(180deg);
+}
+
+/* Keep code blocks & model IDs strictly LTR even in RTL languages */
+[dir="rtl"] .chat-md-codeblock,
+[dir="rtl"] .chat-md-inline-code,
+[dir="rtl"] .chat-model-trigger-name,
+[dir="rtl"] .chat-model-option-name {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+/* Prevent floating menus & sheets from colliding with mobile virtual keyboard */
+.chat-floating-menu,
+.lang-picker-sheet,
+.chat-model-sheet,
+.chat-sheet {
+  overscroll-behavior: contain;
+}
+
+@supports (height: 100dvh) {
+  .chat-screen {
+    height: 100dvh;
+    max-height: 100dvh;
+  }
+}

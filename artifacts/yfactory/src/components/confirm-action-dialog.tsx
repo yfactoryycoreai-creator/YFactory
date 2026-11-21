@@ -47,6 +47,11 @@ const ConfirmActionDialog = forwardRef<
   onConfirm,
   dir = 'ltr',
 }, ref) {
+  const resolvedDir: 'ltr' | 'rtl' =
+    dir === 'rtl' ||
+    (typeof document !== 'undefined' && document.documentElement.dir === 'rtl')
+      ? 'rtl'
+      : 'ltr';
   const id = useId();
   const [open, setOpen] = useState(false);
   const [activeDescription, setActiveDescription] = useState(description);
@@ -180,7 +185,7 @@ const ConfirmActionDialog = forwardRef<
         <DialogPrimitive.Overlay className="confirmation-backdrop" />
         <DialogPrimitive.Content
           className="confirmation-content"
-          dir={dir}
+          dir={resolvedDir}
           role="alertdialog"
           aria-modal="true"
           data-testid="confirmation-sheet"
