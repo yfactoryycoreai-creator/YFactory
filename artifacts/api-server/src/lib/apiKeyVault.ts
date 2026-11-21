@@ -342,15 +342,38 @@ async function migrateLegacyKeys(uid: string): Promise<void> {
   });
 }
 
+async function listUserVaultProviderIds(uid: string): Promise<string[]> {
+  const { db } = getFirebaseAdmin();
+  const baseIds = new Set<string>(["custom", "gemini"]);
+  try {
+    const providerRefs = await db
+      .collection("users")
+      .doc(uid)
+      .collection("providerKeys")
+      .listDocuments();
+    for (const ref of providerRefs) {
+      if (ref.id) baseIds.add(ref.id);
+    }
+  } catch {
+    // Fallback to configured providers only if listDocuments is unavailable.
+    const providers = await listProviderConfigs(uid).catch(() => []);
+    for (const provider of providers) {
+      baseIds.add(provider.id);
+    }
+  }
+  return [...baseIds];
+}
+
 async function readProviderSnapshots(uid: string, provider: ProviderKey) {
   return providerKeysCollection(uid, provider).get();
 }
 
 export async function listVaultKeys(uid: string): Promise<VaultKeyMetadata[]> {
   await migrateLegacyKeys(uid);
-  const providers = await listProviderConfigs(uid);
-  const providerIds = [...new Set([...providers.map((provider) => provider.id), "custom", "gemini"])];
-  const snapshots = await Promise.all(providerIds.map((provider) => readProviderSnapshots(uid, provider)));
+  const providerIds = await listUserVaultProviderIds(uid);
+  const snapshots = await Promise.all(
+    providerIds.map((provider) => readProviderSnapshots(uid, provider)),
+  );
   return snapshots.flatMap((snapshot, index) => snapshot.docs.map((document) =>
     metadataFromSnapshot(document, providerIds[index] ?? ""),
   ));
@@ -598,9 +621,10 @@ export type ChatVaultKeyMetadata = {
 
 export async function listChatVaultKeys(uid: string): Promise<ChatVaultKeyMetadata[]> {
   await migrateLegacyKeys(uid);
-  const providers = await listProviderConfigs(uid);
-  const providerIds = [...new Set([...providers.map((item) => item.id), "custom", "gemini"])];
-  const snapshots = await Promise.all(providerIds.map((provider) => readProviderSnapshots(uid, provider)));
+  const providerIds = await listUserVaultProviderIds(uid);
+  const snapshots = await Promise.all(
+    providerIds.map((provider) => readProviderSnapshots(uid, provider)),
+  );
   return snapshots.flatMap((snapshot, index) => snapshot.docs.flatMap((document) => {
     const data = document.data() as StoredKey;
     const cooldownUntil = cooldownMillis(data.cooldownUntil);

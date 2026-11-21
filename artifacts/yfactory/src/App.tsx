@@ -37,6 +37,11 @@ import SettingsPage from '@/pages/settings';
 import NotFound from '@/pages/not-found';
 import ChatScreen from '@/components/chat-screen';
 import {
+  type ChatAgentRunResult,
+  type ImageAgentCommand,
+  type StoryAgentCommand,
+} from '@/lib/chatAgent';
+import {
   deleteUserDocument,
   restoreUserDocument,
 } from '@/lib/userApiKeys';
@@ -58,9 +63,13 @@ import {
   type GeneratorSettings,
 } from '@/lib/generationStorage';
 import {
+  createStory,
   MAX_STORY_IMAGES,
   StoryLimitReachedError,
   startStorySceneGeneration,
+  updateStoryScript,
+  updateStorySettings,
+  updateStoryTargetCount,
   type StoryImageRecord,
   type StoryRecord,
 } from '@/lib/stories';
@@ -285,6 +294,225 @@ function Home() {
     { value: '2', label: t('options.imageCountTwo') },
     { value: '4', label: t('options.imageCountFour') },
   ];
+
+  const executeChatImageAgent = useCallback(
+    async (
+      cmd: ImageAgentCommand,
+      autoNavigate: boolean,
+    ): Promise<ChatAgentRunResult> => {
+      if (!user) {
+        return {
+          ok: false,
+          target: 'image',
+          navigated: false,
+          errorMessage: t('status.authRequired'),
+        };
+      }
+      const promptToGenerate = cmd.prompt.trim();
+      if (!promptToGenerate) {
+        return {
+          ok: false,
+          target: 'image',
+          navigated: false,
+          errorMessage: t('status.imagePromptRequired'),
+        };
+      }
+
+      setActiveStory(null);
+      setPrompt(promptToGenerate);
+      setGeneratorSettings((current) => ({
+        ...current,
+        imageCount: cmd.count,
+      }));
+      setNoticeKey('');
+      setImageError('');
+
+      if (autoNavigate) {
+        setStoriesOpen(false);
+        setChatOpen(false);
+      }
+
+      const requestedImages = Number(cmd.count);
+      setIsImageGenerating(true);
+      imageGenerationAbortRef.current?.abort();
+      const controller = new AbortController();
+      imageGenerationAbortRef.current = controller;
+
+      try {
+        const idToken = await user.getIdToken();
+        const result = await generateImages(
+          idToken,
+          null,
+          promptToGenerate,
+          requestedImages,
+          controller.signal,
+        );
+        const batch: GeneratedImageHistoryItem[] = result.images.map(
+          (image) => ({
+            id: crypto.randomUUID(),
+            prompt: promptToGenerate,
+            createdAt: Date.now(),
+            imageData: image.imageData,
+            provider: image.provider,
+            ...(image.savedToFactory ? { savedToFactory: true } : {}),
+          }),
+        );
+        setGeneratedImages((current) =>
+          [...batch, ...current].slice(0, MAX_PERSISTED_IMAGES),
+        );
+        if (result.failedCount > 0 || result.skippedCount > 0) {
+          setImageError(
+            t('status.partialImageFailure', {
+              failed: result.failedCount + result.skippedCount,
+              total: requestedImages,
+            }),
+          );
+        } else {
+          setNoticeKey('status.imageBatchReady');
+        }
+        return {
+          ok: true,
+          target: 'image',
+          navigated: autoNavigate,
+          generatedImages: result.images.map((item) => ({
+            url: item.imageData,
+            provider: item.provider,
+          })),
+        };
+      } catch (err) {
+        const msg =
+          err instanceof ImageGenerationError
+            ? err.message
+            : t('status.imageGenerateFailed');
+        if (!controller.signal.aborted) {
+          setImageError(msg);
+        }
+        return {
+          ok: false,
+          target: 'image',
+          navigated: autoNavigate,
+          errorMessage: msg,
+        };
+      } finally {
+        if (imageGenerationAbortRef.current === controller) {
+          imageGenerationAbortRef.current = null;
+        }
+        setIsImageGenerating(false);
+      }
+    },
+    [t, user],
+  );
+
+  const executeChatStoryAgent = useCallback(
+    async (
+      cmd: StoryAgentCommand,
+      autoNavigate: boolean,
+    ): Promise<ChatAgentRunResult> => {
+      if (!user) {
+        return {
+          ok: false,
+          target: 'story',
+          navigated: false,
+          errorMessage: t('status.authRequired'),
+        };
+      }
+      try {
+        const idToken = await user.getIdToken();
+        const storyId = cmd.storyId
+          ? cmd.storyId
+          : await createStory(user.uid, cmd.storyName);
+
+        if (cmd.script.trim()) {
+          await updateStoryScript(user.uid, storyId, cmd.script);
+        }
+        await updateStoryTargetCount(storyId, cmd.targetCount, idToken);
+        await updateStorySettings(
+          storyId,
+          {
+            aspectRatio: cmd.aspectRatio,
+            characterTraits: cmd.characterTraits,
+            keepOneProvider: cmd.keepOneProvider,
+          },
+          idToken,
+        );
+
+        const nextStory: StoryRecord = {
+          id: storyId,
+          storyName: cmd.storyName,
+          script: cmd.script,
+          createdAt: new Date(),
+          imageCount: 0,
+          storageBytes: 0,
+          targetCount: cmd.targetCount,
+          aspectRatio: cmd.aspectRatio,
+          characterTraits: cmd.characterTraits,
+          keepOneProvider: cmd.keepOneProvider,
+          providerSwitchPending: false,
+        };
+        setActiveStory(nextStory);
+
+        if (autoNavigate) {
+          setStoriesOpen(true);
+          setChatOpen(false);
+        }
+
+        if (cmd.startGeneration && cmd.script.trim()) {
+          await startStorySceneGeneration(
+            storyId,
+            cmd.script,
+            cmd.targetCount,
+            idToken,
+          );
+        }
+
+        return {
+          ok: true,
+          target: 'story',
+          navigated: autoNavigate,
+          storyId,
+          storyName: cmd.storyName,
+        };
+      } catch (err) {
+        return {
+          ok: false,
+          target: 'story',
+          navigated: autoNavigate,
+          errorMessage:
+            err instanceof Error ? err.message : t('stories.saveFailed'),
+        };
+      }
+    },
+    [t, user],
+  );
+
+  const openImageWorkspaceFromChat = useCallback(() => {
+    setChatOpen(false);
+    setStoriesOpen(false);
+  }, []);
+
+  const openStoryWorkspaceFromChat = useCallback((storyId?: string) => {
+    if (storyId) {
+      setActiveStory((cur) =>
+        cur && cur.id === storyId
+          ? cur
+          : {
+              id: storyId,
+              storyName: '',
+              script: '',
+              createdAt: new Date(),
+              imageCount: 0,
+              storageBytes: 0,
+              targetCount: 10,
+              aspectRatio: '16:9',
+              characterTraits: [],
+              keepOneProvider: true,
+              providerSwitchPending: false,
+            },
+      );
+    }
+    setChatOpen(false);
+    setStoriesOpen(true);
+  }, []);
 
   const handleGenerate = async () => {
     setNoticeKey('');
@@ -631,6 +859,10 @@ function Home() {
                 `/settings?view=api-keys&modelsProvider=${encodeURIComponent(key.provider)}&modelsKeyId=${encodeURIComponent(key.id)}`,
               );
             }}
+            onExecuteImageAgent={executeChatImageAgent}
+            onExecuteStoryAgent={executeChatStoryAgent}
+            onOpenImagePage={openImageWorkspaceFromChat}
+            onOpenStoryPage={openStoryWorkspaceFromChat}
           />
         )}
 

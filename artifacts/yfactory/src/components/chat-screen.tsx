@@ -63,8 +63,23 @@ import {
 } from "lucide-react";
 import "./chat-screen.css";
 import { useAuth } from "@/auth/AuthProvider";
+import ChatAgentCard, {
+  type ChatAgentCardState,
+} from "@/components/chat-agent-card";
 import ChatMarkdown from "@/components/chat-markdown";
 import ChatStoryPicker from "@/components/chat-story-picker";
+import {
+  buildImageAgentSystemPrompt,
+  buildStoryAgentSystemPrompt,
+  buildYFactoryChatSystemPrompt,
+  extractAgentCommand,
+  readChatAutoNavigate,
+  type ChatAgentCommand,
+  type ChatAgentMode,
+  type ChatAgentRunResult,
+  type ImageAgentCommand,
+  type StoryAgentCommand,
+} from "@/lib/chatAgent";
 import {
   ChatApiError,
   ChatStreamAbortedError,
@@ -104,10 +119,7 @@ import {
   exportAsMarkdown,
   exportAsPdf,
 } from "@/lib/chatExport";
-import {
-  generateImages,
-  ImageGenerationError,
-} from "@/lib/imageApi";
+
 import { loadVaultKeys, type VaultKey } from "@/lib/apiKeyVault";
 import type { StoryRecord } from "@/lib/stories";
 
@@ -116,6 +128,16 @@ type ChatScreenProps = {
   getIdToken?: () => Promise<string>;
   onOpenSecrets: () => void;
   onOpenModels: (key: Pick<VaultKey, "provider" | "id">) => void;
+  onExecuteImageAgent?: (
+    cmd: ImageAgentCommand,
+    autoNavigate: boolean,
+  ) => Promise<ChatAgentRunResult>;
+  onExecuteStoryAgent?: (
+    cmd: StoryAgentCommand,
+    autoNavigate: boolean,
+  ) => Promise<ChatAgentRunResult>;
+  onOpenImagePage?: () => void;
+  onOpenStoryPage?: (storyId?: string) => void;
 };
 
 type ChatMessage = {
@@ -128,6 +150,7 @@ type ChatMessage = {
   attachments?: StoredChatAttachmentMeta[];
   previewImages?: string[];
   generatedImages?: StoredGeneratedImageRef[];
+  agentAction?: ChatAgentCardState;
   createdAt: number;
 };
 
@@ -223,6 +246,9 @@ type UiStrings = {
   openingConv: string;
   imgModePlaceholder: string;
   imgModeBadge: string;
+  storyModePlaceholder: string;
+  storyModeBadge: string;
+  linkStoryBtn: string;
   imgGenDone: string;
   imgGenFail: string;
   downloadImg: string;
@@ -307,7 +333,10 @@ function getUiStrings(lang: string): UiStrings {
       saveErr: `تعذّر حفظ التغييرات.`,
       openingConv: `جارٍ فتح المحادثة...`,
       imgModePlaceholder: `صف الصورة التي تريد توليدها...`,
-      imgModeBadge: `وضع توليد الصور`,
+      imgModeBadge: `وكيل توليد الصور`,
+      storyModePlaceholder: `اكتب فكرة القصة، عدد الصور، وملامح الشخصيات...`,
+      storyModeBadge: `وكيل قصصي`,
+      linkStoryBtn: `ربط قصة موجودة`,
       imgGenDone: `تم توليد الصورة بنجاح.`,
       imgGenFail: `تعذّر توليد الصورة حالياً. تحقق من مزوّد الصور وحاول مجدداً.`,
       downloadImg: `تنزيل الصورة`,
@@ -391,7 +420,10 @@ function getUiStrings(lang: string): UiStrings {
       saveErr: `Erreur de sauvegarde.`,
       openingConv: `Ouverture...`,
       imgModePlaceholder: `Décrivez l'image à générer...`,
-      imgModeBadge: `Mode image`,
+      imgModeBadge: `Agent image`,
+      storyModePlaceholder: `Décrivez histoire, nb images et personnages...`,
+      storyModeBadge: `Agent histoires`,
+      linkStoryBtn: `Lier une histoire`,
       imgGenDone: `Image générée avec succès.`,
       imgGenFail: `Impossible de générer l'image.`,
       downloadImg: `Télécharger`,
@@ -475,7 +507,10 @@ function getUiStrings(lang: string): UiStrings {
       saveErr: `Error al guardar.`,
       openingConv: `Abriendo...`,
       imgModePlaceholder: `Describe la imagen que quieres generar...`,
-      imgModeBadge: `Modo imagen`,
+      imgModeBadge: `Agente imagen`,
+      storyModePlaceholder: `Describe historia, nº imágenes y personajes...`,
+      storyModeBadge: `Agente historias`,
+      linkStoryBtn: `Vincular historia`,
       imgGenDone: `Imagen generada con éxito.`,
       imgGenFail: `No se pudo generar la imagen.`,
       downloadImg: `Descargar`,
@@ -558,7 +593,10 @@ function getUiStrings(lang: string): UiStrings {
     saveErr: `Could not save changes.`,
     openingConv: `Opening conversation...`,
     imgModePlaceholder: `Describe the image you want to generate...`,
-    imgModeBadge: `Image mode`,
+    imgModeBadge: `Image Agent`,
+    storyModePlaceholder: `Describe story, scene count & character traits...`,
+    storyModeBadge: `Stories Agent`,
+    linkStoryBtn: `Link existing story`,
     imgGenDone: `Image generated successfully.`,
     imgGenFail: `Image generation failed. Please try again.`,
     downloadImg: `Download`,
@@ -613,6 +651,7 @@ function makeMsgId(): string {
 function buildCtx(
   list: ChatMessage[],
   story: StoryRecord | null,
+  mode: ChatAgentMode,
   lastImages?: ChatImageAttachment[],
   lastFileSuffix?: string,
 ): ChatMessageInput[] {
@@ -633,13 +672,22 @@ function buildCtx(
     }
   }
 
-  if (story) {
+  if (mode === "image") {
     return [
-      { role: "system", content: buildStorySystemPrompt(story) },
+      { role: "system", content: buildImageAgentSystemPrompt() },
       ...base,
     ];
   }
-  return base;
+  if (mode === "story") {
+    return [
+      { role: "system", content: buildStoryAgentSystemPrompt(story) },
+      ...base,
+    ];
+  }
+  const chatSys = story
+    ? `${buildYFactoryChatSystemPrompt(story)}\n\n${buildStorySystemPrompt(story)}`
+    : buildYFactoryChatSystemPrompt(null);
+  return [{ role: "system", content: chatSys }, ...base];
 }
 
 function speechLang(text: string, fallback: string): string {
@@ -717,6 +765,10 @@ export default function ChatScreen({
   getIdToken,
   onOpenSecrets,
   onOpenModels,
+  onExecuteImageAgent,
+  onExecuteStoryAgent,
+  onOpenImagePage,
+  onOpenStoryPage,
 }: ChatScreenProps) {
   const { user } = useAuth();
   const { t, i18n } = useTranslation();
@@ -761,7 +813,9 @@ export default function ChatScreen({
 
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [attachedStory, setAttachedStory] = useState<StoryRecord | null>(null);
-  const [imgGenMode, setImgGenMode] = useState(false);
+  const [agentMode, setAgentMode] = useState<ChatAgentMode>("chat");
+  const imgGenMode = agentMode === "image";
+  const storyAgentMode = agentMode === "story";
   const [listening, setListening] = useState(false);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
@@ -1212,7 +1266,7 @@ export default function ChatScreen({
     setMessages([]);
     setDraft("");
     setAttachments([]);
-    setImgGenMode(false);
+    setAgentMode("chat");
     setFailCode("");
     setCustomErr("");
     setEditId(null);
@@ -1327,77 +1381,104 @@ export default function ChatScreen({
     abortRef.current?.abort();
   };
 
-  const runImageGeneration = async (
+  const executeAgentCommand = async (
+    msgId: string,
+    cmd: ChatAgentCommand,
+    baseMsgs: ChatMessage[],
+  ) => {
+    const autoNav = readChatAutoNavigate();
+    if (cmd.type === "generate_image") {
+      if (!onExecuteImageAgent) return;
+      const res = await onExecuteImageAgent(cmd, autoNav);
+      const updated = baseMsgs.map((m) =>
+        m.id === msgId
+          ? {
+              ...m,
+              ...(res.generatedImages &&
+              res.generatedImages.length > 0 &&
+              !res.navigated
+                ? { generatedImages: res.generatedImages }
+                : {}),
+              agentAction: {
+                command: cmd,
+                status: res.ok ? ("done" as const) : ("error" as const),
+                ...(res.errorMessage ? { errorMessage: res.errorMessage } : {}),
+              },
+            }
+          : m,
+      );
+      setMessages(updated);
+      await persistMsgs(updated, selModel);
+      return;
+    }
+
+    if (cmd.type === "story_setup") {
+      if (!onExecuteStoryAgent) return;
+      const res = await onExecuteStoryAgent(cmd, autoNav);
+      if (res.ok && res.storyId) {
+        setAttachedStory({
+          id: res.storyId,
+          storyName: cmd.storyName,
+          script: cmd.script,
+          createdAt: new Date(),
+          imageCount: attachedStory?.id === res.storyId ? attachedStory.imageCount : 0,
+          storageBytes: attachedStory?.id === res.storyId ? attachedStory.storageBytes : 0,
+          targetCount: cmd.targetCount,
+          aspectRatio: cmd.aspectRatio,
+          characterTraits: cmd.characterTraits,
+          keepOneProvider: cmd.keepOneProvider,
+          providerSwitchPending: false,
+        });
+      }
+      const updated = baseMsgs.map((m) =>
+        m.id === msgId
+          ? {
+              ...m,
+              agentAction: {
+                command: cmd,
+                status: res.ok ? ("done" as const) : ("error" as const),
+                ...(res.storyId ? { storyId: res.storyId } : {}),
+                ...(res.errorMessage ? { errorMessage: res.errorMessage } : {}),
+              },
+            }
+          : m,
+      );
+      setMessages(updated);
+      await persistMsgs(updated, selModel);
+    }
+  };
+
+  const runDirectImageAgent = async (
     hist: ChatMessage[],
     promptText: string,
   ) => {
     if (sending) return;
-    if (!getIdToken) {
-      setFailCode("auth_failed");
-      return;
-    }
     const aid = makeMsgId();
     const ats = Date.now();
-    const ctrl = new AbortController();
-    abortRef.current = ctrl;
-    autoScrollRef.current = true;
+    const { command } = extractAgentCommand("", "image", promptText, null);
+    if (!command || command.type !== "generate_image") return;
+
     setFailCode("");
     setCustomErr("");
     setSending(true);
-    setStreamId(aid);
-
-    setMessages([
+    const initial: ChatMessage[] = [
       ...hist,
       {
         id: aid,
         role: "assistant",
-        text: "",
-        modelName: "Image Generator",
+        text: ui.imgGenDone,
+        modelName: "Image Agent",
+        agentAction: { command, status: "running" },
         feedback: null,
         createdAt: ats,
       },
-    ]);
-
-    let finalMsgs: ChatMessage[] = hist;
+    ];
+    setMessages(initial);
     try {
-      const tok = await getIdToken();
-      const res = await generateImages(tok, null, promptText, 1, ctrl.signal);
-      if (ctrl.signal.aborted) {
-        finalMsgs = hist;
-        setMessages(hist);
-      } else {
-        const imgs: StoredGeneratedImageRef[] = res.images.map((item) => ({
-          url: item.imageData,
-          provider: item.provider,
-        }));
-        finalMsgs = [
-          ...hist,
-          {
-            id: aid,
-            role: "assistant",
-            text: ui.imgGenDone,
-            modelName: res.images[0]?.provider ?? "Image Generator",
-            generatedImages: imgs,
-            feedback: null,
-            createdAt: ats,
-          },
-        ];
-        setMessages(finalMsgs);
-      }
-    } catch (err) {
-      finalMsgs = hist;
-      setMessages(hist);
-      if (!ctrl.signal.aborted) {
-        setCustomErr(
-          err instanceof ImageGenerationError ? err.message : ui.imgGenFail,
-        );
-      }
+      await persistMsgs(initial, selModel);
+      await executeAgentCommand(aid, command, initial);
     } finally {
-      if (abortRef.current === ctrl) abortRef.current = null;
       setSending(false);
-      setStreamId(null);
-      await persistMsgs(finalMsgs, selModel);
-      requestAnimationFrame(() => inputRef.current?.focus());
     }
   };
 
@@ -1415,13 +1496,17 @@ export default function ChatScreen({
       setFailCode("auth_failed");
       return;
     }
-    const reqMsgs = buildCtx(hist, attachedStory, imgs, fileSuffix);
+    const modeAtSend = agentMode;
+    const reqMsgs = buildCtx(hist, attachedStory, modeAtSend, imgs, fileSuffix);
     if (
       reqMsgs.length === 0 ||
       reqMsgs[reqMsgs.length - 1]?.role !== "user"
     ) {
       return;
     }
+
+    const lastUserText =
+      [...hist].reverse().find((m) => m.role === "user")?.text ?? "";
 
     const aid = makeMsgId();
     const ats = Date.now();
@@ -1447,6 +1532,7 @@ export default function ChatScreen({
 
     let acc = "";
     let finalMsgs: ChatMessage[] = hist;
+    let parsedCmd: ChatAgentCommand | null = null;
     try {
       const tok = await getIdToken();
       await streamChatCompletion(
@@ -1468,13 +1554,28 @@ export default function ChatScreen({
           },
         },
       );
+      const extracted = extractAgentCommand(
+        acc,
+        modeAtSend,
+        lastUserText,
+        attachedStory,
+      );
+      parsedCmd = extracted.command;
       finalMsgs = [
         ...hist,
         {
           id: aid,
           role: "assistant",
-          text: acc,
+          text: extracted.cleanText,
           modelName: selModel.modelName,
+          ...(parsedCmd
+            ? {
+                agentAction: {
+                  command: parsedCmd,
+                  status: "running" as const,
+                },
+              }
+            : {}),
           feedback: null,
           createdAt: ats,
         },
@@ -1509,6 +1610,9 @@ export default function ChatScreen({
       setSending(false);
       setStreamId(null);
       await persistMsgs(finalMsgs, selModel);
+      if (parsedCmd) {
+        await executeAgentCommand(aid, parsedCmd, finalMsgs);
+      }
       requestAnimationFrame(() => inputRef.current?.focus());
     }
   };
@@ -1520,7 +1624,7 @@ export default function ChatScreen({
     if (sending || hasProcessingAtt) return;
     const rawText = draft.trim();
 
-    if (imgGenMode) {
+    if (imgGenMode && (models.length === 0 || !selModel)) {
       if (!rawText) return;
       const uMsg: ChatMessage = {
         id: makeMsgId(),
@@ -1531,7 +1635,7 @@ export default function ChatScreen({
       setDraft("");
       setEditId(null);
       setMenu(null);
-      await runImageGeneration([...messages, uMsg], rawText);
+      await runDirectImageAgent([...messages, uMsg], rawText);
       return;
     }
 
@@ -1669,7 +1773,7 @@ export default function ChatScreen({
     const prevUser = base[base.length - 1];
     if (!prevUser || prevUser.role !== "user") return;
     if (target?.generatedImages && target.generatedImages.length > 0) {
-      await runImageGeneration(base, prevUser.text);
+      await runDirectImageAgent(base, prevUser.text);
       return;
     }
     await runStream(base);
@@ -1687,7 +1791,7 @@ export default function ChatScreen({
     if (idx < 0) return;
     const base = messages.slice(0, idx + 1);
     if (imgGenMode) {
-      await runImageGeneration(base, messages[idx]!.text);
+      await runDirectImageAgent(base, messages[idx]!.text);
       return;
     }
     await runStream(base);
@@ -1712,7 +1816,7 @@ export default function ChatScreen({
     setEditId(null);
     setEditText("");
     if (imgGenMode) {
-      await runImageGeneration(next, trimmed);
+      await runDirectImageAgent(next, trimmed);
       return;
     }
     await runStream(next);
@@ -1910,14 +2014,17 @@ export default function ChatScreen({
       key: "useStories",
       icon: <BookOpen aria-hidden="true" />,
       enabled: true,
-      onClick: () => setStoryPickerOpen(true),
+      onClick: () => {
+        setAgentMode("story");
+        requestAnimationFrame(() => inputRef.current?.focus());
+      },
     },
     {
       key: "generateImage",
       icon: <Image aria-hidden="true" />,
       enabled: true,
       onClick: () => {
-        setImgGenMode(true);
+        setAgentMode("image");
         requestAnimationFrame(() => inputRef.current?.focus());
       },
     },
@@ -1926,7 +2033,7 @@ export default function ChatScreen({
       icon: <Scan aria-hidden="true" />,
       enabled: true,
       onClick: () => {
-        setImgGenMode(false);
+        setAgentMode("chat");
         photoRef.current?.click();
       },
     },
@@ -2613,6 +2720,14 @@ export default function ChatScreen({
                                 streaming={isStr}
                               />
                             )}
+                            {msg.agentAction && (
+                              <ChatAgentCard
+                                state={msg.agentAction}
+                                locale={locale}
+                                onOpenImagePage={onOpenImagePage}
+                                onOpenStoryPage={onOpenStoryPage}
+                              />
+                            )}
                           </>
                         )}
                         {msg.stopped && (
@@ -2747,7 +2862,7 @@ export default function ChatScreen({
               </div>
             )}
 
-            {(attachments.length > 0 || attachedStory || imgGenMode) && (
+            {(attachments.length > 0 || attachedStory || imgGenMode || storyAgentMode) && (
               <div className="chat-pending-strip">
                 {imgGenMode && (
                   <span className="chat-pending-pill is-amber">
@@ -2755,7 +2870,20 @@ export default function ChatScreen({
                     <span>{ui.imgModeBadge}</span>
                     <button
                       type="button"
-                      onClick={() => setImgGenMode(false)}
+                      onClick={() => setAgentMode("chat")}
+                      aria-label={ui.cancel}
+                    >
+                      <X size={13} aria-hidden="true" />
+                    </button>
+                  </span>
+                )}
+                {storyAgentMode && (
+                  <span className="chat-pending-pill is-amber">
+                    <BookOpen size={13} aria-hidden="true" />
+                    <span>{ui.storyModeBadge}</span>
+                    <button
+                      type="button"
+                      onClick={() => setAgentMode("chat")}
                       aria-label={ui.cancel}
                     >
                       <X size={13} aria-hidden="true" />
@@ -2841,7 +2969,7 @@ export default function ChatScreen({
                 type="button"
                 className={`chat-mode-pill ${imgGenMode ? "is-active" : ""}`}
                 onClick={() => {
-                  setImgGenMode((on) => !on);
+                  setAgentMode((cur) => (cur === "image" ? "chat" : "image"));
                   requestAnimationFrame(() => inputRef.current?.focus());
                 }}
                 disabled={sending}
@@ -2853,15 +2981,32 @@ export default function ChatScreen({
               <button
                 type="button"
                 className={`chat-mode-pill ${
-                  attachedStory ? "is-active" : ""
+                  storyAgentMode ? "is-active" : ""
                 }`}
-                onClick={() => setStoryPickerOpen(true)}
+                onClick={() => {
+                  setAgentMode((cur) => (cur === "story" ? "chat" : "story"));
+                  requestAnimationFrame(() => inputRef.current?.focus());
+                }}
                 disabled={sending}
                 data-testid="button-chat-pill-stories"
               >
                 <BookOpen size={14} aria-hidden="true" />
                 <span>{t("chat:options.myStories")}</span>
               </button>
+              {storyAgentMode && (
+                <button
+                  type="button"
+                  className={`chat-mode-pill ${
+                    attachedStory ? "is-active" : ""
+                  }`}
+                  onClick={() => setStoryPickerOpen(true)}
+                  disabled={sending}
+                  data-testid="button-chat-link-story"
+                >
+                  <Folder size={13} aria-hidden="true" />
+                  <span>{ui.linkStoryBtn}</span>
+                </button>
+              )}
             </div>
 
             <form
@@ -2929,7 +3074,9 @@ export default function ChatScreen({
                 placeholder={
                   imgGenMode
                     ? ui.imgModePlaceholder
-                    : t("chat:composerPlaceholder")
+                    : storyAgentMode
+                      ? ui.storyModePlaceholder
+                      : t("chat:composerPlaceholder")
                 }
                 rows={1}
                 dir="auto"
@@ -3003,7 +3150,7 @@ export default function ChatScreen({
         onClose={() => setStoryPickerOpen(false)}
         onSelect={(story) => {
           setAttachedStory(story);
-          setImgGenMode(false);
+          setAgentMode("story");
           requestAnimationFrame(() => inputRef.current?.focus());
         }}
         onClear={() => setAttachedStory(null)}

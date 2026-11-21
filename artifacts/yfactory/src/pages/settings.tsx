@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   ArrowLeft,
+  ArrowUpRight,
   ChevronDown,
   ChevronRight,
   Bell,
@@ -26,6 +27,10 @@ import {
   loadStorageUsage,
   type KeyPoolProviderStatus,
 } from '@/lib/apiKeyVault';
+import {
+  readChatAutoNavigate,
+  writeChatAutoNavigate,
+} from '@/lib/chatAgent';
 import './auth-pages.css';
 
 export type SettingsUser = {
@@ -73,6 +78,7 @@ export default function SettingsPage({
   const [keyPoolStatus, setKeyPoolStatus] = useState<KeyPoolProviderStatus[] | null>(null);
   const [keyPoolStatusError, setKeyPoolStatusError] = useState('');
   const [cloudinaryEnabled, setCloudinaryEnabled] = useState(true);
+  const [chatAutoNavigate, setChatAutoNavigate] = useState<boolean>(readChatAutoNavigate);
   const [settingsSubview, setSettingsSubview] = useState<'about' | 'premium' | 'api-keys' | null>(initialSubview);
   const signOutDialogRef = useRef<ConfirmActionDialogHandle | null>(null);
   const deleteAccountDialogRef = useRef<ConfirmActionDialogHandle | null>(null);
@@ -83,6 +89,37 @@ export default function SettingsPage({
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase())
     .join('');
+  const chatAutoNavCopy = locale.startsWith('ar')
+    ? {
+        title: `الانتقال التلقائي من الشات`,
+        hintOn: `ينقلك تلقائياً لصفحة الصور أو قصصي عند تنفيذ الأمر`,
+        hintOff: `تبقى داخل الشات أثناء التوليد والتنفيذ`,
+      }
+    : locale.startsWith('fr')
+      ? {
+          title: `Navigation auto depuis le chat`,
+          hintOn: `Ouvre Images ou Mes histoires lors d'une action`,
+          hintOff: `Reste dans le chat pendant l'exécution`,
+        }
+      : locale.startsWith('es')
+        ? {
+            title: `Navegación auto desde Chat`,
+            hintOn: `Abre Imagen o Mis historias al ejecutar acciones`,
+            hintOff: `Permanecer en Chat durante la generación`,
+          }
+        : {
+            title: `Auto-navigate from Chat`,
+            hintOn: `Jump to Image or My Stories when Chat runs an action`,
+            hintOff: `Stay inside Chat while actions run`,
+          };
+  const toggleChatAutoNavigate = () => {
+    setChatAutoNavigate((current) => {
+      const next = !current;
+      writeChatAutoNavigate(next);
+      return next;
+    });
+  };
+
   const changeLanguage = (language: 'en' | 'ar' | 'fr' | 'es') => {
     void i18n.changeLanguage(language);
   };
@@ -293,6 +330,37 @@ export default function SettingsPage({
           </section>
 
           <section className="settings-preferences-panel" aria-label={t('settings.preferences')}>
+            <div className="settings-preference-row">
+              <div className="settings-preference-copy">
+                <ArrowUpRight size={19} aria-hidden="true" />
+                <span className="settings-secrets-link-copy">
+                  <strong>{chatAutoNavCopy.title}</strong>
+                  <small>
+                    {chatAutoNavigate
+                      ? chatAutoNavCopy.hintOn
+                      : chatAutoNavCopy.hintOff}
+                  </small>
+                </span>
+              </div>
+              <div className="settings-preference-state">
+                <button
+                  type="button"
+                  className={
+                    chatAutoNavigate
+                      ? 'settings-disabled-switch is-on'
+                      : 'settings-disabled-switch'
+                  }
+                  style={{ cursor: 'pointer', opacity: 1 }}
+                  role="switch"
+                  aria-checked={chatAutoNavigate}
+                  aria-label={chatAutoNavCopy.title}
+                  onClick={toggleChatAutoNavigate}
+                  data-testid="toggle-chat-auto-navigate"
+                >
+                  <span />
+                </button>
+              </div>
+            </div>
             <div className="settings-preference-row">
               <div className="settings-preference-copy">
                 <Bell size={19} aria-hidden="true" />
