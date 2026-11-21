@@ -13,37 +13,128 @@ type LanguagePickerDialogProps = {
   onSelect: (language: AppLanguageOption) => void;
 };
 
-function getPickerLabels(lang: string) {
-  if (lang.startsWith('ar')) {
-    return {
-      title: `اختر اللغة`,
-      search: `ابحث عن لغة...`,
-      empty: `لا توجد لغة مطابقة للبحث.`,
-      close: `إغلاق`,
-    };
-  }
-  if (lang.startsWith('fr')) {
-    return {
-      title: `Choisir la langue`,
-      search: `Rechercher une langue...`,
-      empty: `Aucune langue trouvée.`,
-      close: `Fermer`,
-    };
-  }
-  if (lang.startsWith('es')) {
-    return {
-      title: `Elegir idioma`,
-      search: `Buscar idioma...`,
-      empty: `No se encontraron idiomas.`,
-      close: `Cerrar`,
-    };
-  }
-  return {
+type PickerCopy = {
+  title: string;
+  search: string;
+  empty: string;
+  close: string;
+};
+
+const PICKER_COPY: Record<string, PickerCopy> = {
+  ar: {
+    title: `اختر اللغة`,
+    search: `ابحث عن لغة...`,
+    empty: `لا توجد لغة مطابقة للبحث.`,
+    close: `إغلاق`,
+  },
+  fr: {
+    title: `Choisir la langue`,
+    search: `Rechercher une langue...`,
+    empty: `Aucune langue trouvée.`,
+    close: `Fermer`,
+  },
+  es: {
+    title: `Elegir idioma`,
+    search: `Buscar idioma...`,
+    empty: `No se encontraron idiomas.`,
+    close: `Cerrar`,
+  },
+  de: {
+    title: `Sprache wählen`,
+    search: `Sprachen suchen...`,
+    empty: `Keine passende Sprache gefunden.`,
+    close: `Schließen`,
+  },
+  it: {
+    title: `Scegli lingua`,
+    search: `Cerca lingue...`,
+    empty: `Nessuna lingua trovata.`,
+    close: `Chiudi`,
+  },
+  pt: {
+    title: `Escolher idioma`,
+    search: `Pesquisar idiomas...`,
+    empty: `Nenhum idioma encontrado.`,
+    close: `Fechar`,
+  },
+  tr: {
+    title: `Dil seçin`,
+    search: `Dil ara...`,
+    empty: `Eşleşen dil bulunamadı.`,
+    close: `Kapat`,
+  },
+  ru: {
+    title: `Выберите язык`,
+    search: `Поиск языков...`,
+    empty: `Подходящие языки не найдены.`,
+    close: `Закрыть`,
+  },
+  ur: {
+    title: `زبان منتخب کریں`,
+    search: `زبان تلاش کریں...`,
+    empty: `کوئی زبان نہیں ملی۔`,
+    close: `بند کریں`,
+  },
+  fa: {
+    title: `انتخاب زبان`,
+    search: `جستجوی زبان...`,
+    empty: `هیچ زبان مطابقی یافت نشد.`,
+    close: `بستن`,
+  },
+  'zh-cn': {
+    title: `选择语言`,
+    search: `搜索语言...`,
+    empty: `未找到匹配的语言。`,
+    close: `关闭`,
+  },
+  'zh-tw': {
+    title: `選擇語言`,
+    search: `搜尋語言...`,
+    empty: `找不到相符的語言。`,
+    close: `關閉`,
+  },
+  ja: {
+    title: `言語を選択`,
+    search: `言語を検索...`,
+    empty: `一致する言語が見つかりません。`,
+    close: `閉じる`,
+  },
+  ko: {
+    title: `언어 선택`,
+    search: `언어 검색...`,
+    empty: `일치하는 언어가 없습니다.`,
+    close: `닫기`,
+  },
+  hi: {
+    title: `भाषा चुनें`,
+    search: `भाषा खोजें...`,
+    empty: `कोई मेल खाती भाषा नहीं मिली।`,
+    close: `बंद करें`,
+  },
+  id: {
+    title: `Pilih bahasa`,
+    search: `Cari bahasa...`,
+    empty: `Tidak ada bahasa yang cocok.`,
+    close: `Tutup`,
+  },
+  bn: {
+    title: `ভাষা নির্বাচন করুন`,
+    search: `ভাষা খুঁজুন...`,
+    empty: `কোনো মিল পাওয়া যায়নি।`,
+    close: `বন্ধ করুন`,
+  },
+  en: {
     title: `Choose language`,
     search: `Search languages...`,
     empty: `No matching languages found.`,
     close: `Close`,
-  };
+  },
+};
+
+function getPickerLabels(lang: string): PickerCopy {
+  const lower = lang.trim().toLowerCase();
+  const base = lower.split('-')[0] ?? 'en';
+  return PICKER_COPY[lower] ?? PICKER_COPY[base] ?? PICKER_COPY.en!;
 }
 
 export default function LanguagePickerDialog({
