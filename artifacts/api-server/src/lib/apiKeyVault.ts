@@ -6,6 +6,7 @@ import {
   type QueryDocumentSnapshot,
 } from "firebase-admin/firestore";
 import { API_KEY_PROVIDER_REGISTRY, chatProviderForModel } from "./chatAdapters";
+import { findCatalogProvider, getCatalogProviderKeyLimit } from "./providerCatalog";
 import { getFirebaseAdmin, requireEncryptionKey } from "./firebaseAdmin";
 
 export const BUILT_IN_PROVIDERS = [
@@ -55,6 +56,7 @@ type StoredKey = DocumentData & {
   description?: unknown;
   models?: unknown;
   enabled?: unknown;
+  isDefault?: unknown;
   createdAt?: unknown;
   failureStatus?: unknown;
   cooldownUntil?: unknown;
@@ -76,6 +78,7 @@ export type VaultKeyMetadata = {
   models: string[];
   maskedValue: string;
   enabled: boolean;
+  isDefault: boolean;
   createdAt: number;
   status: ProviderKeyStatus;
   cooldownUntil?: number;
@@ -175,6 +178,15 @@ function isProviderId(value: string): boolean {
   return /^[a-z0-9][a-z0-9-]{0,63}$/.test(value);
 }
 
+export function isValidVaultModelId(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.trim().length > 0 &&
+    value.trim().length <= 200 &&
+    !/\s/.test(value.trim())
+  );
+}
+
 function envFallbackFor(adapter: ProviderAdapter): string | undefined {
   const configured = (prefix: string) =>
     Object.entries(process.env).some(
@@ -267,8 +279,10 @@ function metadataFromSnapshot(
     id: snapshot.id,
     provider,
     providerName: storedProvider
-      ? API_KEY_PROVIDER_REGISTRY.find((item) => item.id === storedProvider)?.label ?? null
-      : null,
+      ? API_KEY_PROVIDER_REGISTRY.find((item) => item.id === storedProvider)?.label ??
+        findCatalogProvider(storedProvider)?.name ??
+        null
+      : findCatalogProvider(provider)?.name ?? null,
     label: typeof data.label === "string" ? data.label : "API key",
     modelType: data.modelType === "images" || data.modelType === "video" || data.modelType === "text"
       ? data.modelType
@@ -282,16 +296,11 @@ function metadataFromSnapshot(
       ? data.description
       : null,
     models: Array.isArray(data.models)
-      ? [...new Set(data.models.filter(
-          (model): model is string =>
-            typeof model === "string" &&
-            model.length > 0 &&
-            model.length <= 200 &&
-            chatProviderForModel(model) === provider,
-        ))]
+      ? [...new Set(data.models.filter(isValidVaultModelId).map((m) => m.trim()))]
       : [],
     maskedValue: secret.length > 4 ? `••••••${secret.slice(-4)}` : "••••",
     enabled: data.enabled === true,
+    isDefault: data.isDefault === true,
     createdAt: createdAtMillis(data.createdAt),
     status,
     ...(status === "cooldown" && cooldownUntil ? { cooldownUntil } : {}),
@@ -585,10 +594,7 @@ export async function getChatVaultEntry(
       ? data.modelName
       : null;
   const savedModels = Array.isArray(data.models)
-    ? data.models.filter(
-        (model): model is string =>
-          typeof model === "string" && chatProviderForModel(model) === provider,
-      )
+    ? data.models.filter(isValidVaultModelId).map((m) => m.trim())
     : [];
   const modelName = selectedModelName ??
     legacyModelName ??
@@ -634,18 +640,16 @@ export async function listChatVaultKeys(uid: string): Promise<ChatVaultKeyMetada
         ? data.modelName
         : null;
     const models = Array.isArray(data.models)
-      ? data.models.filter(
-          (model): model is string =>
-            typeof model === "string" && chatProviderForModel(model) === provider,
-        )
+      ? data.models.filter(isValidVaultModelId).map((m) => m.trim())
       : [];
     const modelNames = [...new Set([
       ...models,
       ...(legacyModelName ? [legacyModelName] : []),
     ])];
-    const providerName = API_KEY_PROVIDER_REGISTRY.find(
-      (option) => option.id === provider,
-    )?.label ?? "Gemini";
+    const providerName =
+      API_KEY_PROVIDER_REGISTRY.find((option) => option.id === provider)?.label ??
+      findCatalogProvider(provider)?.name ??
+      provider;
     return modelNames.map((modelName) => ({
       id: document.id,
       provider,
@@ -790,4 +794,202 @@ export async function clearChatVaultKeyFailure(
     failureStatus: FieldValue.delete(),
     cooldownUntil: FieldValue.delete(),
   });
+}
+
+export class ProviderKeyLimitError extends Error {
+  readonly code = "provider_key_limit_reached";
+  readonly limit: number;
+  readonly provider: string;
+
+  constructor(provider: string, limit: number) {
+    super(`Maximum ${limit} API keys allowed for ${provider}.`);
+    this.provider = provider;
+    this.limit = limit;
+  }
+}
+
+export function getProviderKeyLimit(provider: ProviderKey): number {
+  return getCatalogProviderKeyLimit(provider);
+}
+
+export async function listProviderVaultKeys(
+  uid: string,
+  provider: ProviderKey,
+): Promise<VaultKeyMetadata[]> {
+  await migrateLegacyKeys(uid);
+  const snapshot = await readProviderSnapshots(uid, provider);
+  const items = snapshot.docs.map((document) =>
+    metadataFromSnapshot(document, provider),
+  );
+  return items.sort((a, b) => {
+    if (a.isDefault !== b.isDefault) return a.isDefault ? -1 : 1;
+    return a.createdAt - b.createdAt;
+  });
+}
+
+export async function createProviderVaultKey(
+  uid: string,
+  provider: ProviderKey,
+  input: {
+    label?: string;
+    value: string;
+    makeDefault?: boolean;
+    models?: string[];
+  },
+): Promise<VaultKeyMetadata> {
+  const limit = getProviderKeyLimit(provider);
+  const col = userProviderKeysCollection(uid, provider);
+  const existing = await col.get();
+  if (existing.size >= limit) {
+    throw new ProviderKeyLimitError(provider, limit);
+  }
+
+  const shouldBeDefault = input.makeDefault === true || existing.size === 0;
+  const { db } = getFirebaseAdmin();
+  const keyRef = col.doc();
+  const catalogProvider = findCatalogProvider(provider);
+  const cleanLabel =
+    input.label?.trim().slice(0, 80) ||
+    `${catalogProvider?.name ?? provider} Key ${existing.size + 1}`;
+  const cleanModels = Array.isArray(input.models)
+    ? [...new Set(input.models.filter((m) => typeof m === "string" && m.trim().length > 0))]
+    : [];
+
+  const batch = db.batch();
+  if (shouldBeDefault && existing.size > 0) {
+    for (const doc of existing.docs) {
+      if ((doc.data() as StoredKey).isDefault === true) {
+        batch.update(doc.ref, { isDefault: false });
+      }
+    }
+  }
+  batch.set(keyRef, {
+    label: cleanLabel,
+    provider,
+    enabled: true,
+    isDefault: shouldBeDefault,
+    ...(cleanModels.length > 0 ? { models: cleanModels } : {}),
+    createdAt: FieldValue.serverTimestamp(),
+    ...encryptValue(input.value.trim()),
+  });
+  await batch.commit();
+  const saved = await keyRef.get();
+  return metadataFromSnapshot(saved as QueryDocumentSnapshot, provider);
+}
+
+export async function renameVaultKey(
+  uid: string,
+  provider: ProviderKey,
+  keyId: string,
+  label: string,
+): Promise<VaultKeyMetadata | null> {
+  const keyRef = userProviderKeysCollection(uid, provider).doc(keyId);
+  const snapshot = await keyRef.get();
+  if (!snapshot.exists) return null;
+  await keyRef.update({ label: label.trim().slice(0, 80) });
+  const updated = await keyRef.get();
+  return metadataFromSnapshot(updated as QueryDocumentSnapshot, provider);
+}
+
+export async function setDefaultVaultKey(
+  uid: string,
+  provider: ProviderKey,
+  keyId: string,
+): Promise<VaultKeyMetadata | null> {
+  const col = userProviderKeysCollection(uid, provider);
+  const snapshot = await col.get();
+  const target = snapshot.docs.find((doc) => doc.id === keyId);
+  if (!target) return null;
+  const { db } = getFirebaseAdmin();
+  const batch = db.batch();
+  for (const doc of snapshot.docs) {
+    batch.update(doc.ref, { isDefault: doc.id === keyId });
+  }
+  await batch.commit();
+  const updated = await target.ref.get();
+  return metadataFromSnapshot(updated as QueryDocumentSnapshot, provider);
+}
+
+export async function deleteProviderVaultKey(
+  uid: string,
+  provider: ProviderKey,
+  keyId: string,
+): Promise<boolean> {
+  const col = userProviderKeysCollection(uid, provider);
+  const snapshot = await col.get();
+  const target = snapshot.docs.find((doc) => doc.id === keyId);
+  if (!target) return false;
+  const wasDefault = (target.data() as StoredKey).isDefault === true;
+  await target.ref.delete();
+  if (wasDefault) {
+    const remaining = snapshot.docs.find((doc) => doc.id !== keyId);
+    if (remaining) {
+      await remaining.ref.update({ isDefault: true });
+    }
+  }
+  return true;
+}
+
+export async function addProviderKeyModel(
+  uid: string,
+  provider: ProviderKey,
+  keyId: string,
+  modelId: string,
+): Promise<VaultKeyMetadata | null> {
+  const cleanModel = modelId.trim();
+  if (!isValidVaultModelId(cleanModel)) return null;
+  const keyRef = userProviderKeysCollection(uid, provider).doc(keyId);
+  const snapshot = await keyRef.get();
+  if (!snapshot.exists) return null;
+  const data = snapshot.data() as StoredKey;
+  const existing = Array.isArray(data.models)
+    ? data.models.filter(isValidVaultModelId).map((m) => m.trim())
+    : [];
+  const nextModels = [...new Set([...existing, cleanModel])].slice(0, 100);
+  await keyRef.update({ models: nextModels });
+  const updated = await keyRef.get();
+  return metadataFromSnapshot(updated as QueryDocumentSnapshot, provider);
+}
+
+export async function removeProviderKeyModel(
+  uid: string,
+  provider: ProviderKey,
+  keyId: string,
+  modelId: string,
+): Promise<VaultKeyMetadata | null> {
+  const cleanModel = modelId.trim();
+  const keyRef = userProviderKeysCollection(uid, provider).doc(keyId);
+  const snapshot = await keyRef.get();
+  if (!snapshot.exists) return null;
+  const data = snapshot.data() as StoredKey;
+  const existing = Array.isArray(data.models)
+    ? data.models.filter(isValidVaultModelId).map((m) => m.trim())
+    : [];
+  const nextModels = existing.filter((m) => m !== cleanModel);
+  await keyRef.update({ models: nextModels });
+  const updated = await keyRef.get();
+  return metadataFromSnapshot(updated as QueryDocumentSnapshot, provider);
+}
+
+export async function getDefaultProviderKeySecret(
+  uid: string,
+  provider: ProviderKey,
+  preferredKeyId?: string,
+): Promise<{ id: string; value: string } | null> {
+  await migrateLegacyKeys(uid);
+  const snapshot = await readProviderSnapshots(uid, provider);
+  if (snapshot.empty) return null;
+  const docs = snapshot.docs.filter(
+    (doc) => (doc.data() as StoredKey).enabled === true,
+  );
+  if (docs.length === 0) return null;
+  const chosen =
+    (preferredKeyId ? docs.find((d) => d.id === preferredKeyId) : undefined) ??
+    docs.find((d) => (d.data() as StoredKey).isDefault === true) ??
+    docs[0];
+  if (!chosen) return null;
+  return {
+    id: chosen.id,
+    value: decryptValue(chosen.data() as StoredKey),
+  };
 }

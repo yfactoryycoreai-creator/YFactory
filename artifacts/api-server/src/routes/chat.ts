@@ -219,7 +219,8 @@ export function createChatRouter(
               key.enabled &&
               !key.failed &&
               (!key.cooldownUntil || key.cooldownUntil <= now) &&
-              chatProviderForModel(key.modelName) !== null,
+              (Boolean(dependencies.adapters[key.provider]) ||
+                chatProviderForModel(key.modelName) !== null),
           )
           .map(({ provider, id, providerName, modelName }) => ({
             provider,
@@ -240,7 +241,7 @@ export function createChatRouter(
     uid: string;
     input: ParsedChatRequest;
     key: ChatVaultEntry;
-    adapter: NonNullable<ReturnType<typeof chatProviderForModel>>;
+    adapter: string;
   } | null> => {
     const uid = await authenticatedUid(req, res);
     if (!uid) return null;
@@ -270,8 +271,11 @@ export function createChatRouter(
       res.status(404).json({ code: "missing_key" satisfies ChatFailureCode });
       return null;
     }
-    const adapter = chatProviderForModel(key.modelName);
-    if (!adapter) {
+    const adapter =
+      key.provider in dependencies.adapters
+        ? key.provider
+        : chatProviderForModel(key.modelName);
+    if (!adapter || !(adapter in dependencies.adapters)) {
       res
         .status(404)
         .json({ code: "model_not_found" satisfies ChatFailureCode });
@@ -295,7 +299,7 @@ export function createChatRouter(
 
     try {
       const reply = await completeWithRotation({
-        provider: adapter,
+        provider: adapter as never,
         model: key.modelName,
         messages: input.messages,
         keys: [{ id: key.id, value: key.value }],
@@ -338,7 +342,7 @@ export function createChatRouter(
 
     try {
       await streamWithRotation({
-        provider: adapter,
+        provider: adapter as never,
         model: key.modelName,
         messages: input.messages,
         keys: [{ id: key.id, value: key.value }],

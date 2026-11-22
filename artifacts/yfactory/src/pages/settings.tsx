@@ -22,7 +22,7 @@ import ConfirmActionDialog, {
   type ConfirmActionDialogHandle,
 } from '@/components/confirm-action-dialog';
 import LanguagePickerDialog from '@/components/language-picker-dialog';
-import SecretsPanel from '@/components/secrets-panel';
+import ProviderCenter from '@/components/provider-center';
 import {
   loadKeyPoolStatus,
   loadProviders,
@@ -546,7 +546,7 @@ export default function SettingsPage({
             <span className="settings-back-spacer" aria-hidden="true" />
           </header>
           <div className="settings-content api-keys-page-content">
-            <SecretsPanel
+            <ProviderCenter
               userId={user.uid}
               getIdToken={getIdToken}
               initialModelTarget={initialModelTarget}

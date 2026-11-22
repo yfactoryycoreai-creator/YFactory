@@ -59,6 +59,7 @@ export type ChatProvider =
   | "gemini"
   | "google"
   | "openai"
+  | "openrouter"
   | "anthropic"
   | "xai"
   | "deepseek"
@@ -158,6 +159,7 @@ export const API_KEY_PROVIDER_REGISTRY = [
   { id: "gemini", label: "Gemini", adapterStatus: "available" },
   { id: "google", label: "Google", adapterStatus: "available" },
   { id: "openai", label: "OpenAI", adapterStatus: "available" },
+  { id: "openrouter", label: "OpenRouter", adapterStatus: "available" },
   { id: "anthropic", label: "Anthropic", adapterStatus: "available" },
   { id: "xai", label: "xAI", adapterStatus: "available" },
   { id: "deepseek", label: "DeepSeek", adapterStatus: "available" },
@@ -224,6 +226,7 @@ export const API_KEY_PROVIDER_REGISTRY = [
 }>;
 
 const CHAT_MODEL_REGISTRY: Array<{ pattern: RegExp; provider: ChatProvider }> = [
+  { pattern: /^[a-z0-9][a-z0-9._-]{0,60}\/[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$/i, provider: "openrouter" },
   { pattern: /^gemini-[A-Za-z0-9][A-Za-z0-9._-]{0,126}$/i, provider: "gemini" },
   { pattern: /^(?:google:|veo-|imagen-)[A-Za-z0-9._:-]{1,160}$/i, provider: "google" },
   { pattern: /^(?:openai:|gpt-|o1-|o1$|o3-|o3$|o4-|chatgpt-|ft:gpt-)[A-Za-z0-9._:-]{0,160}$/i, provider: "openai" },
@@ -693,6 +696,7 @@ export const CHAT_ADAPTERS: ChatAdapterRegistry = {
   gemini: createGeminiChatAdapter(),
   google: createGeminiChatAdapter(),
   openai: createOpenAiCompatibleChatAdapter("https://api.openai.com/v1/chat/completions"),
+  openrouter: createOpenAiCompatibleChatAdapter("https://openrouter.ai/api/v1/chat/completions"),
   anthropic: createAnthropicChatAdapter(),
   xai: createOpenAiCompatibleChatAdapter("https://api.x.ai/v1/chat/completions"),
   deepseek: createOpenAiCompatibleChatAdapter("https://api.deepseek.com/chat/completions"),
