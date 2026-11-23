@@ -11,6 +11,8 @@ import { deleteUser } from 'firebase/auth';
 import {
   BookOpen,
   Download,
+  Film,
+  GraduationCap,
   Globe2,
   Image as ImageIcon,
   ImagePlus,
@@ -36,6 +38,12 @@ import LoginPage from '@/pages/login';
 import SettingsPage from '@/pages/settings';
 import NotFound from '@/pages/not-found';
 import ChatScreen from '@/components/chat-screen';
+import YCodeLogo from '@/components/ycode-logo';
+import {
+  CodeSectionHub,
+  StudentsSectionHub,
+  VideoSectionHub,
+} from '@/components/section-hubs';
 import LanguagePickerDialog from '@/components/language-picker-dialog';
 import { notifyUserIfEnabled } from '@/lib/appPreferences';
 import {
@@ -104,6 +112,8 @@ import {
 
 const queryClient = new QueryClient();
 
+type AppSection = 'image' | 'chat' | 'stories' | 'code' | 'video' | 'students';
+
 const StoryFactory = lazy(() => import('@/components/story-factory'));
 
 function StoryTabFallback({ resetError }: ErrorFallbackProps) {
@@ -147,8 +157,11 @@ function Home() {
   const [profileOpen, setProfileOpen] = useState(false);
   const [languagePickerOpen, setLanguagePickerOpen] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
-  const [storiesOpen, setStoriesOpen] = useState(false);
-  const [chatOpen, setChatOpen] = useState(false);
+  const [activeSection, setActiveSection] = useState<AppSection>('image');
+  const lastNonChatSectionRef = useRef<Exclude<AppSection, 'chat'>>('image');
+  const tabButtonRefs = useRef<Partial<Record<AppSection, HTMLButtonElement | null>>>({});
+  const chatOpen = activeSection === 'chat';
+  const storiesOpen = activeSection === 'stories';
   const [activeStory, setActiveStory] = useState<StoryRecord | null>(null);
   const [pendingStorySave, setPendingStorySave] =
     useState<GeneratedImageHistoryItem | null>(null);
@@ -236,12 +249,38 @@ function Home() {
     [],
   );
 
-  const chooseImageTab = () => {
-    setChatOpen(false);
-    setStoriesOpen(false);
+  const selectSection = useCallback((section: AppSection) => {
+    if (section !== 'chat') {
+      lastNonChatSectionRef.current = section;
+    }
+    setActiveSection(section);
     setNoticeKey('');
     setImageError('');
+    requestAnimationFrame(() => {
+      tabButtonRefs.current[section]?.scrollIntoView({
+        behavior: 'smooth',
+        inline: 'center',
+        block: 'nearest',
+      });
+    });
+  }, []);
+
+  const chooseImageTab = () => {
+    selectSection('image');
   };
+
+  const openProviderCenterFromHub = useCallback(
+    (providerId?: string) => {
+      if (providerId) {
+        setLocation(
+          `/settings?view=api-keys&modelsProvider=${encodeURIComponent(providerId)}`,
+        );
+      } else {
+        setLocation('/settings?view=api-keys');
+      }
+    },
+    [setLocation],
+  );
 
   const handleStorySelected = useCallback((story: StoryRecord | null) => {
     setActiveStory(story);
@@ -268,7 +307,7 @@ function Home() {
       imageCount: Math.min(MAX_STORY_IMAGES, story.imageCount + 1),
       storageBytes: story.storageBytes + savedImage.sizeBytes,
     });
-    setStoriesOpen(true);
+    selectSection('stories');
     if (imageEditResult?.id === image.id) {
       setImageEditResult(null);
       setImageEditFile(null);
@@ -338,8 +377,7 @@ function Home() {
       setImageError('');
 
       if (autoNavigate) {
-        setStoriesOpen(false);
-        setChatOpen(false);
+        selectSection('image');
       }
 
       const requestedImages = Number(cmd.count);
@@ -463,8 +501,7 @@ function Home() {
         setActiveStory(nextStory);
 
         if (autoNavigate) {
-          setStoriesOpen(true);
-          setChatOpen(false);
+          selectSection('stories');
         }
 
         if (cmd.startGeneration && cmd.script.trim()) {
@@ -497,9 +534,8 @@ function Home() {
   );
 
   const openImageWorkspaceFromChat = useCallback(() => {
-    setChatOpen(false);
-    setStoriesOpen(false);
-  }, []);
+    selectSection('image');
+  }, [selectSection]);
 
   const openStoryWorkspaceFromChat = useCallback((storyId?: string) => {
     if (storyId) {
@@ -521,8 +557,7 @@ function Home() {
             },
       );
     }
-    setChatOpen(false);
-    setStoriesOpen(true);
+    selectSection('stories');
   }, []);
 
   const handleGenerate = async () => {
@@ -571,7 +606,7 @@ function Home() {
             }),
           );
         }
-        setStoriesOpen(true);
+        selectSection('stories');
         return;
       }
       const result = await generateImages(
@@ -801,12 +836,18 @@ function Home() {
       </div>
 
       <main className="main">
-        <nav className="tabs" role="tablist" aria-label={t('labels.tabs')} data-testid="media-tabs">
+        <nav
+          className="tabs tabs-six"
+          role="tablist"
+          aria-label={t('labels.tabs')}
+          data-testid="media-tabs"
+        >
           <button
+            ref={(el) => { tabButtonRefs.current.image = el; }}
             type="button"
             role="tab"
-            aria-selected={!chatOpen && !storiesOpen}
-            className={`tab${!chatOpen && !storiesOpen ? ' active' : ''}`}
+            aria-selected={activeSection === 'image'}
+            className={`tab${activeSection === 'image' ? ' active' : ''}`}
             onClick={chooseImageTab}
             data-testid="tab-image"
           >
@@ -814,44 +855,77 @@ function Home() {
             <span>{t('tabs.image')}</span>
           </button>
           <button
+            ref={(el) => { tabButtonRefs.current.chat = el; }}
             type="button"
             role="tab"
-            aria-selected={chatOpen}
-            className={`tab${chatOpen ? ' active' : ''}`}
-            onClick={() => setChatOpen(true)}
+            aria-selected={activeSection === 'chat'}
+            className={`tab${activeSection === 'chat' ? ' active' : ''}`}
+            onClick={() => selectSection('chat')}
             data-testid="tab-chat"
           >
             <MessageCircle size={19} />
             <span>{t('tabs.chat')}</span>
           </button>
           <button
+            ref={(el) => { tabButtonRefs.current.stories = el; }}
             type="button"
             role="tab"
-            aria-selected={!chatOpen && storiesOpen}
-            className={`tab${!chatOpen && storiesOpen ? ' active' : ''}`}
-            onClick={() => {
-              setChatOpen(false);
-              setStoriesOpen(true);
-              setNoticeKey('');
-              setImageError('');
-            }}
+            aria-selected={activeSection === 'stories'}
+            className={`tab${activeSection === 'stories' ? ' active' : ''}`}
+            onClick={() => selectSection('stories')}
             data-testid="tab-stories"
           >
             <BookOpen size={19} />
             <span>{t('tabs.stories')}</span>
           </button>
+          <button
+            ref={(el) => { tabButtonRefs.current.code = el; }}
+            type="button"
+            role="tab"
+            aria-selected={activeSection === 'code'}
+            className={`tab tab-code-item${activeSection === 'code' ? ' active' : ''}`}
+            onClick={() => selectSection('code')}
+            data-testid="tab-code"
+          >
+            <YCodeLogo size={22} />
+            <span>{locale.startsWith('ar') ? 'البرمجة' : 'Code'}</span>
+          </button>
+          <button
+            ref={(el) => { tabButtonRefs.current.video = el; }}
+            type="button"
+            role="tab"
+            aria-selected={activeSection === 'video'}
+            className={`tab${activeSection === 'video' ? ' active' : ''}`}
+            onClick={() => selectSection('video')}
+            data-testid="tab-video"
+          >
+            <Film size={19} />
+            <span>{locale.startsWith('ar') ? 'فيديو' : 'Video'}</span>
+          </button>
+          <button
+            ref={(el) => { tabButtonRefs.current.students = el; }}
+            type="button"
+            role="tab"
+            aria-selected={activeSection === 'students'}
+            className={`tab${activeSection === 'students' ? ' active' : ''}`}
+            onClick={() => selectSection('students')}
+            data-testid="tab-students"
+          >
+            <GraduationCap size={20} />
+            <span>{locale.startsWith('ar') ? 'الطلاب' : 'Students'}</span>
+          </button>
         </nav>
 
         {chatOpen && (
           <ChatScreen
-            onBack={() => setChatOpen(false)}
+            onBack={() => selectSection(lastNonChatSectionRef.current)}
             getIdToken={getUserIdToken}
             onOpenSecrets={() => {
-              setChatOpen(false);
+              selectSection(lastNonChatSectionRef.current);
               setLocation('/settings?view=api-keys');
             }}
             onOpenModels={(key) => {
-              setChatOpen(false);
+              selectSection(lastNonChatSectionRef.current);
               setLocation(
                 `/settings?view=api-keys&modelsProvider=${encodeURIComponent(key.provider)}&modelsKeyId=${encodeURIComponent(key.id)}`,
               );
@@ -863,7 +937,7 @@ function Home() {
           />
         )}
 
-        {!chatOpen && user && storiesOpen && (
+        {activeSection === 'stories' && user && (
           <ErrorBoundary FallbackComponent={StoryTabFallback}>
             <Suspense fallback={<StoryTabLoading />}>
               <StoryFactory
@@ -880,7 +954,40 @@ function Home() {
           </ErrorBoundary>
         )}
 
-        {!chatOpen && !storiesOpen && (
+        {activeSection === 'code' && (
+          <ErrorBoundary FallbackComponent={MediaTabFallback}>
+            <CodeSectionHub
+              locale={locale}
+              getIdToken={getUserIdToken}
+              onOpenProviderCenter={openProviderCenterFromHub}
+              onOpenChat={() => selectSection('chat')}
+            />
+          </ErrorBoundary>
+        )}
+
+        {activeSection === 'video' && (
+          <ErrorBoundary FallbackComponent={MediaTabFallback}>
+            <VideoSectionHub
+              locale={locale}
+              getIdToken={getUserIdToken}
+              onOpenProviderCenter={openProviderCenterFromHub}
+              onOpenChat={() => selectSection('chat')}
+            />
+          </ErrorBoundary>
+        )}
+
+        {activeSection === 'students' && (
+          <ErrorBoundary FallbackComponent={MediaTabFallback}>
+            <StudentsSectionHub
+              locale={locale}
+              getIdToken={getUserIdToken}
+              onOpenProviderCenter={openProviderCenterFromHub}
+              onOpenChat={() => selectSection('chat')}
+            />
+          </ErrorBoundary>
+        )}
+
+        {activeSection === 'image' && (
           <ErrorBoundary FallbackComponent={MediaTabFallback}>
           <>
         <section className="composer" aria-label={t('labels.prompt')}>
@@ -1020,7 +1127,7 @@ function Home() {
                       type="button"
                       onClick={() => {
                         setPendingStorySave(imageEditResult);
-                        setStoriesOpen(true);
+                        selectSection('stories');
                         setImageEditError('');
                       }}
                       data-testid="button-image-edit-save"
@@ -1144,7 +1251,7 @@ function Home() {
                         type="button"
                         onClick={() => {
                           setPendingStorySave(generatedImages[index]);
-                          setStoriesOpen(true);
+                          selectSection('stories');
                           setImageError('');
                         }}
                         data-testid={`button-save-temporary-${generatedImages[index].id}`}

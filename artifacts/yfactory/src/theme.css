@@ -560,3 +560,63 @@
     max-height: 100dvh;
   }
 }
+
+/* === Batch 10: Responsive Six Main Sections Navigation Bar === */
+
+.tabs.tabs-six {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: 6px;
+  padding: 6px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.tabs.tabs-six::-webkit-scrollbar {
+  display: none;
+}
+
+.tabs.tabs-six .tab {
+  flex: 0 0 auto;
+  min-width: 86px;
+  min-height: 58px;
+  padding: 8px 12px;
+  gap: 5px;
+  scroll-snap-align: center;
+  white-space: nowrap;
+  border-radius: 15px;
+  transition: background 160ms ease, color 160ms ease, border-color 160ms ease;
+}
+
+.tabs.tabs-six .tab span {
+  font-size: 12.5px;
+  font-weight: 560;
+  line-height: 1.2;
+}
+
+.tabs.tabs-six .tab.tab-code-item.active {
+  border-color: color-mix(in srgb, var(--app-accent) 44%, transparent);
+}
+
+@media (min-width: 720px) {
+  .tabs.tabs-six {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    overflow-x: visible;
+  }
+
+  .tabs.tabs-six .tab {
+    min-width: 0;
+    width: 100%;
+    padding: 9px 8px;
+  }
+}
+
+:root[data-theme="light"] .tabs.tabs-six .tab.active {
+  background: color-mix(in srgb, var(--app-accent) 16%, #ffffff);
+  color: var(--app-accent-text);
+}
