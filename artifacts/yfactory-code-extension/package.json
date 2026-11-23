@@ -1,0 +1,80 @@
+{
+  "name": "yfactory-code",
+  "displayName": "YFactory Code",
+  "description": "IDE-connected AI Coding Agent for Visual Studio Code powered by YFactory AI Provider Center.",
+  "version": "0.1.0",
+  "publisher": "yfactory",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "AI",
+    "Programming Languages",
+    "Other"
+  ],
+  "activationEvents": [
+    "onView:yfactoryCode.sidebar",
+    "onCommand:yfactoryCode.openSidebar",
+    "onCommand:yfactoryCode.pair",
+    "onCommand:yfactoryCode.disconnect"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "yfactoryCodeContainer",
+          "title": "YFactory Code",
+          "icon": "media/ycode-icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "yfactoryCodeContainer": [
+        {
+          "type": "webview",
+          "id": "yfactoryCode.sidebar",
+          "name": "YFactory Code Agent"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "yfactoryCode.openSidebar",
+        "title": "YFactory Code: Open Agent Sidebar"
+      },
+      {
+        "command": "yfactoryCode.pair",
+        "title": "YFactory Code: Sign In / Pair Account"
+      },
+      {
+        "command": "yfactoryCode.disconnect",
+        "title": "YFactory Code: Disconnect Session"
+      },
+      {
+        "command": "yfactoryCode.cancelTask",
+        "title": "YFactory Code: Stop Active Task"
+      }
+    ],
+    "configuration": {
+      "title": "YFactory Code",
+      "properties": {
+        "yfactoryCode.serverUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Base URL of your YFactory AI backend (e.g. https://your-app.replit.dev)."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.5.0"
+  }
+}
