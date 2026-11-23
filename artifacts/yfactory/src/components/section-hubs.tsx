@@ -3,26 +3,18 @@ import {
   ArrowUpRight,
   BookOpenCheck,
   Camera,
-  CheckCircle2,
   ClipboardCheck,
-  Cpu,
-  FileDiff,
-  Film,
-  FolderGit2,
   Globe,
   GraduationCap,
   KeyRound,
-  Layers,
   LoaderCircle,
   MessageCircle,
-  ShieldCheck,
   Sparkles,
-  Terminal,
   TrendingUp,
   Users,
-  Video,
 } from 'lucide-react';
-import YCodeLogo from '@/components/ycode-logo';
+import CodeIdeDashboard from '@/components/code-ide-dashboard';
+import VideoStudio from '@/components/video-studio';
 import {
   fetchProviderCatalog,
   type ProviderCapability,
@@ -169,112 +161,13 @@ export function CodeSectionHub({
   onOpenProviderCenter,
   onOpenChat,
 }: SectionHubProps) {
-  const isRtl = isRtlLanguage(locale);
-  const isAr = locale.startsWith('ar');
-  const { providers, connected, loading } = useSectionProviders(['code'], getIdToken);
-
-  const tiles: FeatureTile[] = [
-    {
-      icon: <FolderGit2 size={17} aria-hidden="true" />,
-      title: isAr ? 'وصول محلي آمن للـ Workspace' : 'Authorized Local Workspace Access',
-      desc: isAr
-        ? 'يقرأ المشروع المفتوح داخل VS Code (وCursor بعد التحقق) مع استبعاد .env وnode_modules و.git افتراضياً.'
-        : 'Reads only the workspace opened in VS Code (and Cursor after compatibility testing), excluding .env, node_modules, and .git by default.',
-    },
-    {
-      icon: <FileDiff size={17} aria-hidden="true" />,
-      title: isAr ? 'مراجعة Diff قبل أي تعديل' : 'Diff Review Before Every Edit',
-      desc: isAr
-        ? 'يعرض الملفات المتأثرة وملخص التغيير والـ Diff الكامل لقبول أو رفض كل تعديل قبل تطبيقه.'
-        : 'Displays impacted files, change summaries, and clear diffs so you approve or reject every edit before applying.',
-    },
-    {
-      icon: <Terminal size={17} aria-hidden="true" />,
-      title: isAr ? 'أوامر Terminal بموافقتك' : 'Approval-Gated Local Terminal',
-      desc: isAr
-        ? 'ينفّذ أوامر الاختبار والبناء محلياً داخل IDE بعد موافقتك الصريحة مع عرض المخرجات وإمكانية الإيقاف.'
-        : 'Runs test and build commands locally in your IDE terminal only after explicit approval, streaming real output.',
-    },
-    {
-      icon: <ShieldCheck size={17} aria-hidden="true" />,
-      title: isAr ? 'مفاتيحك مشفّرة في Provider Center' : 'Zero Keys in Extension or Workspace',
-      desc: isAr
-        ? 'تستخدم الإضافة جلسات ربط قصيرة العمر وتمر طلبات النماذج عبر خادم YFactory دون كشف مفاتيح API.'
-        : 'Uses short-lived session tokens and routes AI calls through YFactory Backend without exposing API keys.',
-    },
-  ];
-
   return (
-    <section
-      className="hub-shell"
-      dir={isRtl ? 'rtl' : 'ltr'}
-      aria-label="YFactory Code"
-      data-testid="section-code"
-    >
-      <header className="hub-hero is-code">
-        <div className="hub-hero-icon is-logo">
-          <YCodeLogo size={72} showWordmark />
-        </div>
-        <div className="hub-hero-copy">
-          <div className="hub-kicker-row">
-            <span className="hub-kicker">YFactory Code</span>
-            <span className="hub-status-pill">
-              {isAr ? 'الدفعة 12–13: جسر IDE وإضافة VS Code' : 'Batches 12–13: IDE Bridge & VS Code Extension'}
-            </span>
-          </div>
-          <h1>
-            {isAr
-              ? 'وكيل البرمجة المتصل ببيئة التطوير (IDE Agent)'
-              : 'IDE-Connected AI Coding Agent'}
-          </h1>
-          <p>
-            {isAr
-              ? 'مصمّم للعمل مباشرةً على مشروعك المفتوح في VS Code عبر إضافة YFactory Code — وليس App Builder أو محرر أكواد منفصل داخل المتصفح.'
-              : 'Built to work directly inside your open VS Code workspace via the official YFactory Code Extension — not an in-browser App Builder.'}
-          </p>
-          <div className="hub-actions-row">
-            <button
-              type="button"
-              className="hub-btn is-primary"
-              onClick={() => onOpenProviderCenter()}
-            >
-              <Cpu size={15} aria-hidden="true" />
-              <span>{isAr ? 'اختيار نماذج البرمجة' : 'Configure Coding Models'}</span>
-            </button>
-            <button type="button" className="hub-btn" onClick={onOpenChat}>
-              <MessageCircle size={15} aria-hidden="true" />
-              <span>{isAr ? 'فتح Chat' : 'Open Chat'}</span>
-            </button>
-          </div>
-        </div>
-      </header>
-
-      <ProviderReadinessPanel
-        isAr={isAr}
-        title={isAr ? 'مزودو البرمجة المتاحون في مركز المزودين' : 'Coding Providers in Provider Center'}
-        emptyMsg={
-          isAr
-            ? 'أضف مفتاح مزود يدعم البرمجة مثل Anthropic أو OpenAI أو Gemini أو OpenRouter.'
-            : 'Add a coding-capable provider key such as Anthropic, OpenAI, Gemini, or OpenRouter.'
-        }
-        providers={providers}
-        connectedCount={connected.length}
-        loading={loading}
-        onOpenProviderCenter={onOpenProviderCenter}
-      />
-
-      <div className="hub-grid">
-        {tiles.map((tile) => (
-          <article className="hub-feature-card" key={tile.title}>
-            <div className="hub-feature-head">
-              <span className="hub-feature-icon">{tile.icon}</span>
-              <strong>{tile.title}</strong>
-            </div>
-            <p>{tile.desc}</p>
-          </article>
-        ))}
-      </div>
-    </section>
+    <CodeIdeDashboard
+      locale={locale}
+      getIdToken={getIdToken}
+      onOpenProviderCenter={onOpenProviderCenter}
+      onOpenChat={onOpenChat}
+    />
   );
 }
 
@@ -282,117 +175,13 @@ export function VideoSectionHub({
   locale,
   getIdToken,
   onOpenProviderCenter,
-  onOpenChat,
 }: SectionHubProps) {
-  const isRtl = isRtlLanguage(locale);
-  const isAr = locale.startsWith('ar');
-  const { providers, connected, loading } = useSectionProviders(
-    ['video_generation', 'image_to_video'],
-    getIdToken,
-  );
-
-  const tiles: FeatureTile[] = [
-    {
-      icon: <Film size={17} aria-hidden="true" />,
-      title: isAr ? 'تحويل النص إلى فيديو (Text to Video)' : 'Text to Video',
-      desc: isAr
-        ? 'توليد مشاهد فيديو مباشرة من الوصف النصي باستخدام نماذج الفيديو الحقيقية فقط.'
-        : 'Generate video scenes from text prompts using verified video models only.',
-    },
-    {
-      icon: <Video size={17} aria-hidden="true" />,
-      title: isAr ? 'تحويل الصورة إلى فيديو (Image to Video)' : 'Image to Video',
-      desc: isAr
-        ? 'تحريك صورك المولّدة أو المرفوعة إلى مقاطع سينمائية مع عرض الإعدادات المدعومة فقط لكل نموذج.'
-        : 'Animate generated or uploaded images into video clips with model-accurate controls.',
-    },
-    {
-      icon: <Layers size={17} aria-hidden="true" />,
-      title: isAr ? 'نفس مفاتيح مركز المزودين' : 'Unified Provider Center Keys',
-      desc: isAr
-        ? 'بدون إعادة إدخال أي مفتاح — يعمل تلقائياً بمفاتيح Runway وLuma AI وfal وReplicate وغيرها.'
-        : 'No duplicate API keys — automatically uses your encrypted keys from Provider Center.',
-    },
-    {
-      icon: <CheckCircle2 size={17} aria-hidden="true" />,
-      title: isAr ? 'متابعة التقدم وسجل التوليد' : 'Progress Tracking & Video History',
-      desc: isAr
-        ? 'تتبع حالة عمليات التوليد الطويلة مع معاينة وتنزيل وسجل كامل للنتائج.'
-        : 'Track asynchronous video jobs with playback, download, and persistent generation history.',
-    },
-  ];
-
   return (
-    <section
-      className="hub-shell"
-      dir={isRtl ? 'rtl' : 'ltr'}
-      aria-label="Video"
-      data-testid="section-video"
-    >
-      <header className="hub-hero">
-        <div className="hub-hero-icon">
-          <Film size={32} aria-hidden="true" />
-        </div>
-        <div className="hub-hero-copy">
-          <div className="hub-kicker-row">
-            <span className="hub-kicker">{isAr ? 'استوديو الفيديو' : 'Video Studio'}</span>
-            <span className="hub-status-pill is-ok">
-              {isAr ? 'الدفعة القادمة (الدفعة 11)' : 'Next Up: Batch 11'}
-            </span>
-          </div>
-          <h1>
-            {isAr
-              ? 'توليد الفيديو بالذكاء الاصطناعي'
-              : 'AI Video Generation Workspace'}
-          </h1>
-          <p>
-            {isAr
-              ? 'مساحة متكاملة لتحويل النص أو الصور إلى فيديو مرتبطة مباشرةً بنماذج الفيديو الحقيقية ومفاتيحك في مركز المزودين.'
-              : 'Dedicated Text-to-Video and Image-to-Video studio powered directly by verified video models in Provider Center.'}
-          </p>
-          <div className="hub-actions-row">
-            <button
-              type="button"
-              className="hub-btn is-primary"
-              onClick={() => onOpenProviderCenter()}
-            >
-              <KeyRound size={15} aria-hidden="true" />
-              <span>{isAr ? 'تهيئة مزودي الفيديو' : 'Configure Video Providers'}</span>
-            </button>
-            <button type="button" className="hub-btn" onClick={onOpenChat}>
-              <MessageCircle size={15} aria-hidden="true" />
-              <span>{isAr ? 'الانتقال إلى Chat' : 'Go to Chat'}</span>
-            </button>
-          </div>
-        </div>
-      </header>
-
-      <ProviderReadinessPanel
-        isAr={isAr}
-        title={isAr ? 'مزودو الفيديو المسجلون في مركز المزودين' : 'Video Providers in Provider Center'}
-        emptyMsg={
-          isAr
-            ? 'أضف مفتاح مزود فيديو مثل Runway أو Luma AI أو fal أو Google.'
-            : 'Add a video provider key such as Runway, Luma AI, fal, or Google.'
-        }
-        providers={providers}
-        connectedCount={connected.length}
-        loading={loading}
-        onOpenProviderCenter={onOpenProviderCenter}
-      />
-
-      <div className="hub-grid">
-        {tiles.map((tile) => (
-          <article className="hub-feature-card" key={tile.title}>
-            <div className="hub-feature-head">
-              <span className="hub-feature-icon">{tile.icon}</span>
-              <strong>{tile.title}</strong>
-            </div>
-            <p>{tile.desc}</p>
-          </article>
-        ))}
-      </div>
-    </section>
+    <VideoStudio
+      locale={locale}
+      getIdToken={getIdToken}
+      onOpenProviderCenter={onOpenProviderCenter}
+    />
   );
 }
 

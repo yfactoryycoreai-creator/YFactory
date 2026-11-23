@@ -1,0 +1,322 @@
+/* === Batch 12: YFactory Code IDE Bridge Dashboard (Gold on Black + Light + RTL) === */
+
+.yc-root {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  width: 100%;
+  padding-bottom: 24px;
+  color: var(--app-text);
+}
+
+.yc-hero {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 18px;
+  border: 1px solid color-mix(in srgb, var(--app-accent) 44%, var(--app-separator));
+  border-radius: 20px;
+  background: linear-gradient(
+    145deg,
+    color-mix(in srgb, var(--app-accent) 11%, var(--app-surface)),
+    var(--app-surface)
+  );
+  box-shadow: var(--app-shadow);
+}
+
+.yc-hero-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+
+.yc-hero-copy h1 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--app-text);
+}
+
+.yc-hero-copy p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--app-secondary);
+}
+
+.yc-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--app-separator);
+  border-radius: 18px;
+  background: var(--app-surface);
+  box-shadow: var(--app-shadow);
+}
+
+.yc-head-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.yc-head-row h2 {
+  margin: 0;
+  font-size: 15.5px;
+  font-weight: 660;
+  color: var(--app-text);
+}
+
+.yc-head-row small {
+  font-size: 12px;
+  color: var(--app-secondary);
+}
+
+.yc-pill-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.yc-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--app-separator);
+  background: var(--app-raised);
+  color: var(--app-secondary);
+  font-size: 11px;
+  font-weight: 620;
+}
+
+.yc-pill.is-gold {
+  border-color: color-mix(in srgb, var(--app-accent) 44%, transparent);
+  background: color-mix(in srgb, var(--app-accent) 14%, transparent);
+  color: var(--app-accent-text);
+}
+
+.yc-pill.is-ok {
+  border-color: color-mix(in srgb, var(--app-success) 44%, transparent);
+  background: color-mix(in srgb, var(--app-success) 13%, transparent);
+  color: var(--app-success-text);
+}
+
+.yc-pill.is-err {
+  border-color: color-mix(in srgb, var(--app-danger) 44%, transparent);
+  background: color-mix(in srgb, var(--app-danger) 12%, transparent);
+  color: var(--app-danger-text);
+}
+
+.yc-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 39px;
+  padding: 0 14px;
+  border: 1px solid var(--app-separator);
+  border-radius: 12px;
+  background: var(--app-raised);
+  color: var(--app-text);
+  font-size: 12.5px;
+  font-weight: 620;
+  cursor: pointer;
+}
+
+.yc-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.yc-btn.is-primary {
+  border-color: var(--app-accent);
+  background: var(--app-accent);
+  color: var(--app-on-accent);
+}
+
+.yc-btn.is-danger {
+  border-color: color-mix(in srgb, var(--app-danger) 40%, transparent);
+  background: color-mix(in srgb, var(--app-danger) 10%, transparent);
+  color: var(--app-danger-text);
+}
+
+.yc-pairing-box {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--app-accent) 48%, var(--app-separator));
+  border-radius: 15px;
+  background: var(--app-bg);
+}
+
+.yc-code-display {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.yc-code-value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 24px;
+  font-weight: 760;
+  letter-spacing: 0.1em;
+  color: var(--app-accent-text);
+}
+
+.yc-endpoint-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 9px 11px;
+  border: 1px solid var(--app-separator);
+  border-radius: 11px;
+  background: var(--app-surface);
+  font-size: 12px;
+  color: var(--app-secondary);
+}
+
+.yc-endpoint-line code {
+  color: var(--app-text);
+  overflow-wrap: anywhere;
+}
+
+.yc-steps-list {
+  margin: 0;
+  padding-inline-start: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--app-secondary);
+}
+
+.yc-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.yc-item-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 13px;
+  border: 1px solid var(--app-separator);
+  border-radius: 14px;
+  background: var(--app-bg);
+}
+
+.yc-item-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.yc-model-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.yc-model-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--app-separator);
+  border-radius: 10px;
+  background: var(--app-bg);
+  font-size: 12px;
+  color: var(--app-text);
+}
+
+.yc-model-chip small {
+  color: var(--app-secondary);
+}
+
+.yc-files-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.yc-file-tag {
+  padding: 2px 7px;
+  border-radius: 7px;
+  border: 1px solid var(--app-separator);
+  background: var(--app-surface);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  color: var(--app-secondary);
+}
+
+.yc-guardrail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 9px;
+}
+
+.yc-guardrail-card {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 12px;
+  border: 1px solid var(--app-separator);
+  border-radius: 13px;
+  background: var(--app-bg);
+  font-size: 12px;
+  color: var(--app-secondary);
+  line-height: 1.45;
+}
+
+.yc-guardrail-card strong {
+  color: var(--app-text);
+  font-size: 13px;
+}
+
+.yc-alert {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--app-danger) 42%, transparent);
+  background: color-mix(in srgb, var(--app-danger) 12%, transparent);
+  color: var(--app-danger-text);
+  font-size: 12.5px;
+}
+
+.yc-empty {
+  padding: 22px 12px;
+  text-align: center;
+  color: var(--app-secondary);
+  font-size: 13px;
+}
+
+@media (max-width: 600px) {
+  .yc-hero {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .yc-code-value {
+    font-size: 20px;
+  }
+}

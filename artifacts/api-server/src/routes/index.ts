@@ -6,6 +6,8 @@ import chatRouter from "./chat";
 import conversationsRouter from "./conversations";
 import providerCenterRouter from "./providerCenter";
 import providerDiagnosticsRouter from "./providerDiagnostics";
+import videoRouter from "./video";
+import ideCodeRouter from "./ideCode";
 
 const router: IRouter = Router();
 
@@ -16,5 +18,7 @@ router.use(chatRouter);
 router.use(conversationsRouter);
 router.use(providerCenterRouter);
 router.use(providerDiagnosticsRouter);
+router.use(videoRouter);
+router.use(ideCodeRouter);
 
 export default router;
