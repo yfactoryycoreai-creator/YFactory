@@ -934,6 +934,10 @@ function Home() {
             onExecuteStoryAgent={executeChatStoryAgent}
             onOpenImagePage={openImageWorkspaceFromChat}
             onOpenStoryPage={openStoryWorkspaceFromChat}
+            onOpenVideoPage={() => selectSection('video')}
+            onOpenCodePage={() => selectSection('code')}
+            onOpenStudentsPage={() => selectSection('students')}
+            onOpenProviderCenter={(providerId) => openProviderCenterFromHub(providerId)}
           />
         )}
 

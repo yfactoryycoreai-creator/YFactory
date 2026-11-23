@@ -8,6 +8,7 @@ import providerCenterRouter from "./providerCenter";
 import providerDiagnosticsRouter from "./providerDiagnostics";
 import videoRouter from "./video";
 import ideCodeRouter from "./ideCode";
+import agentTasksRouter from "./agentTasks";
 
 const router: IRouter = Router();
 
@@ -20,5 +21,6 @@ router.use(providerCenterRouter);
 router.use(providerDiagnosticsRouter);
 router.use(videoRouter);
 router.use(ideCodeRouter);
+router.use(agentTasksRouter);
 
 export default router;

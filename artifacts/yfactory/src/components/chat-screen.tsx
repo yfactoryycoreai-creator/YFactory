@@ -25,13 +25,16 @@ import {
   Download,
   FileCode2,
   FileText,
+  Film,
   Folder,
   FolderPlus,
   Globe,
+  GraduationCap,
   History,
   Image,
   Layers,
   Lightbulb,
+  ListChecks,
   LoaderCircle,
   MessageSquare,
   Mic,
@@ -59,6 +62,7 @@ import {
   Trash2,
   Volume2,
   VolumeX,
+  Wand2,
   X,
 } from "lucide-react";
 import "./chat-screen.css";
@@ -68,9 +72,26 @@ import ChatAgentCard, {
 } from "@/components/chat-agent-card";
 import ChatMarkdown from "@/components/chat-markdown";
 import ChatStoryPicker from "@/components/chat-story-picker";
+import AgentTaskDrawer from "@/components/agent-task-drawer";
 import {
+  cancelAgentTaskApi,
+  clearFinishedAgentTasksApi,
+  createClientAgentTask,
+  deleteAgentTaskApi,
+  executeServerAgentToolApi,
+  fetchAgentTasks,
+  patchClientAgentTask,
+  retryAgentTaskApi,
+  type AgentSectionTarget,
+  type AgentTaskItem,
+} from "@/lib/agentTasksApi";
+import {
+  buildCodeAgentSystemPrompt,
   buildImageAgentSystemPrompt,
   buildStoryAgentSystemPrompt,
+  buildStudentsAgentSystemPrompt,
+  buildUnifiedAgentSystemPrompt,
+  buildVideoAgentSystemPrompt,
   buildYFactoryChatSystemPrompt,
   extractAgentCommand,
   readChatAutoNavigate,
@@ -141,6 +162,10 @@ type ChatScreenProps = {
   ) => Promise<ChatAgentRunResult>;
   onOpenImagePage?: () => void;
   onOpenStoryPage?: (storyId?: string) => void;
+  onOpenVideoPage?: () => void;
+  onOpenCodePage?: () => void;
+  onOpenStudentsPage?: () => void;
+  onOpenProviderCenter?: (providerId?: string) => void;
 };
 
 type ChatMessage = {
@@ -253,6 +278,30 @@ function buildCtx(
       ...base,
     ];
   }
+  if (mode === "agent") {
+    return [
+      { role: "system", content: buildUnifiedAgentSystemPrompt(story) },
+      ...base,
+    ];
+  }
+  if (mode === "video") {
+    return [
+      { role: "system", content: buildVideoAgentSystemPrompt() },
+      ...base,
+    ];
+  }
+  if (mode === "code") {
+    return [
+      { role: "system", content: buildCodeAgentSystemPrompt() },
+      ...base,
+    ];
+  }
+  if (mode === "students") {
+    return [
+      { role: "system", content: buildStudentsAgentSystemPrompt() },
+      ...base,
+    ];
+  }
   const chatSys = story
     ? `${buildYFactoryChatSystemPrompt(story)}\n\n${buildStorySystemPrompt(story)}`
     : buildYFactoryChatSystemPrompt(null);
@@ -335,6 +384,10 @@ export default function ChatScreen({
   onExecuteStoryAgent,
   onOpenImagePage,
   onOpenStoryPage,
+  onOpenVideoPage,
+  onOpenCodePage,
+  onOpenStudentsPage,
+  onOpenProviderCenter,
 }: ChatScreenProps) {
   const { user } = useAuth();
   const { t, i18n } = useTranslation();
@@ -382,6 +435,103 @@ export default function ChatScreen({
   const [agentMode, setAgentMode] = useState<ChatAgentMode>("chat");
   const imgGenMode = agentMode === "image";
   const storyAgentMode = agentMode === "story";
+  const [agentTasks, setAgentTasks] = useState<AgentTaskItem[]>([]);
+  const [tasksDrawerOpen, setTasksDrawerOpen] = useState(false);
+  const [tasksLoading, setTasksLoading] = useState(false);
+  const [taskBusyId, setTaskBusyId] = useState<string | null>(null);
+
+  const activeAgentTaskCount = agentTasks.filter(
+    (t) => t.status === "queued" || t.status === "running",
+  ).length;
+
+  const refreshAgentTasks = useCallback(async () => {
+    if (!getIdToken) return;
+    setTasksLoading(true);
+    try {
+      const tok = await getIdToken();
+      const list = await fetchAgentTasks(tok);
+      setAgentTasks(list);
+    } catch {
+      // Keep last known tasks on transient error.
+    } finally {
+      setTasksLoading(false);
+    }
+  }, [getIdToken]);
+
+  useEffect(() => {
+    void refreshAgentTasks();
+  }, [refreshAgentTasks]);
+
+  useEffect(() => {
+    if (activeAgentTaskCount === 0 || !getIdToken) return;
+    const timer = window.setInterval(() => {
+      void refreshAgentTasks();
+    }, 6000);
+    return () => window.clearInterval(timer);
+  }, [activeAgentTaskCount, getIdToken, refreshAgentTasks]);
+
+  const handleCancelAgentTask = async (taskId: string) => {
+    if (!getIdToken) return;
+    setTaskBusyId(taskId);
+    try {
+      const tok = await getIdToken();
+      const up = await cancelAgentTaskApi(tok, taskId);
+      setAgentTasks((prev) => prev.map((t) => (t.id === up.id ? up : t)));
+    } finally {
+      setTaskBusyId(null);
+    }
+  };
+
+  const handleRetryAgentTask = async (task: AgentTaskItem) => {
+    if (!getIdToken) return;
+    setTaskBusyId(task.id);
+    try {
+      const tok = await getIdToken();
+      await retryAgentTaskApi(tok, task.id);
+      await refreshAgentTasks();
+    } finally {
+      setTaskBusyId(null);
+    }
+  };
+
+  const handleDeleteAgentTask = async (taskId: string) => {
+    if (!getIdToken) return;
+    setTaskBusyId(taskId);
+    try {
+      const tok = await getIdToken();
+      await deleteAgentTaskApi(tok, taskId);
+      setAgentTasks((prev) => prev.filter((t) => t.id !== taskId));
+    } finally {
+      setTaskBusyId(null);
+    }
+  };
+
+  const handleClearFinishedTasks = async () => {
+    if (!getIdToken) return;
+    setTasksLoading(true);
+    try {
+      const tok = await getIdToken();
+      await clearFinishedAgentTasksApi(tok);
+      await refreshAgentTasks();
+    } finally {
+      setTasksLoading(false);
+    }
+  };
+
+  const handleOpenTaskSection = (
+    section: AgentSectionTarget,
+    ref?: AgentTaskItem["targetRef"],
+  ) => {
+    if (section === "image") onOpenImagePage?.();
+    else if (section === "stories") onOpenStoryPage?.(ref?.storyId);
+    else if (section === "video") onOpenVideoPage?.();
+    else if (section === "code") onOpenCodePage?.();
+    else if (section === "students") onOpenStudentsPage?.();
+    else if (section === "provider_center") {
+      if (onOpenProviderCenter) onOpenProviderCenter(ref?.providerId);
+      else onOpenSecrets();
+    }
+  };
   const [listening, setListening] = useState(false);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
@@ -953,9 +1103,41 @@ export default function ChatScreen({
     baseMsgs: ChatMessage[],
   ) => {
     const autoNav = readChatAutoNavigate();
+    const tok = getIdToken ? await getIdToken().catch(() => null) : null;
+
     if (cmd.type === "generate_image") {
       if (!onExecuteImageAgent) return;
+      let persistedId: string | undefined;
+      if (tok) {
+        const created = await createClientAgentTask(tok, {
+          toolName: "generate_image",
+          section: "image",
+          title: `Image (${cmd.count}): ${cmd.prompt.slice(0, 65)}`,
+          status: "running",
+          progress: 20,
+          stepLabel: `Generating ${cmd.count} image(s)...`,
+          payload: { prompt: cmd.prompt, count: cmd.count },
+        }).catch(() => null);
+        persistedId = created?.id;
+        if (created) setAgentTasks((prev) => [created, ...prev]);
+      }
+
       const res = await onExecuteImageAgent(cmd, autoNav);
+      if (tok && persistedId) {
+        const patched = await patchClientAgentTask(tok, persistedId, {
+          status: res.ok ? "completed" : "failed",
+          progress: res.ok ? 100 : 0,
+          stepLabel: res.ok ? "Images ready" : "Generation failed",
+          resultSummary: res.ok
+            ? `Generated ${res.generatedImages?.length ?? cmd.count} image(s) in Image workspace.`
+            : null,
+          errorMessage: res.errorMessage ?? null,
+        }).catch(() => null);
+        if (patched) {
+          setAgentTasks((prev) => prev.map((t) => (t.id === patched.id ? patched : t)));
+        }
+      }
+
       const updated = baseMsgs.map((m) =>
         m.id === msgId
           ? {
@@ -968,6 +1150,7 @@ export default function ChatScreen({
               agentAction: {
                 command: cmd,
                 status: res.ok ? ("done" as const) : ("error" as const),
+                ...(persistedId ? { taskId: persistedId } : {}),
                 ...(res.errorMessage ? { errorMessage: res.errorMessage } : {}),
               },
             }
@@ -980,6 +1163,28 @@ export default function ChatScreen({
 
     if (cmd.type === "story_setup") {
       if (!onExecuteStoryAgent) return;
+      let persistedId: string | undefined;
+      if (tok) {
+        const created = await createClientAgentTask(tok, {
+          toolName: "story_setup",
+          section: "stories",
+          title: `Story (${cmd.targetCount} scenes): ${cmd.storyName}`,
+          status: "running",
+          progress: 25,
+          stepLabel: cmd.startGeneration
+            ? `Preparing & starting ${cmd.targetCount} scene renders...`
+            : `Saving story script (${cmd.targetCount} scenes)...`,
+          payload: {
+            storyName: cmd.storyName,
+            targetCount: cmd.targetCount,
+            aspectRatio: cmd.aspectRatio,
+            startGeneration: cmd.startGeneration,
+          },
+        }).catch(() => null);
+        persistedId = created?.id;
+        if (created) setAgentTasks((prev) => [created, ...prev]);
+      }
+
       const res = await onExecuteStoryAgent(cmd, autoNav);
       if (res.ok && res.storyId) {
         setAttachedStory({
@@ -996,6 +1201,26 @@ export default function ChatScreen({
           providerSwitchPending: false,
         });
       }
+      if (tok && persistedId) {
+        const patched = await patchClientAgentTask(tok, persistedId, {
+          status: res.ok ? "completed" : "failed",
+          progress: res.ok ? 100 : 0,
+          stepLabel: res.ok
+            ? cmd.startGeneration
+              ? `Scene rendering started (${cmd.targetCount} scenes)`
+              : "Story saved in My Stories"
+            : "Story action failed",
+          resultSummary: res.ok
+            ? `Story "${cmd.storyName}" (${cmd.targetCount} scenes) is ready in My Stories.`
+            : null,
+          targetRef: res.storyId ? { storyId: res.storyId } : null,
+          errorMessage: res.errorMessage ?? null,
+        }).catch(() => null);
+        if (patched) {
+          setAgentTasks((prev) => prev.map((t) => (t.id === patched.id ? patched : t)));
+        }
+      }
+
       const updated = baseMsgs.map((m) =>
         m.id === msgId
           ? {
@@ -1003,8 +1228,63 @@ export default function ChatScreen({
               agentAction: {
                 command: cmd,
                 status: res.ok ? ("done" as const) : ("error" as const),
+                ...(persistedId ? { taskId: persistedId } : {}),
                 ...(res.storyId ? { storyId: res.storyId } : {}),
                 ...(res.errorMessage ? { errorMessage: res.errorMessage } : {}),
+              },
+            }
+          : m,
+      );
+      setMessages(updated);
+      await persistMsgs(updated, selModel);
+      return;
+    }
+
+    // Server-orchestrated tools: generate_video, code_workspace_task, student_study_assist, provider_recommend
+    if (!tok) return;
+    try {
+      const execRes = await executeServerAgentToolApi(
+        tok,
+        cmd.type,
+        cmd as unknown as Record<string, unknown>,
+      );
+      const task = execRes.task;
+      setAgentTasks((prev) => [task, ...prev.filter((t) => t.id !== task.id)]);
+      const isOk = execRes.data.ok !== false && task.status !== "failed";
+
+      const updated = baseMsgs.map((m) =>
+        m.id === msgId
+          ? {
+              ...m,
+              agentAction: {
+                command: cmd,
+                status: isOk ? ("done" as const) : ("error" as const),
+                taskId: task.id,
+                ...(task.targetRef?.videoJobId ? { videoJobId: task.targetRef.videoJobId } : {}),
+                ...(task.targetRef?.providerId ? { providerId: task.targetRef.providerId } : {}),
+                ...(task.resultSummary ? { resultSummary: task.resultSummary } : {}),
+                ...(task.errorMessage ? { errorMessage: task.errorMessage } : {}),
+              },
+            }
+          : m,
+      );
+      setMessages(updated);
+      await persistMsgs(updated, selModel);
+
+      if (isOk && autoNav) {
+        if (cmd.type === "generate_video") onOpenVideoPage?.();
+        else if (cmd.type === "student_study_assist") onOpenStudentsPage?.();
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Agent action failed.";
+      const updated = baseMsgs.map((m) =>
+        m.id === msgId
+          ? {
+              ...m,
+              agentAction: {
+                command: cmd,
+                status: "error" as const,
+                errorMessage: msg,
               },
             }
           : m,
@@ -1794,6 +2074,24 @@ export default function ChatScreen({
               <button
                 type="button"
                 className="chat-icon-button"
+                style={{ position: "relative" }}
+                onClick={() => {
+                  setMenu(null);
+                  setTasksDrawerOpen(true);
+                  void refreshAgentTasks();
+                }}
+                aria-label={locale.startsWith("ar") ? "مهام الوكيل" : "Agent Tasks"}
+                title={locale.startsWith("ar") ? "مهام الوكيل الدائمة" : "Persistent Agent Tasks"}
+                data-testid="button-chat-tasks"
+              >
+                <ListChecks aria-hidden="true" />
+                {activeAgentTaskCount > 0 && (
+                  <span className="chat-tasks-badge">{activeAgentTaskCount}</span>
+                )}
+              </button>
+              <button
+                type="button"
+                className="chat-icon-button"
                 onClick={() => {
                   setMenu(null);
                   setConvsOpen(true);
@@ -2292,6 +2590,13 @@ export default function ChatScreen({
                                 locale={locale}
                                 onOpenImagePage={onOpenImagePage}
                                 onOpenStoryPage={onOpenStoryPage}
+                                onOpenVideoPage={onOpenVideoPage}
+                                onOpenCodePage={onOpenCodePage}
+                                onOpenStudentsPage={onOpenStudentsPage}
+                                onOpenProviderCenter={(pid) => {
+                                  if (onOpenProviderCenter) onOpenProviderCenter(pid);
+                                  else onOpenSecrets();
+                                }}
                               />
                             )}
                           </>
@@ -2533,6 +2838,19 @@ export default function ChatScreen({
             <div className="chat-mode-pills">
               <button
                 type="button"
+                className={`chat-mode-pill ${agentMode === "agent" ? "is-active" : ""}`}
+                onClick={() => {
+                  setAgentMode((cur) => (cur === "agent" ? "chat" : "agent"));
+                  requestAnimationFrame(() => inputRef.current?.focus());
+                }}
+                disabled={sending}
+                data-testid="button-chat-pill-agent"
+              >
+                <Wand2 size={14} aria-hidden="true" />
+                <span>{locale.startsWith("ar") ? "الوكيل الشامل" : "AI Agent"}</span>
+              </button>
+              <button
+                type="button"
                 className={`chat-mode-pill ${imgGenMode ? "is-active" : ""}`}
                 onClick={() => {
                   setAgentMode((cur) => (cur === "image" ? "chat" : "image"));
@@ -2558,6 +2876,45 @@ export default function ChatScreen({
               >
                 <BookOpen size={14} aria-hidden="true" />
                 <span>{t("chat:options.myStories")}</span>
+              </button>
+              <button
+                type="button"
+                className={`chat-mode-pill ${agentMode === "video" ? "is-active" : ""}`}
+                onClick={() => {
+                  setAgentMode((cur) => (cur === "video" ? "chat" : "video"));
+                  requestAnimationFrame(() => inputRef.current?.focus());
+                }}
+                disabled={sending}
+                data-testid="button-chat-pill-video"
+              >
+                <Film size={14} aria-hidden="true" />
+                <span>{locale.startsWith("ar") ? "فيديو" : "Video"}</span>
+              </button>
+              <button
+                type="button"
+                className={`chat-mode-pill ${agentMode === "code" ? "is-active" : ""}`}
+                onClick={() => {
+                  setAgentMode((cur) => (cur === "code" ? "chat" : "code"));
+                  requestAnimationFrame(() => inputRef.current?.focus());
+                }}
+                disabled={sending}
+                data-testid="button-chat-pill-code"
+              >
+                <Code2 size={14} aria-hidden="true" />
+                <span>{locale.startsWith("ar") ? "البرمجة" : "Code"}</span>
+              </button>
+              <button
+                type="button"
+                className={`chat-mode-pill ${agentMode === "students" ? "is-active" : ""}`}
+                onClick={() => {
+                  setAgentMode((cur) => (cur === "students" ? "chat" : "students"));
+                  requestAnimationFrame(() => inputRef.current?.focus());
+                }}
+                disabled={sending}
+                data-testid="button-chat-pill-students"
+              >
+                <GraduationCap size={14} aria-hidden="true" />
+                <span>{locale.startsWith("ar") ? "الطلاب" : "Students"}</span>
               </button>
               {storyAgentMode && (
                 <button
@@ -2642,7 +2999,23 @@ export default function ChatScreen({
                     ? ui.imgModePlaceholder
                     : storyAgentMode
                       ? ui.storyModePlaceholder
-                      : t("chat:composerPlaceholder")
+                      : agentMode === "agent"
+                        ? locale.startsWith("ar")
+                          ? "اطلب أي مهمة (صور، قصة 50+ مشهد، فيديو، برمجة IDE، دراسة، أو ترشيح مزود)..."
+                          : "Ask the YFactory Agent to run any task (Image, 50+ scene Story, Video, IDE Code, Students, Providers)..."
+                        : agentMode === "video"
+                          ? locale.startsWith("ar")
+                            ? "صف مشهد الفيديو المطلوب لتوليده عبر استوديو الفيديو..."
+                            : "Describe the video scene to generate in Video Studio..."
+                          : agentMode === "code"
+                            ? locale.startsWith("ar")
+                              ? "اطلب فحص جلسة IDE أو توجيه مهمة برمجية لمشروعك المفتوح..."
+                              : "Check IDE session or route a coding task to your open VS Code workspace..."
+                            : agentMode === "students"
+                              ? locale.startsWith("ar")
+                                ? "اكتب الدرس أو المادة لإنشاء خطة شرح ومراجعة تفاعلية..."
+                                : "Enter a lesson or exam topic to build a study & quiz plan..."
+                              : t("chat:composerPlaceholder")
                 }
                 rows={1}
                 dir="auto"
@@ -3429,6 +3802,21 @@ export default function ChatScreen({
           </section>
         </div>
       )}
+
+      <AgentTaskDrawer
+        open={tasksDrawerOpen}
+        locale={locale}
+        tasks={agentTasks}
+        loading={tasksLoading}
+        busyTaskId={taskBusyId}
+        onClose={() => setTasksDrawerOpen(false)}
+        onRefresh={() => void refreshAgentTasks()}
+        onCancelTask={(id) => void handleCancelAgentTask(id)}
+        onRetryTask={(task) => void handleRetryAgentTask(task)}
+        onDeleteTask={(id) => void handleDeleteAgentTask(id)}
+        onClearFinished={() => void handleClearFinishedTasks()}
+        onOpenSection={handleOpenTaskSection}
+      />
     </section>
   );
 }
