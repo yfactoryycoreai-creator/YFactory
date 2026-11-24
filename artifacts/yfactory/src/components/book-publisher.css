@@ -1,0 +1,410 @@
+/* === Batch 15: Professional PDF Book Publisher Studio === */
+
+.bp-root {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  width: 100%;
+  padding-bottom: 24px;
+  color: var(--app-text);
+}
+
+.bp-header,
+.bp-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+  padding: 16px;
+  border: 1px solid var(--app-separator);
+  border-radius: 18px;
+  background: var(--app-surface);
+  box-shadow: var(--app-shadow);
+}
+
+.bp-head-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.bp-title-block {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-width: 0;
+}
+
+.bp-icon-box {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  flex: none;
+  border-radius: 13px;
+  border: 1px solid color-mix(in srgb, var(--app-accent) 44%, var(--app-separator));
+  background: color-mix(in srgb, var(--app-accent) 14%, var(--app-raised));
+  color: var(--app-accent-text);
+}
+
+.bp-title-block h1 {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 700;
+  color: var(--app-text);
+}
+
+.bp-title-block p {
+  margin: 2px 0 0;
+  font-size: 12.5px;
+  color: var(--app-secondary);
+}
+
+.bp-tabs {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 4px;
+  border: 1px solid var(--app-separator);
+  border-radius: 14px;
+  background: var(--app-raised);
+  scrollbar-width: none;
+}
+
+.bp-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.bp-tab {
+  flex: 1 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 38px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--app-secondary);
+  font-size: 12.5px;
+  font-weight: 620;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.bp-tab.is-active {
+  background: var(--app-accent);
+  color: var(--app-on-accent);
+}
+
+.bp-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 10px;
+}
+
+.bp-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.bp-field label {
+  font-size: 12px;
+  font-weight: 620;
+  color: var(--app-secondary);
+}
+
+.bp-input,
+.bp-select,
+.bp-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--app-separator);
+  border-radius: 11px;
+  background: var(--app-bg);
+  color: var(--app-text);
+  font-size: 13.5px;
+  outline: 0;
+  font-family: inherit;
+}
+
+.bp-input,
+.bp-select {
+  min-height: 41px;
+  padding: 0 11px;
+}
+
+.bp-textarea {
+  min-height: 88px;
+  padding: 10px 11px;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.bp-input:focus,
+.bp-select:focus,
+.bp-textarea:focus {
+  border-color: var(--app-accent);
+}
+
+.bp-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 38px;
+  padding: 0 13px;
+  border: 1px solid var(--app-separator);
+  border-radius: 11px;
+  background: var(--app-raised);
+  color: var(--app-text);
+  font-size: 12.5px;
+  font-weight: 620;
+  cursor: pointer;
+}
+
+.bp-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.bp-btn.is-primary {
+  border-color: var(--app-accent);
+  background: var(--app-accent);
+  color: var(--app-on-accent);
+}
+
+.bp-btn.is-danger {
+  border-color: color-mix(in srgb, var(--app-danger) 40%, transparent);
+  background: color-mix(in srgb, var(--app-danger) 10%, transparent);
+  color: var(--app-danger-text);
+}
+
+.bp-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.bp-template-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(175px, 1fr));
+  gap: 9px;
+}
+
+.bp-template-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--app-separator);
+  border-radius: 14px;
+  background: var(--app-bg);
+  color: var(--app-text);
+  text-align: start;
+  cursor: pointer;
+}
+
+.bp-template-card.is-selected {
+  border-color: var(--app-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--app-accent) 28%, transparent);
+}
+
+.bp-swatch-row {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+}
+
+.bp-swatch {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1px solid var(--app-separator);
+}
+
+.bp-chapter-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 13px;
+  border: 1px solid var(--app-separator);
+  border-radius: 14px;
+  background: var(--app-bg);
+}
+
+.bp-img-strip {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 4px 0;
+}
+
+.bp-img-thumb {
+  position: relative;
+  flex: none;
+  width: 96px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 5px;
+  border: 1px solid var(--app-separator);
+  border-radius: 10px;
+  background: var(--app-surface);
+}
+
+.bp-img-thumb img {
+  width: 100%;
+  height: 66px;
+  object-fit: cover;
+  border-radius: 7px;
+}
+
+.bp-img-thumb-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 3px;
+}
+
+.bp-img-thumb-actions button {
+  flex: 1;
+  min-height: 24px;
+  border: 1px solid var(--app-separator);
+  border-radius: 6px;
+  background: var(--app-raised);
+  color: var(--app-text);
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.bp-preview-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.bp-page-sheet {
+  width: min(100%, 440px);
+  aspect-ratio: 0.707;
+  padding: 24px;
+  border-radius: 10px;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.34);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  overflow: hidden;
+  position: relative;
+}
+
+.bp-page-sheet.is-square {
+  aspect-ratio: 1 / 1;
+}
+
+.bp-cover-frame {
+  flex: 1;
+  border: 2px solid;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: center;
+  text-align: center;
+}
+
+.bp-cover-img {
+  max-width: 82%;
+  max-height: 46%;
+  border-radius: 10px;
+  object-fit: cover;
+  border: 2px solid;
+}
+
+.bp-saved-list {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.bp-saved-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--app-separator);
+  border-radius: 14px;
+  background: var(--app-bg);
+  flex-wrap: wrap;
+}
+
+.bp-notice-ok {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--app-success) 42%, transparent);
+  background: color-mix(in srgb, var(--app-success) 12%, transparent);
+  color: var(--app-success-text);
+  font-size: 12.5px;
+}
+
+.bp-notice-err {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--app-danger) 42%, transparent);
+  background: color-mix(in srgb, var(--app-danger) 12%, transparent);
+  color: var(--app-danger-text);
+  font-size: 12.5px;
+}
+
+.bp-check-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  color: var(--app-secondary);
+  cursor: pointer;
+}
+
+/* Sub-switcher above StoryFactory & BookPublisher inside My Stories section */
+.stories-subnav {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  padding: 4px;
+  margin-bottom: 12px;
+  border: 1px solid var(--app-separator);
+  border-radius: 14px;
+  background: var(--app-surface);
+}
+
+.stories-subnav-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 11px;
+  background: transparent;
+  color: var(--app-secondary);
+  font-size: 13px;
+  font-weight: 620;
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease;
+}
+
+.stories-subnav-btn.is-active {
+  background: var(--app-accent);
+  color: var(--app-on-accent);
+}

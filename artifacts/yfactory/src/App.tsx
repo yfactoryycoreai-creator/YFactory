@@ -9,6 +9,7 @@ import {
 } from 'react';
 import { deleteUser } from 'firebase/auth';
 import {
+  BookMarked,
   BookOpen,
   Download,
   Film,
@@ -115,6 +116,7 @@ const queryClient = new QueryClient();
 type AppSection = 'image' | 'chat' | 'stories' | 'code' | 'video' | 'students';
 
 const StoryFactory = lazy(() => import('@/components/story-factory'));
+const BookPublisher = lazy(() => import('@/components/book-publisher'));
 
 function StoryTabFallback({ resetError }: ErrorFallbackProps) {
   const { t } = useTranslation();
@@ -162,6 +164,7 @@ function Home() {
   const tabButtonRefs = useRef<Partial<Record<AppSection, HTMLButtonElement | null>>>({});
   const chatOpen = activeSection === 'chat';
   const storiesOpen = activeSection === 'stories';
+  const [storiesMode, setStoriesMode] = useState<'factory' | 'book'>('factory');
   const [activeStory, setActiveStory] = useState<StoryRecord | null>(null);
   const [pendingStorySave, setPendingStorySave] =
     useState<GeneratedImageHistoryItem | null>(null);
@@ -943,17 +946,51 @@ function Home() {
 
         {activeSection === 'stories' && user && (
           <ErrorBoundary FallbackComponent={StoryTabFallback}>
+            <div className="stories-subnav" role="tablist" aria-label={t('tabs.stories')}>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={storiesMode === 'factory'}
+                className={`stories-subnav-btn${storiesMode === 'factory' ? ' is-active' : ''}`}
+                onClick={() => setStoriesMode('factory')}
+                data-testid="stories-subtab-factory"
+              >
+                <BookOpen size={15} aria-hidden="true" />
+                <span>{t('tabs.stories')}</span>
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={storiesMode === 'book'}
+                className={`stories-subnav-btn${storiesMode === 'book' ? ' is-active' : ''}`}
+                onClick={() => setStoriesMode('book')}
+                data-testid="stories-subtab-book"
+              >
+                <BookMarked size={15} aria-hidden="true" />
+                <span>{locale.startsWith('ar') ? 'ناشر كتب PDF' : 'PDF Book Publisher'}</span>
+              </button>
+            </div>
             <Suspense fallback={<StoryTabLoading />}>
-              <StoryFactory
-                uid={user.uid}
-                getIdToken={getUserIdToken}
-                visible={storiesOpen}
-                selectedStoryId={activeStory?.id ?? null}
-                pendingImage={pendingStorySave}
-                onStorySelected={handleStorySelected}
-                onTemporaryImageSaved={handleTemporaryImageSaved}
-                onCancelPendingSave={handleCancelPendingSave}
-              />
+              {storiesMode === 'book' ? (
+                <BookPublisher
+                  uid={user.uid}
+                  locale={locale}
+                  authorDefaultName={profileName}
+                  initialStory={activeStory}
+                  getIdToken={getUserIdToken}
+                />
+              ) : (
+                <StoryFactory
+                  uid={user.uid}
+                  getIdToken={getUserIdToken}
+                  visible={storiesOpen}
+                  selectedStoryId={activeStory?.id ?? null}
+                  pendingImage={pendingStorySave}
+                  onStorySelected={handleStorySelected}
+                  onTemporaryImageSaved={handleTemporaryImageSaved}
+                  onCancelPendingSave={handleCancelPendingSave}
+                />
+              )}
             </Suspense>
           </ErrorBoundary>
         )}

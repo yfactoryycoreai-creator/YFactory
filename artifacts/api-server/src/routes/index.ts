@@ -9,6 +9,7 @@ import providerDiagnosticsRouter from "./providerDiagnostics";
 import videoRouter from "./video";
 import ideCodeRouter from "./ideCode";
 import agentTasksRouter from "./agentTasks";
+import booksRouter from "./books";
 
 const router: IRouter = Router();
 
@@ -22,5 +23,6 @@ router.use(providerDiagnosticsRouter);
 router.use(videoRouter);
 router.use(ideCodeRouter);
 router.use(agentTasksRouter);
+router.use(booksRouter);
 
 export default router;
