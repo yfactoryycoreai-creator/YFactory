@@ -12,6 +12,7 @@ import {
   BookOpen,
   Camera,
   CheckCircle2,
+  ClipboardCheck,
   ExternalLink,
   FolderOpen,
   Globe,
@@ -28,10 +29,18 @@ import {
   Send,
   Sparkles,
   Trash2,
+  TrendingUp,
   Upload,
+  Users,
 } from "lucide-react";
 import AppSelect from "@/components/app-select";
 import ChatMarkdown from "@/components/chat-markdown";
+import StudentsCommunityPanel from "@/components/students-community-panel";
+import {
+  StudentsExamsPanel,
+  StudentsProgressPanel,
+  type AdaptiveExamRequest,
+} from "@/components/students-exams-panel";
 import { loadChatModels, type ChatModelOption } from "@/lib/chatApi";
 import { generateImages } from "@/lib/imageApi";
 import { isRtlLanguage } from "@/lib/languages";
@@ -59,7 +68,7 @@ type StudentsWorkspaceProps = {
   onOpenProviderCenter: (providerId?: string) => void;
 };
 
-type StudentsTab = "tutor" | "scan" | "visuals" | "library";
+type StudentsTab = "tutor" | "scan" | "visuals" | "exams" | "progress" | "community" | "library";
 
 const SUBJECT_PRESETS = [
   "Auto / General",
@@ -107,7 +116,11 @@ function getCopy(lang: string) {
       tabTutor: "شات المدرس الذكي",
       tabScan: "تصوير امتحان / درس",
       tabVisuals: "البحث والمخططات البصرية",
+      tabExams: "الامتحانات التفاعلية",
+      tabProgress: "تطوّري وإتقاني",
+      tabCommunity: "مجتمع الطلاب",
       tabLibrary: "مكتبة دروسي",
+      startExamBtn: "اختبار تفاعلي",
       modelLbl: "نموذج الذكاء الاصطناعي",
       gradeLbl: "المستوى الدراسي",
       subjectLbl: "المادة الدراسية",
@@ -311,6 +324,7 @@ export default function StudentsWorkspace({
   const [lessons, setLessons] = useState<StudentLessonRecord[]>([]);
   const [activeLesson, setActiveLesson] = useState<StudentLessonRecord | null>(null);
   const [focusTopic, setFocusTopic] = useState("");
+  const [pendingAdaptiveExam, setPendingAdaptiveExam] = useState<AdaptiveExamRequest | null>(null);
 
   // Scan state
   const [photoAttachment, setPhotoAttachment] = useState<{
@@ -505,6 +519,7 @@ export default function StudentsWorkspace({
       if (res.lesson) {
         syncLessonIntoState(res.lesson);
       } else {
+        // Store transient results on a temporary in-view lesson if none active yet
         setActiveLesson({
           id: "",
           title: topicsToSearch[0]!,
@@ -657,6 +672,23 @@ export default function StudentsWorkspace({
     }
   };
 
+  const handleAdaptiveReexplain = (topic: string, subj: string) => {
+    chooseSubject(subj || "Auto / General");
+    setFocusTopic(topic);
+    setTab("tutor");
+    void handleSendTutor(
+      locale.startsWith("ar")
+        ? `أخطأت في موضوع «${topic}» في الاختبار. أعد شرحه لي بأسلوب مبسّط خطوة بخطوة مع أمثلة جديدة وتطبيقات تدريبية.`
+        : `I missed "${topic}" on my exam. Please re-explain it clearly step-by-step with fresh examples and check my understanding.`,
+      true,
+    );
+  };
+
+  const handleStartAdaptiveExam = (req: AdaptiveExamRequest) => {
+    setPendingAdaptiveExam(req);
+    setTab("exams");
+  };
+
   const startFreshStudySession = () => {
     setActiveLesson(null);
     setFocusTopic("");
@@ -794,6 +826,9 @@ export default function StudentsWorkspace({
                 `${ui.tabVisuals}${activeLesson?.resources.length ? ` (${activeLesson.resources.length})` : ""}`,
                 <Globe size={14} key="v" />,
               ],
+              ["exams", ui.tabExams, <ClipboardCheck size={14} key="e" />],
+              ["progress", ui.tabProgress, <TrendingUp size={14} key="p" />],
+              ["community", ui.tabCommunity, <Users size={14} key="c" />],
               ["library", `${ui.tabLibrary} (${lessons.length})`, <FolderOpen size={14} key="l" />],
             ] as const
           ).map(([id, label, icon]) => (
@@ -1389,13 +1424,45 @@ export default function StudentsWorkspace({
         </div>
       )}
 
-      {/* TAB 4: MY SAVED LESSONS LIBRARY */}
+      {/* TAB 4: REAL INTERACTIVE EXAMS & ADAPTIVE LEARNING */}
+      {tab === "exams" && (
+        <StudentsExamsPanel
+          locale={locale}
+          lessons={lessons}
+          activeLesson={activeLesson}
+          gradeLevel={gradeLevel}
+          subject={subject}
+          modelSelection={modelSelection}
+          pendingAdaptiveRequest={pendingAdaptiveExam}
+          onConsumeAdaptiveRequest={() => setPendingAdaptiveExam(null)}
+          getIdToken={getIdToken}
+          onReexplainTopic={handleAdaptiveReexplain}
+        />
+      )}
+
+      {/* TAB 5: STUDENT PROGRESS & MASTERY DASHBOARD */}
+      {tab === "progress" && (
+        <StudentsProgressPanel
+          locale={locale}
+          getIdToken={getIdToken}
+          onReexplainTopic={handleAdaptiveReexplain}
+          onStartAdaptiveExam={handleStartAdaptiveExam}
+        />
+      )}
+
+      {/* TAB 6: MODERATED STUDENT COMMUNITY */}
+      {tab === "community" && (
+        <StudentsCommunityPanel
+          locale={locale}
+          defaultSubject={subject}
+          defaultGradeLevel={gradeLevel}
+          getIdToken={getIdToken}
+        />
+      )}
+
+      {/* TAB 7: MY SAVED LESSONS LIBRARY */}
       {tab === "library" && (
         <div className="st-panel" data-testid="students-library-panel">
-          <div className="st-banner-ok">
-            <Sparkles size={15} />
-            <span>{ui.batch17Banner}</span>
-          </div>
 
           {lessons.length === 0 ? (
             <div className="st-empty">{ui.libraryEmpty}</div>
@@ -1417,6 +1484,26 @@ export default function StudentsWorkspace({
                     </div>
                   </div>
                   <div className="st-row">
+                    <button
+                      type="button"
+                      className="st-btn"
+                      onClick={() => {
+                        syncLessonIntoState(lesson, true);
+                        handleStartAdaptiveExam({
+                          topics:
+                            lesson.topics.length > 0
+                              ? lesson.topics.slice(0, 4)
+                              : [lesson.title],
+                          subject: lesson.subject,
+                          difficulty: "adaptive",
+                          mode: "practice",
+                          lessonId: lesson.id,
+                        });
+                      }}
+                    >
+                      <ClipboardCheck size={13} />
+                      <span>{ui.startExamBtn}</span>
+                    </button>
                     <button
                       type="button"
                       className="st-btn is-primary"

@@ -11,6 +11,7 @@ import ideCodeRouter from "./ideCode";
 import agentTasksRouter from "./agentTasks";
 import booksRouter from "./books";
 import studentsRouter from "./students";
+import studentsExtendedRouter from "./studentsExtended";
 
 const router: IRouter = Router();
 
@@ -26,5 +27,6 @@ router.use(ideCodeRouter);
 router.use(agentTasksRouter);
 router.use(booksRouter);
 router.use(studentsRouter);
+router.use(studentsExtendedRouter);
 
 export default router;
