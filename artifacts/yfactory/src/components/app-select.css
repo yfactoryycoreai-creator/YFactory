@@ -1,0 +1,297 @@
+/* === Unified YFactory App-Style Select Bottom Sheet (No Native Browser Popups) === */
+
+.yf-select-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-height: 41px;
+  padding: 6px 11px;
+  border: 1px solid var(--app-separator);
+  border-radius: 11px;
+  background: var(--app-bg);
+  color: var(--app-text);
+  font-size: 13px;
+  font-weight: 540;
+  font-family: inherit;
+  text-align: start;
+  cursor: pointer;
+  transition: border-color 140ms ease, background 140ms ease;
+}
+
+.yf-select-trigger:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--app-accent) 52%, var(--app-separator));
+}
+
+.yf-select-trigger:focus-visible {
+  outline: 0;
+  border-color: var(--app-accent);
+}
+
+.yf-select-trigger:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.yf-select-trigger-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.yf-select-trigger-thumb {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  object-fit: cover;
+  flex: none;
+  border: 1px solid var(--app-separator);
+}
+
+.yf-select-trigger-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.yf-select-trigger-label.is-placeholder {
+  color: var(--app-secondary);
+}
+
+.yf-select-chevron {
+  flex: none;
+  color: var(--app-secondary);
+}
+
+.yf-select-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 220;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 14px 10px max(14px, env(safe-area-inset-bottom));
+  background: rgba(0, 0, 0, 0.62);
+  backdrop-filter: blur(6px);
+}
+
+.yf-select-sheet {
+  width: min(100%, 480px);
+  max-height: min(78dvh, 580px);
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+  padding: 12px 15px 15px;
+  border: 1px solid var(--app-separator);
+  border-radius: 22px;
+  background: var(--app-surface);
+  color: var(--app-text);
+  box-shadow: 0 22px 68px rgba(0, 0, 0, 0.48);
+  overscroll-behavior: contain;
+}
+
+.yf-select-grabber {
+  width: 36px;
+  height: 4px;
+  margin: 0 auto;
+  border-radius: 99px;
+  background: var(--app-tertiary);
+  opacity: 0.45;
+}
+
+.yf-select-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.yf-select-head h3 {
+  margin: 0;
+  font-size: 15.5px;
+  font-weight: 660;
+  color: var(--app-text);
+}
+
+.yf-select-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--app-separator);
+  border-radius: 10px;
+  background: var(--app-raised);
+  color: var(--app-secondary);
+  cursor: pointer;
+}
+
+.yf-select-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 11px;
+  border: 1px solid var(--app-separator);
+  border-radius: 12px;
+  background: var(--app-raised);
+  color: var(--app-secondary);
+}
+
+.yf-select-search:focus-within {
+  border-color: var(--app-accent);
+}
+
+.yf-select-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--app-text);
+  font-size: 13.5px;
+}
+
+.yf-select-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--app-separator);
+  border-radius: 14px;
+  background: var(--app-bg);
+}
+
+.yf-select-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  min-height: 48px;
+  padding: 9px 13px;
+  border: 0;
+  border-bottom: 1px solid var(--app-separator);
+  background: transparent;
+  color: var(--app-text);
+  text-align: start;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 130ms ease;
+}
+
+.yf-select-option:last-child {
+  border-bottom: 0;
+}
+
+.yf-select-option:hover:not(:disabled) {
+  background: var(--app-raised);
+}
+
+.yf-select-option.is-selected {
+  background: color-mix(in srgb, var(--app-accent) 14%, transparent);
+}
+
+.yf-select-option:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.yf-select-opt-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+}
+
+.yf-select-opt-thumb {
+  width: 42px;
+  height: 42px;
+  border-radius: 8px;
+  object-fit: cover;
+  flex: none;
+  border: 1px solid var(--app-separator);
+  background: var(--app-raised);
+}
+
+.yf-select-opt-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.yf-select-opt-copy strong {
+  font-size: 13.5px;
+  font-weight: 590;
+  color: var(--app-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.yf-select-opt-copy small {
+  font-size: 11.5px;
+  color: var(--app-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.yf-select-opt-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex: none;
+}
+
+.yf-select-badge {
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--app-separator);
+  background: var(--app-raised);
+  color: var(--app-secondary);
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.yf-select-badge.is-ok {
+  border-color: color-mix(in srgb, var(--app-success) 44%, transparent);
+  background: color-mix(in srgb, var(--app-success) 13%, transparent);
+  color: var(--app-success-text);
+}
+
+.yf-select-radio {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1.8px solid var(--app-separator);
+  color: var(--app-on-accent);
+}
+
+.yf-select-radio.is-selected {
+  border-color: var(--app-accent);
+  background: var(--app-accent);
+}
+
+.yf-select-empty {
+  padding: 24px 12px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--app-secondary);
+}
+
+@media (min-width: 640px) {
+  .yf-select-backdrop {
+    align-items: center;
+  }
+}

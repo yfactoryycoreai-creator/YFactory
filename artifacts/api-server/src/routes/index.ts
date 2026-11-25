@@ -10,6 +10,7 @@ import videoRouter from "./video";
 import ideCodeRouter from "./ideCode";
 import agentTasksRouter from "./agentTasks";
 import booksRouter from "./books";
+import studentsRouter from "./students";
 
 const router: IRouter = Router();
 
@@ -24,5 +25,6 @@ router.use(videoRouter);
 router.use(ideCodeRouter);
 router.use(agentTasksRouter);
 router.use(booksRouter);
+router.use(studentsRouter);
 
 export default router;

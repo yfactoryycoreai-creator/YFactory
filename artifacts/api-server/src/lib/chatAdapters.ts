@@ -343,6 +343,23 @@ async function throwIfNotOk(response: Response): Promise<void> {
   );
 }
 
+function extractContentValue(raw: unknown): string | undefined {
+  if (typeof raw === "string") return raw;
+  if (Array.isArray(raw)) {
+    const joined = raw
+      .map((part) => {
+        if (typeof part === "string") return part;
+        if (part && typeof part === "object" && typeof (part as { text?: unknown }).text === "string") {
+          return (part as { text: string }).text;
+        }
+        return "";
+      })
+      .join("");
+    if (joined) return joined;
+  }
+  return undefined;
+}
+
 function extractOpenAiContent(payload: unknown): string | undefined {
   if (
     typeof payload === "object" &&
@@ -357,12 +374,10 @@ function extractOpenAiContent(payload: unknown): string | undefined {
         }>;
       }
     ).choices[0];
-    if (typeof first?.delta?.content === "string") {
-      return first.delta.content;
-    }
-    if (typeof first?.message?.content === "string") {
-      return first.message.content;
-    }
+    const deltaText = extractContentValue(first?.delta?.content);
+    if (deltaText !== undefined) return deltaText;
+    const msgText = extractContentValue(first?.message?.content);
+    if (msgText !== undefined) return msgText;
   }
   return undefined;
 }
@@ -373,8 +388,11 @@ const GEMINI_CHAT_URL =
 export function createOpenAiCompatibleChatAdapter(
   endpointUrl: string,
   fetcher: typeof fetch = fetch,
-  timeoutMs = 20_000,
+  timeoutMs = 60_000,
 ): ChatAdapter {
+  const extraHeaders: Record<string, string> = endpointUrl.includes("openrouter.ai")
+    ? { "HTTP-Referer": "https://yfactory.ai", "X-Title": "YFactory AI" }
+    : {};
   const streamTimeoutMs = Math.max(timeoutMs, 90_000);
   return {
     async complete({ apiKey, model, messages, signal }) {
@@ -388,6 +406,7 @@ export function createOpenAiCompatibleChatAdapter(
             headers: {
               Authorization: `Bearer ${apiKey}`,
               "Content-Type": "application/json",
+              ...extraHeaders,
             },
             body: JSON.stringify({ model: targetModel, messages: toOpenAiMessages(messages) }),
             signal: controller.signal,
@@ -420,6 +439,7 @@ export function createOpenAiCompatibleChatAdapter(
               Authorization: `Bearer ${apiKey}`,
               "Content-Type": "application/json",
               Accept: "text/event-stream",
+              ...extraHeaders,
             },
             body: JSON.stringify({ model: targetModel, messages: toOpenAiMessages(messages), stream: true }),
             signal: controller.signal,
@@ -513,7 +533,7 @@ export function createOpenAiCompatibleChatAdapter(
 
 export function createGeminiChatAdapter(
   fetcher: typeof fetch = fetch,
-  timeoutMs = 20_000,
+  timeoutMs = 60_000,
 ): ChatAdapter {
   return createOpenAiCompatibleChatAdapter(GEMINI_CHAT_URL, fetcher, timeoutMs);
 }
@@ -522,7 +542,7 @@ const ANTHROPIC_MESSAGES_URL = "https://api.anthropic.com/v1/messages";
 
 export function createAnthropicChatAdapter(
   fetcher: typeof fetch = fetch,
-  timeoutMs = 20_000,
+  timeoutMs = 60_000,
 ): ChatAdapter {
   const streamTimeoutMs = Math.max(timeoutMs, 90_000);
   const preparePayload = (model: string, messages: ChatMessage[], stream: boolean) => {

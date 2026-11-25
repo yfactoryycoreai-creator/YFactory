@@ -35,6 +35,7 @@ import {
   type VideoMode,
   type VideoModelOption,
 } from '@/lib/videoApi';
+import AppSelect from '@/components/app-select';
 import { isRtlLanguage } from '@/lib/languages';
 import './video-studio.css';
 
@@ -135,8 +136,38 @@ export default function VideoStudio({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  const [selectedProvider, setSelectedProvider] = useState('');
-  const [selectedSpecId, setSelectedSpecId] = useState('');
+  const [selectedProvider, setSelectedProvider] = useState(() => {
+    try {
+      return window.localStorage.getItem('yfactory.video.provider') ?? '';
+    } catch {
+      return '';
+    }
+  });
+  const [selectedSpecId, setSelectedSpecId] = useState(() => {
+    try {
+      return window.localStorage.getItem('yfactory.video.model') ?? '';
+    } catch {
+      return '';
+    }
+  });
+
+  const chooseVideoProvider = (pid: string) => {
+    setSelectedProvider(pid);
+    try {
+      window.localStorage.setItem('yfactory.video.provider', pid);
+    } catch {
+      // ignore
+    }
+  };
+
+  const chooseVideoModel = (specId: string) => {
+    setSelectedSpecId(specId);
+    try {
+      window.localStorage.setItem('yfactory.video.model', specId);
+    } catch {
+      // ignore
+    }
+  };
   const [aspectRatio, setAspectRatio] = useState('');
   const [durationSec, setDurationSec] = useState<number | undefined>(undefined);
   const [resolution, setResolution] = useState('');
@@ -447,36 +478,38 @@ export default function VideoStudio({
           <div className="vs-field-grid">
             <div className="vs-field">
               <label htmlFor="vs-provider">{ui.providerLbl}</label>
-              <select
+              <AppSelect
                 id="vs-provider"
-                className="vs-select"
+                title={ui.providerLbl}
                 value={selectedProvider}
-                onChange={(e) => setSelectedProvider(e.currentTarget.value)}
-                data-testid="select-video-provider"
-              >
-                {providerChoices.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name} {p.connected ? '✓' : ''}
-                  </option>
-                ))}
-              </select>
+                dir={isRtl ? 'rtl' : 'ltr'}
+                testId="select-video-provider"
+                options={providerChoices.map((p) => ({
+                  value: p.id,
+                  label: p.name,
+                  badge: p.connected ? ui.connected : undefined,
+                  badgeTone: p.connected ? 'ok' : 'default',
+                }))}
+                onChange={chooseVideoProvider}
+              />
             </div>
 
             <div className="vs-field">
               <label htmlFor="vs-model">{ui.modelLbl}</label>
-              <select
+              <AppSelect
                 id="vs-model"
-                className="vs-select"
+                title={ui.modelLbl}
                 value={selectedSpecId}
-                onChange={(e) => setSelectedSpecId(e.currentTarget.value)}
-                data-testid="select-video-model"
-              >
-                {providerModels.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.modelName}
-                  </option>
-                ))}
-              </select>
+                dir={isRtl ? 'rtl' : 'ltr'}
+                valueDir="ltr"
+                testId="select-video-model"
+                options={providerModels.map((m) => ({
+                  value: m.id,
+                  label: m.modelName,
+                  subtitle: m.modelId,
+                }))}
+                onChange={chooseVideoModel}
+              />
             </div>
           </div>
 
@@ -509,54 +542,53 @@ export default function VideoStudio({
                   {activeModel.aspectRatios && (
                     <div className="vs-field">
                       <label htmlFor="vs-ratio">{ui.ratioLbl}</label>
-                      <select
+                      <AppSelect
                         id="vs-ratio"
-                        className="vs-select"
+                        title={ui.ratioLbl}
                         value={aspectRatio}
-                        onChange={(e) => setAspectRatio(e.currentTarget.value)}
-                      >
-                        {activeModel.aspectRatios.map((r) => (
-                          <option key={r} value={r}>
-                            {r}
-                          </option>
-                        ))}
-                      </select>
+                        dir={isRtl ? 'rtl' : 'ltr'}
+                        valueDir="ltr"
+                        options={activeModel.aspectRatios.map((r) => ({
+                          value: r,
+                          label: r,
+                        }))}
+                        onChange={setAspectRatio}
+                      />
                     </div>
                   )}
 
                   {activeModel.durations && (
                     <div className="vs-field">
                       <label htmlFor="vs-dur">{ui.durLbl}</label>
-                      <select
+                      <AppSelect
                         id="vs-dur"
-                        className="vs-select"
-                        value={durationSec ?? activeModel.durations[0]}
-                        onChange={(e) => setDurationSec(Number(e.currentTarget.value))}
-                      >
-                        {activeModel.durations.map((d) => (
-                          <option key={d} value={d}>
-                            {d} {ui.secUnit}
-                          </option>
-                        ))}
-                      </select>
+                        title={ui.durLbl}
+                        value={String(durationSec ?? activeModel.durations[0])}
+                        dir={isRtl ? 'rtl' : 'ltr'}
+                        options={activeModel.durations.map((d) => ({
+                          value: String(d),
+                          label: `${d} ${ui.secUnit}`,
+                        }))}
+                        onChange={(v) => setDurationSec(Number(v))}
+                      />
                     </div>
                   )}
 
                   {activeModel.resolutions && (
                     <div className="vs-field">
                       <label htmlFor="vs-res">{ui.resLbl}</label>
-                      <select
+                      <AppSelect
                         id="vs-res"
-                        className="vs-select"
+                        title={ui.resLbl}
                         value={resolution}
-                        onChange={(e) => setResolution(e.currentTarget.value)}
-                      >
-                        {activeModel.resolutions.map((r) => (
-                          <option key={r} value={r}>
-                            {r}
-                          </option>
-                        ))}
-                      </select>
+                        dir={isRtl ? 'rtl' : 'ltr'}
+                        valueDir="ltr"
+                        options={activeModel.resolutions.map((r) => ({
+                          value: r,
+                          label: r,
+                        }))}
+                        onChange={setResolution}
+                      />
                     </div>
                   )}
                 </div>

@@ -52,6 +52,7 @@ import {
   paginateBook,
   type BookDraftInput,
 } from "@/lib/bookPdfEngine";
+import AppSelect from "@/components/app-select";
 import { isRtlLanguage } from "@/lib/languages";
 import { subscribeToStories, type StoryRecord } from "@/lib/stories";
 import "./book-publisher.css";
@@ -65,6 +66,23 @@ type BookPublisherProps = {
 };
 
 type EditorTab = "setup" | "chapters" | "design" | "preview" | "saved";
+
+function formatStoryImageLabel(
+  img: StoryAssetImage,
+  index: number,
+  isAr: boolean,
+): { label: string; subtitle?: string } {
+  const cleaned = img.prompt
+    .replace(/^Character traits to keep consistent:[^\n.]*[\n.]?\s*/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const baseLabel = isAr ? `مشهد #${index + 1}` : `Scene #${index + 1}`;
+  if (!cleaned) return { label: baseLabel };
+  return {
+    label: baseLabel,
+    subtitle: cleaned.slice(0, 72),
+  };
+}
 
 function makeInitialDraft(
   locale: string,
@@ -624,20 +642,21 @@ export default function BookPublisher({
           <div className="bp-field">
             <label htmlFor="bp-story-select">{ui.importStoryLbl}</label>
             <div className="bp-row">
-              <select
-                id="bp-story-select"
-                className="bp-select"
-                style={{ flex: 1 }}
-                value={selectedStoryId}
-                onChange={(e) => setSelectedStoryId(e.currentTarget.value)}
-              >
-                <option value="">{ui.pickStoryPh}</option>
-                {stories.map((st) => (
-                  <option key={st.id} value={st.id}>
-                    {st.storyName} ({st.imageCount})
-                  </option>
-                ))}
-              </select>
+              <div style={{ flex: 1, minWidth: 200 }}>
+                <AppSelect
+                  id="bp-story-select"
+                  title={ui.importStoryLbl}
+                  value={selectedStoryId}
+                  placeholder={ui.pickStoryPh}
+                  dir={isRtl ? "rtl" : "ltr"}
+                  options={stories.map((st) => ({
+                    value: st.id,
+                    label: st.storyName,
+                    badge: `${st.imageCount}`,
+                  }))}
+                  onChange={setSelectedStoryId}
+                />
+              </div>
               <button
                 type="button"
                 className="bp-btn is-primary"
@@ -695,27 +714,32 @@ export default function BookPublisher({
             </div>
             <div className="bp-field">
               <label>{ui.coverImgLbl}</label>
-              <select
-                className="bp-select"
+              <AppSelect
+                title={ui.coverImgLbl}
                 value={draft.coverImageId ?? ""}
-                onChange={(e) => {
-                  const chosen = storyImages.find(
-                    (img) => img.id === e.currentTarget.value,
-                  );
+                placeholder={ui.noCover}
+                dir={isRtl ? "rtl" : "ltr"}
+                options={[
+                  { value: "", label: ui.noCover },
+                  ...storyImages.map((img, i) => {
+                    const fmt = formatStoryImageLabel(img, i, isAr);
+                    return {
+                      value: img.id,
+                      label: fmt.label,
+                      subtitle: fmt.subtitle,
+                      imageUrl: img.url,
+                    };
+                  }),
+                ]}
+                onChange={(val) => {
+                  const chosen = storyImages.find((img) => img.id === val);
                   setDraft({
                     ...draft,
                     coverImageId: chosen?.id ?? null,
                     coverImageUrl: chosen?.url ?? null,
                   });
                 }}
-              >
-                <option value="">{ui.noCover}</option>
-                {storyImages.map((img, i) => (
-                  <option key={img.id} value={img.id}>
-                    #{i + 1} — {img.prompt.slice(0, 48) || img.id}
-                  </option>
-                ))}
-              </select>
+              />
             </div>
           </div>
 
@@ -937,13 +961,22 @@ export default function BookPublisher({
               )}
 
               {storyImages.length > 0 && (
-                <select
-                  className="bp-select"
+                <AppSelect
+                  title={ui.addStoryImgLbl}
                   value=""
-                  onChange={(e) => {
-                    const picked = storyImages.find(
-                      (s) => s.id === e.currentTarget.value,
-                    );
+                  placeholder={`+ ${ui.addStoryImgLbl}`}
+                  dir={isRtl ? "rtl" : "ltr"}
+                  options={storyImages.map((img, sIdx) => {
+                    const fmt = formatStoryImageLabel(img, sIdx, isAr);
+                    return {
+                      value: img.id,
+                      label: fmt.label,
+                      subtitle: fmt.subtitle,
+                      imageUrl: img.url,
+                    };
+                  })}
+                  onChange={(val) => {
+                    const picked = storyImages.find((s) => s.id === val);
                     if (!picked) return;
                     updateChapter(idx, {
                       images: [
@@ -952,19 +985,12 @@ export default function BookPublisher({
                           imageId: picked.id,
                           storyId: picked.storyId,
                           url: picked.url,
-                          caption: picked.prompt.slice(0, 120),
+                          caption: formatStoryImageLabel(picked, 0, isAr).subtitle ?? "",
                         },
                       ],
                     });
                   }}
-                >
-                  <option value="">+ {ui.addStoryImgLbl}</option>
-                  {storyImages.map((img, sIdx) => (
-                    <option key={img.id} value={img.id}>
-                      #{sIdx + 1} — {img.prompt.slice(0, 50) || img.id}
-                    </option>
-                  ))}
-                </select>
+                />
               )}
             </article>
           ))}
@@ -1015,154 +1041,154 @@ export default function BookPublisher({
           <div className="bp-grid-2">
             <div className="bp-field">
               <label>{ui.dirLbl}</label>
-              <select
-                className="bp-select"
+              <AppSelect
+                title={ui.dirLbl}
                 value={draft.design.direction}
-                onChange={(e) => {
-                  const dir = e.currentTarget.value as BookDirection;
+                dir={isRtl ? "rtl" : "ltr"}
+                options={[
+                  { value: "rtl", label: "Arabic / RTL (من اليمين لليسار)" },
+                  { value: "ltr", label: "English / LTR (Left-to-Right)" },
+                ]}
+                onChange={(val) =>
                   setDraft({
                     ...draft,
-                    design: { ...draft.design, direction: dir },
-                  });
-                }}
-              >
-                <option value="rtl">Arabic / RTL (من اليمين لليسار)</option>
-                <option value="ltr">English / LTR (Left-to-Right)</option>
-              </select>
+                    design: { ...draft.design, direction: val as BookDirection },
+                  })
+                }
+              />
             </div>
 
             <div className="bp-field">
               <label>{ui.pageSizeLbl}</label>
-              <select
-                className="bp-select"
+              <AppSelect
+                title={ui.pageSizeLbl}
                 value={draft.design.pageSize}
-                onChange={(e) =>
+                dir={isRtl ? "rtl" : "ltr"}
+                options={(Object.keys(PAGE_SIZE_SPECS) as BookPageSize[]).map(
+                  (k) => ({
+                    value: k,
+                    label: isAr
+                      ? PAGE_SIZE_SPECS[k].labelAr
+                      : PAGE_SIZE_SPECS[k].labelEn,
+                  }),
+                )}
+                onChange={(val) =>
                   setDraft({
                     ...draft,
-                    design: {
-                      ...draft.design,
-                      pageSize: e.currentTarget.value as BookPageSize,
-                    },
+                    design: { ...draft.design, pageSize: val as BookPageSize },
                   })
                 }
-              >
-                {(Object.keys(PAGE_SIZE_SPECS) as BookPageSize[]).map((k) => (
-                  <option key={k} value={k}>
-                    {isAr
-                      ? PAGE_SIZE_SPECS[k].labelAr
-                      : PAGE_SIZE_SPECS[k].labelEn}
-                  </option>
-                ))}
-              </select>
+              />
             </div>
 
             <div className="bp-field">
               <label>{ui.fontLbl}</label>
-              <select
-                className="bp-select"
+              <AppSelect
+                title={ui.fontLbl}
                 value={draft.design.fontFamily}
-                onChange={(e) =>
+                dir={isRtl ? "rtl" : "ltr"}
+                options={FONT_OPTIONS.map((f) => ({
+                  value: f.value,
+                  label: f.label,
+                }))}
+                onChange={(val) =>
                   setDraft({
                     ...draft,
-                    design: {
-                      ...draft.design,
-                      fontFamily: e.currentTarget.value,
-                    },
+                    design: { ...draft.design, fontFamily: val },
                   })
                 }
-              >
-                {FONT_OPTIONS.map((f) => (
-                  <option key={f.value} value={f.value}>
-                    {f.label}
-                  </option>
-                ))}
-              </select>
+              />
             </div>
 
             <div className="bp-field">
               <label>{ui.marginLbl}</label>
-              <select
-                className="bp-select"
+              <AppSelect
+                title={ui.marginLbl}
                 value={draft.design.marginPreset}
-                onChange={(e) =>
+                dir={isRtl ? "rtl" : "ltr"}
+                options={[
+                  { value: "narrow", label: isAr ? "ضيق" : "Narrow" },
+                  { value: "standard", label: isAr ? "قياسي للنشر" : "Standard Book" },
+                  { value: "wide", label: isAr ? "واسع فاخر" : "Wide Editorial" },
+                ]}
+                onChange={(val) =>
                   setDraft({
                     ...draft,
                     design: {
                       ...draft.design,
-                      marginPreset: e.currentTarget.value as BookMarginPreset,
+                      marginPreset: val as BookMarginPreset,
                     },
                   })
                 }
-              >
-                <option value="narrow">{isAr ? "ضيق" : "Narrow"}</option>
-                <option value="standard">{isAr ? "قياسي للنشر" : "Standard Book"}</option>
-                <option value="wide">{isAr ? "واسع فاخر" : "Wide Editorial"}</option>
-              </select>
+              />
             </div>
 
             <div className="bp-field">
               <label>{ui.textSizeLbl}</label>
-              <select
-                className="bp-select"
+              <AppSelect
+                title={ui.textSizeLbl}
                 value={draft.design.fontSize}
-                onChange={(e) =>
+                dir={isRtl ? "rtl" : "ltr"}
+                options={[
+                  { value: "small", label: isAr ? "صغير" : "Small" },
+                  { value: "medium", label: isAr ? "متوسط" : "Medium" },
+                  { value: "large", label: isAr ? "كبير" : "Large" },
+                ]}
+                onChange={(val) =>
                   setDraft({
                     ...draft,
-                    design: {
-                      ...draft.design,
-                      fontSize: e.currentTarget.value as BookFontSize,
-                    },
+                    design: { ...draft.design, fontSize: val as BookFontSize },
                   })
                 }
-              >
-                <option value="small">{isAr ? "صغير" : "Small"}</option>
-                <option value="medium">{isAr ? "متوسط" : "Medium"}</option>
-                <option value="large">{isAr ? "كبير" : "Large"}</option>
-              </select>
+              />
             </div>
 
             <div className="bp-field">
               <label>{ui.imgLayoutLbl}</label>
-              <select
-                className="bp-select"
+              <AppSelect
+                title={ui.imgLayoutLbl}
                 value={draft.design.imageLayout}
-                onChange={(e) =>
+                dir={isRtl ? "rtl" : "ltr"}
+                options={[
+                  { value: "top", label: isAr ? "الصورة أعلى الصفحة" : "Image Top" },
+                  { value: "bottom", label: isAr ? "الصورة أسفل الصفحة" : "Image Bottom" },
+                  { value: "alternating", label: isAr ? "متناوب" : "Alternating" },
+                  { value: "full_page", label: isAr ? "صفحة مستقلة لكل صورة" : "Dedicated Full-Page Images" },
+                ]}
+                onChange={(val) =>
                   setDraft({
                     ...draft,
                     design: {
                       ...draft.design,
-                      imageLayout: e.currentTarget.value as BookImageLayout,
+                      imageLayout: val as BookImageLayout,
                     },
                   })
                 }
-              >
-                <option value="top">{isAr ? "الصورة أعلى الصفحة" : "Image Top"}</option>
-                <option value="bottom">{isAr ? "الصورة أسفل الصفحة" : "Image Bottom"}</option>
-                <option value="alternating">{isAr ? "متناوب" : "Alternating"}</option>
-                <option value="full_page">{isAr ? "صفحة مستقلة لكل صورة" : "Dedicated Full-Page Images"}</option>
-              </select>
+              />
             </div>
 
             <div className="bp-field">
               <label>{ui.coverStyleLbl}</label>
-              <select
-                className="bp-select"
+              <AppSelect
+                title={ui.coverStyleLbl}
                 value={draft.design.coverStyle}
-                onChange={(e) =>
+                dir={isRtl ? "rtl" : "ltr"}
+                options={[
+                  { value: "ornate_gold", label: isAr ? "إطار ذهبي مزخرف" : "Ornate Gold Frame" },
+                  { value: "classic_framed", label: isAr ? "غلاف كلاسيكي بإطار" : "Classic Framed" },
+                  { value: "full_bleed", label: isAr ? "صورة كاملة على الغلاف" : "Full-Bleed Artwork" },
+                  { value: "minimal_editorial", label: isAr ? "تحريري عصري" : "Minimal Editorial" },
+                ]}
+                onChange={(val) =>
                   setDraft({
                     ...draft,
                     design: {
                       ...draft.design,
-                      coverStyle: e.currentTarget.value as BookCoverStyle,
+                      coverStyle: val as BookCoverStyle,
                     },
                   })
                 }
-              >
-                <option value="ornate_gold">{isAr ? "إطار ذهبي مزخرف" : "Ornate Gold Frame"}</option>
-                <option value="classic_framed">{isAr ? "غلاف كلاسيكي بإطار" : "Classic Framed"}</option>
-                <option value="full_bleed">{isAr ? "صورة كاملة على الغلاف" : "Full-Bleed Artwork"}</option>
-                <option value="minimal_editorial">{isAr ? "تحريري عصري" : "Minimal Editorial"}</option>
-              </select>
+              />
             </div>
           </div>
 
