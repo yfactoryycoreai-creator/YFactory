@@ -7,18 +7,10 @@ import {
   type RecommendationPriority,
   type RecommendationTask,
 } from "./providerDiagnostics";
-import {
-  listAvailableVideoModels,
-  pollVideoJobStatus,
-  submitVideoGenerationJob,
-  VideoServiceError,
-  type VideoMode,
-} from "./videoService";
 
 export type AgentSectionTarget =
   | "image"
   | "stories"
-  | "video"
   | "code"
   | "students"
   | "provider_center";
@@ -26,7 +18,6 @@ export type AgentSectionTarget =
 export type AgentToolName =
   | "generate_image"
   | "story_setup"
-  | "generate_video"
   | "code_workspace_task"
   | "student_study_assist"
   | "provider_recommend";
@@ -60,14 +51,6 @@ export const AGENT_TOOL_REGISTRY: ReadonlyArray<AgentToolDefinition> = [
     executionSide: "client",
     description:
       "Create or update a story (up to 100 scenes, including 50+ scenes), character traits, and optionally start background scene rendering.",
-    supportsLongRunning: true,
-  },
-  {
-    name: "generate_video",
-    section: "video",
-    executionSide: "server",
-    description:
-      "Submit a real Text-to-Video or Image-to-Video generation job using a connected video provider in Provider Center.",
     supportsLongRunning: true,
   },
   {
@@ -108,7 +91,6 @@ export type AgentTaskRecord = {
   resultSummary: string | null;
   targetRef: {
     storyId?: string;
-    videoJobId?: string;
     providerId?: string;
     ideSessionId?: string;
   } | null;
@@ -167,7 +149,6 @@ function taskFromDoc(id: string, d: Record<string, unknown>): AgentTaskRecord {
   const validSection: AgentSectionTarget =
     d.section === "image" ||
     d.section === "stories" ||
-    d.section === "video" ||
     d.section === "code" ||
     d.section === "students" ||
     d.section === "provider_center"
@@ -177,7 +158,6 @@ function taskFromDoc(id: string, d: Record<string, unknown>): AgentTaskRecord {
   const validTool: AgentToolName =
     d.toolName === "generate_image" ||
     d.toolName === "story_setup" ||
-    d.toolName === "generate_video" ||
     d.toolName === "code_workspace_task" ||
     d.toolName === "student_study_assist" ||
     d.toolName === "provider_recommend"
@@ -209,9 +189,6 @@ function taskFromDoc(id: string, d: Record<string, unknown>): AgentTaskRecord {
     targetRef: rawRef
       ? {
           ...(typeof rawRef.storyId === "string" ? { storyId: rawRef.storyId } : {}),
-          ...(typeof rawRef.videoJobId === "string"
-            ? { videoJobId: rawRef.videoJobId }
-            : {}),
           ...(typeof rawRef.providerId === "string"
             ? { providerId: rawRef.providerId }
             : {}),
@@ -323,65 +300,7 @@ export async function listAgentTasks(
     .orderBy("updatedAt", "desc")
     .limit(Math.max(1, Math.min(limit, 60)))
     .get();
-  const tasks = snap.docs.map((doc) => taskFromDoc(doc.id, doc.data()));
-
-  // Live recovery sync for any active async video tasks
-  const synced = await Promise.all(
-    tasks.map(async (task) => {
-      if (
-        task.toolName === "generate_video" &&
-        (task.status === "queued" || task.status === "running") &&
-        task.targetRef?.videoJobId
-      ) {
-        try {
-          const job = await pollVideoJobStatus(uid, task.targetRef.videoJobId);
-          if (job) {
-            const mappedStatus: AgentTaskStatus =
-              job.status === "completed"
-                ? "completed"
-                : job.status === "failed"
-                  ? "failed"
-                  : job.status === "processing"
-                    ? "running"
-                    : "queued";
-            const mappedProgress =
-              job.status === "completed"
-                ? 100
-                : job.progress ?? (job.status === "processing" ? 50 : 15);
-            const nextStep =
-              job.status === "completed"
-                ? `Video ready (${job.modelName})`
-                : job.status === "failed"
-                  ? "Video generation failed"
-                  : `Rendering via ${job.providerName} (${job.modelName})...`;
-            if (
-              mappedStatus !== task.status ||
-              mappedProgress !== task.progress ||
-              job.errorMessage !== task.errorMessage
-            ) {
-              const up = await updateAgentTask(uid, task.id, {
-                status: mappedStatus,
-                progress: mappedProgress,
-                stepLabel: nextStep,
-                ...(job.status === "completed"
-                  ? {
-                      resultSummary: `Video generated with ${job.providerName} / ${job.modelName}. Open Video tab to play or download.`,
-                    }
-                  : {}),
-                errorMessage: job.errorMessage,
-              });
-              return up ?? task;
-            }
-          }
-        } catch {
-          // Keep last known task state if provider poll transiently fails.
-        }
-      }
-      return task;
-    }),
-  );
-
-  return synced;
+  return snap.docs.map((doc) => taskFromDoc(doc.id, doc.data()));
 }
 
 export async function cancelAgentTask(
@@ -429,108 +348,6 @@ export async function executeServerAgentTool(
   task: AgentTaskRecord;
   data: Record<string, unknown>;
 }> {
-  if (toolName === "generate_video") {
-    const prompt =
-      typeof payload.prompt === "string" ? payload.prompt.trim() : "";
-    if (!prompt) {
-      throw new AgentTaskError(
-        "Provide a video scene description to generate a video.",
-        "invalid_prompt",
-        400,
-      );
-    }
-    const mode: VideoMode =
-      payload.mode === "image_to_video" ? "image_to_video" : "text_to_video";
-    const requestedSpecId =
-      typeof payload.specId === "string" ? payload.specId.trim() : "";
-    const aspectRatio =
-      typeof payload.aspectRatio === "string" ? payload.aspectRatio.trim() : undefined;
-    const durationSec =
-      typeof payload.durationSec === "number" ? payload.durationSec : undefined;
-    const imageInput =
-      typeof payload.imageInput === "string" ? payload.imageInput.trim() : undefined;
-
-    const available = await listAvailableVideoModels(uid);
-    const matchingMode = available.filter((m) => m.modes.includes(mode));
-    const chosen =
-      (requestedSpecId
-        ? matchingMode.find((m) => m.id === requestedSpecId && m.providerConnected)
-        : undefined) ??
-      matchingMode.find((m) => m.providerConnected);
-
-    if (!chosen) {
-      const failed = await createAgentTask(uid, {
-        toolName: "generate_video",
-        section: "video",
-        title: `Video: ${prompt.slice(0, 70)}`,
-        status: "failed",
-        progress: 0,
-        stepLabel: "No connected video provider key",
-        payload: { prompt, mode, aspectRatio, durationSec },
-        errorMessage:
-          "No connected video provider found in Provider Center (add a Google/Gemini, Runway, Luma AI, fal, or Replicate key).",
-      });
-      return {
-        task: failed,
-        data: {
-          ok: false,
-          errorMessage: failed.errorMessage,
-        },
-      };
-    }
-
-    try {
-      const job = await submitVideoGenerationJob(uid, {
-        specId: chosen.id,
-        mode,
-        prompt,
-        aspectRatio,
-        durationSec,
-        imageInput,
-      });
-      const task = await createAgentTask(uid, {
-        toolName: "generate_video",
-        section: "video",
-        title: `Video (${chosen.modelName}): ${prompt.slice(0, 60)}`,
-        status: "running",
-        progress: 15,
-        stepLabel: `Queued on ${chosen.providerName} (${chosen.modelName})`,
-        payload: { prompt, mode, specId: chosen.id, aspectRatio, durationSec },
-        resultSummary: `Submitted video job to ${chosen.providerName} (${chosen.modelName}). Track live progress in Video tab or Task Manager.`,
-        targetRef: { videoJobId: job.id, providerId: chosen.providerId },
-      });
-      return {
-        task,
-        data: {
-          ok: true,
-          videoJobId: job.id,
-          providerName: chosen.providerName,
-          modelName: chosen.modelName,
-        },
-      };
-    } catch (err) {
-      const msg =
-        err instanceof VideoServiceError
-          ? err.message
-          : "Video provider rejected the request.";
-      const failed = await createAgentTask(uid, {
-        toolName: "generate_video",
-        section: "video",
-        title: `Video (${chosen.modelName}): ${prompt.slice(0, 60)}`,
-        status: "failed",
-        progress: 0,
-        stepLabel: "Provider request failed",
-        payload: { prompt, mode, specId: chosen.id, aspectRatio, durationSec },
-        targetRef: { providerId: chosen.providerId },
-        errorMessage: msg,
-      });
-      return {
-        task: failed,
-        data: { ok: false, errorMessage: msg },
-      };
-    }
-  }
-
   if (toolName === "code_workspace_task") {
     const prompt =
       typeof payload.prompt === "string" ? payload.prompt.trim() : "";
@@ -616,11 +433,7 @@ export async function executeServerAgentTool(
   if (toolName === "provider_recommend") {
     const rawTask = typeof payload.task === "string" ? payload.task : "chat";
     const recTask: RecommendationTask =
-      rawTask === "code" ||
-      rawTask === "image_generation" ||
-      rawTask === "video_generation"
-        ? rawTask
-        : "chat";
+      rawTask === "code" || rawTask === "image_generation" ? rawTask : "chat";
     const rawPrio = typeof payload.priority === "string" ? payload.priority : "balanced";
     const priority: RecommendationPriority =
       rawPrio === "speed" || rawPrio === "cost" ? rawPrio : "balanced";

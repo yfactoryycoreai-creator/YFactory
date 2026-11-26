@@ -5,7 +5,6 @@ export type ChatAgentMode =
   | 'agent'
   | 'image'
   | 'story'
-  | 'video'
   | 'code'
   | 'students';
 
@@ -27,16 +26,6 @@ export type StoryAgentCommand = {
   startGeneration: boolean;
 };
 
-export type VideoAgentCommand = {
-  type: 'generate_video';
-  mode: 'text_to_video' | 'image_to_video';
-  prompt: string;
-  aspectRatio?: string;
-  durationSec?: number;
-  specId?: string;
-  imageInput?: string;
-};
-
 export type CodeAgentCommand = {
   type: 'code_workspace_task';
   prompt: string;
@@ -51,26 +40,24 @@ export type StudentsAgentCommand = {
 
 export type ProviderRecommendAgentCommand = {
   type: 'provider_recommend';
-  task: 'chat' | 'code' | 'image_generation' | 'video_generation';
+  task: 'chat' | 'code' | 'image_generation';
   priority: 'balanced' | 'speed' | 'cost';
 };
 
 export type ChatAgentCommand =
   | ImageAgentCommand
   | StoryAgentCommand
-  | VideoAgentCommand
   | CodeAgentCommand
   | StudentsAgentCommand
   | ProviderRecommendAgentCommand;
 
 export type ChatAgentRunResult = {
   ok: boolean;
-  target: 'image' | 'story' | 'video' | 'code' | 'students' | 'provider_center';
+  target: 'image' | 'story' | 'code' | 'students' | 'provider_center';
   navigated: boolean;
   taskId?: string;
   storyId?: string;
   storyName?: string;
-  videoJobId?: string;
   providerId?: string;
   resultSummary?: string;
   generatedImages?: Array<{ url: string; provider: string }>;
@@ -78,6 +65,43 @@ export type ChatAgentRunResult = {
 };
 
 const AUTO_NAV_STORAGE_KEY = 'yfactory.chat.autoNavigate';
+
+/**
+ * Checks whether the currently selected chat model supports visual/video frame understanding.
+ * Video clips recorded in Chat are sampled into lightweight timestamped keyframes on-device,
+ * so any multimodal vision-capable model (Gemini, GPT-4o/5, Claude 3/4, Qwen-VL, Pixtral, etc.)
+ * can analyze them smoothly without overloading the server.
+ */
+export function modelSupportsVideoInput(
+  model: { provider: string; modelName: string } | undefined | null,
+): boolean {
+  if (!model) return false;
+  const prov = model.provider.toLowerCase();
+  const name = model.modelName.toLowerCase();
+
+  // Explicitly text-only models
+  if (
+    /(?:deepseek-r1|deepseek-chat|deepseek-coder|codestral|whisper|tts|embedding|babbage|davinci|gpt-3\.5|o1-mini|llama-3\.1-|llama-3-8b|llama-3-70b|mixtral-8x|gemma-2-|qwen-2\.5-coder)/i.test(
+      name,
+    )
+  ) {
+    return false;
+  }
+
+  // Native multimodal & vision-capable families
+  if (prov === 'gemini' || prov === 'google') return true;
+  if (prov === 'anthropic' && /claude-(?:3|4|sonnet|opus|haiku)/i.test(name)) {
+    return true;
+  }
+  if (
+    /(?:gemini|gpt-4o|gpt-4\.1|gpt-4-turbo|gpt-5|chatgpt-4o|o1|o3|o4|claude-3|claude-4|vision|pixtral|qwen.*vl|llava|llama-3\.2.*(?:11b|90b)|llama-4|grok-2-vision|grok-3|grok-4|kimi-vl|glm-4v|internvl|minicpm-v|openrouter\/(?:auto|free))/i.test(
+      name,
+    )
+  ) {
+    return true;
+  }
+  return false;
+}
 
 export function readChatAutoNavigate(): boolean {
   if (typeof window === 'undefined') return true;
@@ -107,14 +131,14 @@ export function buildYFactoryChatSystemPrompt(
 ): string {
   const base = [
     `You are the built-in AI Agent & assistant inside YFactory AI.`,
-    `YFactory AI has 6 integrated workspaces: Image, Chat, My Stories (supports 1 to 100 scenes including 50+ scene pipelines), Video (Text-to-Video & Image-to-Video), Code (VS Code IDE-connected agent), Students, and a unified Provider Center.`,
-    `NEVER tell the user to leave YFactory or use external tools like Bing Image Creator, Midjourney, or DALL-E.`,
+    `YFactory AI has 5 integrated workspaces: Image, Chat, My Stories (supports 1 to 100 scenes + Professional PDF Book Publisher + Higgsfield Motion Connector), Code (VS Code IDE-connected agent), Students (AI Teacher, Exam Scanner, Visual Research, Interactive Exams & Adaptive Progress), and a unified Provider Center.`,
+    `NEVER tell the user to leave YFactory or use external image tools like Bing Image Creator or Midjourney. If the user wants to animate story scenes into video, guide them to the Higgsfield Connector tab inside My Stories.`,
     `If the user asks a regular question, answer naturally in their language without emitting any action block.`,
-    `If the user explicitly asks to execute an action (generate images, create/render a story, generate a video, check IDE Code status, create a study plan, or recommend the best provider), you may emit ONE validated fenced block:`,
+    `If the user explicitly asks to execute an action (generate images, create/render a story, check IDE Code status, create a study plan, or recommend the best provider), you may emit ONE validated fenced block:`,
     '```yfactory-action',
     '{"type":"generate_image","prompt":"...","count":1}',
     '```',
-    `Supported action types: "generate_image", "story_setup", "generate_video", "code_workspace_task", "student_study_assist", "provider_recommend".`,
+    `Supported action types: "generate_image", "story_setup", "code_workspace_task", "student_study_assist", "provider_recommend".`,
     `HONESTY RULE: For "code_workspace_task", NEVER pretend to edit files locally if no IDE is connected; the backend checks active IDE sessions automatically.`,
   ];
   if (attachedStory) {
@@ -133,16 +157,15 @@ export function buildUnifiedAgentSystemPrompt(
     : `No linked story yet (use "storyId": null for a new story).`;
 
   return [
-    `You are the YFactory AI Full Agent Orchestrator with structured tool calling across all 6 YFactory sections.`,
+    `You are the YFactory AI Full Agent Orchestrator with structured tool calling across all 5 YFactory workspaces.`,
     storyLine,
     `Decide carefully whether the user is asking a normal question (reply normally with NO yfactory-action block) or requesting a real action inside YFactory.`,
     `When executing a real action, write a short clear confirmation in the user's language and append EXACTLY ONE valid JSON block fenced with \`\`\`yfactory-action:`,
     `1. Image: {"type":"generate_image","prompt":"rich English visual prompt","count":1}`,
     `2. My Stories (supports up to 100 scenes / 50+ scenes): {"type":"story_setup","storyId":null,"storyName":"Title","script":"Full vivid scene script...","targetCount":10,"aspectRatio":"16:9","characterTraits":["trait 1"],"keepOneProvider":true,"startGeneration":true}`,
-    `3. Video: {"type":"generate_video","mode":"text_to_video","prompt":"detailed English motion prompt","aspectRatio":"16:9","durationSec":5}`,
-    `4. Code (IDE-connected ONLY, NOT an App Builder): {"type":"code_workspace_task","prompt":"task description for connected VS Code workspace"}`,
-    `5. Students: {"type":"student_study_assist","topic":"Lesson/exam topic","subject":"Subject","goal":"Explain & Quiz"}`,
-    `6. Provider Center recommendation: {"type":"provider_recommend","task":"chat","priority":"balanced"} (task: chat|code|image_generation|video_generation; priority: balanced|speed|cost)`,
+    `3. Code (IDE-connected ONLY, NOT an App Builder): {"type":"code_workspace_task","prompt":"task description for connected VS Code workspace"}`,
+    `4. Students: {"type":"student_study_assist","topic":"Lesson/exam topic","subject":"Subject","goal":"Explain & Quiz"}`,
+    `5. Provider Center recommendation: {"type":"provider_recommend","task":"chat","priority":"balanced"} (task: chat|code|image_generation; priority: balanced|speed|cost)`,
     `Never invent fake results. Output strictly valid JSON inside \`\`\`yfactory-action with no comments.`,
   ].join('\n');
 }
@@ -182,7 +205,7 @@ export function buildStoryAgentSystemPrompt(
 
   return [
     `You are the YFactory AI Story Agent connected directly to the real My Stories workspace.`,
-    `YFactory AI generates scene images natively on its own backend (supports 1 to 100 scenes, including 50+ scene stories tracked by the Persistent Task Manager). NEVER recommend external tools.`,
+    `YFactory AI generates scene images natively on its own backend (supports 1 to 100 scenes, including 50+ scene stories tracked by the Persistent Task Manager), publishes PDF books, and connects to Higgsfield for user-managed scene animation.`,
     existing,
     `IMPORTANT: If the user is ONLY asking a question and NOT asking to create, edit, or start generating a story right now, answer naturally WITHOUT emitting any yfactory-action block.`,
     `When creating/updating a story or starting scene generation, reply clearly in the user's language and append ONE fenced block:`,
@@ -190,17 +213,6 @@ export function buildStoryAgentSystemPrompt(
     `{"type":"story_setup","storyId":null,"storyName":"Story Title","script":"Full story script divided into vivid scenes...","targetCount":10,"aspectRatio":"16:9","characterTraits":["trait 1","trait 2","trait 3"],"keepOneProvider":true,"startGeneration":false}`,
     '```',
     `Rules: "targetCount" integer 1..100, "aspectRatio" "16:9"|"9:16"|"1:1", "characterTraits" 0..3 items (<=80 chars each), "startGeneration" true ONLY if user asked to render images now.`,
-  ].join('\n');
-}
-
-export function buildVideoAgentSystemPrompt(): string {
-  return [
-    `You are the YFactory AI Video Agent connected directly to YFactory Video Studio and Provider Center.`,
-    `When the user asks to generate a video, confirm briefly in their language and append ONE fenced block:`,
-    '```yfactory-action',
-    `{"type":"generate_video","mode":"text_to_video","prompt":"detailed English cinematic video prompt","aspectRatio":"16:9","durationSec":5}`,
-    '```',
-    `If the user is only asking a question, reply normally with NO action block.`,
   ].join('\n');
 }
 
@@ -338,33 +350,6 @@ function tryParseCommandJson(
     };
   }
 
-  if (obj.type === 'generate_video') {
-    const prompt =
-      typeof obj.prompt === 'string' && obj.prompt.trim()
-        ? obj.prompt.trim().slice(0, 4000)
-        : userPrompt.trim().slice(0, 4000);
-    if (!prompt) return null;
-    const mode = obj.mode === 'image_to_video' ? 'image_to_video' : 'text_to_video';
-    const duration = Number(obj.durationSec);
-    return {
-      type: 'generate_video',
-      mode,
-      prompt,
-      ...(typeof obj.aspectRatio === 'string' && obj.aspectRatio.trim()
-        ? { aspectRatio: obj.aspectRatio.trim() }
-        : {}),
-      ...(Number.isFinite(duration) && duration >= 4 && duration <= 12
-        ? { durationSec: Math.round(duration) }
-        : {}),
-      ...(typeof obj.specId === 'string' && obj.specId.trim()
-        ? { specId: obj.specId.trim() }
-        : {}),
-      ...(typeof obj.imageInput === 'string' && obj.imageInput.trim()
-        ? { imageInput: obj.imageInput.trim() }
-        : {}),
-    };
-  }
-
   if (obj.type === 'code_workspace_task') {
     const prompt =
       typeof obj.prompt === 'string' && obj.prompt.trim()
@@ -396,11 +381,7 @@ function tryParseCommandJson(
 
   if (obj.type === 'provider_recommend') {
     const task =
-      obj.task === 'code' ||
-      obj.task === 'image_generation' ||
-      obj.task === 'video_generation'
-        ? obj.task
-        : 'chat';
+      obj.task === 'code' || obj.task === 'image_generation' ? obj.task : 'chat';
     const priority =
       obj.priority === 'speed' || obj.priority === 'cost'
         ? obj.priority

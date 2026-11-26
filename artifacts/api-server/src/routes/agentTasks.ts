@@ -27,7 +27,6 @@ function isValidToolName(value: unknown): value is AgentToolName {
   return (
     value === "generate_image" ||
     value === "story_setup" ||
-    value === "generate_video" ||
     value === "code_workspace_task" ||
     value === "student_study_assist" ||
     value === "provider_recommend"
@@ -38,7 +37,6 @@ function isValidSection(value: unknown): value is AgentSectionTarget {
   return (
     value === "image" ||
     value === "stories" ||
-    value === "video" ||
     value === "code" ||
     value === "students" ||
     value === "provider_center"

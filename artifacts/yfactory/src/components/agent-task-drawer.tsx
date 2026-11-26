@@ -37,7 +37,7 @@ function getCopy(lang: string) {
     return {
       title: "مدير مهام الوكيل الدائم",
       clearDone: "مسح المنتهية",
-      empty: "لا توجد مهام مسجلة بعد. نفّذ أي أمر من الشات (صور، قصص، فيديو، برمجة، طلاب، مزودون) لمتابعة التقدم هنا حتى بعد تحديث الصفحة.",
+      empty: "لا توجد مهام مسجلة بعد. نفّذ أي أمر من الشات (صور، قصص، برمجة، طلاب، مزودون) لمتابعة التقدم هنا حتى بعد تحديث الصفحة.",
       cancel: "إيقاف",
       retry: "إعادة المحاولة",
       open: "فتح القسم",
@@ -52,7 +52,6 @@ function getCopy(lang: string) {
       sections: {
         image: "الصور",
         stories: "قصصي",
-        video: "الفيديو",
         code: "البرمجة",
         students: "الطلاب",
         provider_center: "المزودون",
@@ -62,7 +61,7 @@ function getCopy(lang: string) {
   return {
     title: "Persistent Agent Tasks",
     clearDone: "Clear Finished",
-    empty: "No persisted agent tasks yet. Run any Chat Agent action (Image, My Stories, Video, Code, Students, Provider Center) to track progress and recover after reconnects.",
+    empty: "No persisted agent tasks yet. Run any Chat Agent action (Image, My Stories, Code, Students, Provider Center) to track progress and recover after reconnects.",
     cancel: "Cancel",
     retry: "Retry",
     open: "Open",

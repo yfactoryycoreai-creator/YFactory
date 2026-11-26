@@ -1,7 +1,6 @@
 export type AgentSectionTarget =
   | "image"
   | "stories"
-  | "video"
   | "code"
   | "students"
   | "provider_center";
@@ -9,7 +8,6 @@ export type AgentSectionTarget =
 export type AgentToolName =
   | "generate_image"
   | "story_setup"
-  | "generate_video"
   | "code_workspace_task"
   | "student_study_assist"
   | "provider_recommend";
@@ -33,7 +31,6 @@ export type AgentTaskItem = {
   resultSummary: string | null;
   targetRef: {
     storyId?: string;
-    videoJobId?: string;
     providerId?: string;
     ideSessionId?: string;
   } | null;

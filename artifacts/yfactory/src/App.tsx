@@ -9,10 +9,13 @@ import {
 } from 'react';
 import { deleteUser } from 'firebase/auth';
 import {
+  Bell,
+  BellOff,
   BookMarked,
   BookOpen,
+  Camera,
   Download,
-  Film,
+  Clapperboard,
   GraduationCap,
   Globe2,
   Image as ImageIcon,
@@ -43,10 +46,17 @@ import YCodeLogo from '@/components/ycode-logo';
 import {
   CodeSectionHub,
   StudentsSectionHub,
-  VideoSectionHub,
 } from '@/components/section-hubs';
 import LanguagePickerDialog from '@/components/language-picker-dialog';
-import { notifyUserIfEnabled } from '@/lib/appPreferences';
+import InAppCameraModal from '@/components/in-app-camera-modal';
+import {
+  disableYFactoryNotifications,
+  getNotificationUiState,
+  registerYFactoryServiceWorker,
+  requestYFactoryNotifications,
+  sendYFactoryNotification,
+  type NotificationUiState,
+} from '@/lib/yfactoryNotifications';
 import {
   applyDocumentLanguage,
   changeAppLanguage,
@@ -84,6 +94,7 @@ import {
   MAX_STORY_IMAGES,
   StoryLimitReachedError,
   startStorySceneGeneration,
+  subscribeToStories,
   updateStoryScript,
   updateStorySettings,
   updateStoryTargetCount,
@@ -113,10 +124,11 @@ import {
 
 const queryClient = new QueryClient();
 
-type AppSection = 'image' | 'chat' | 'stories' | 'code' | 'video' | 'students';
+type AppSection = 'image' | 'chat' | 'stories' | 'code' | 'students';
 
 const StoryFactory = lazy(() => import('@/components/story-factory'));
 const BookPublisher = lazy(() => import('@/components/book-publisher'));
+const HiggsfieldConnector = lazy(() => import('@/components/higgsfield-connector'));
 
 function StoryTabFallback({ resetError }: ErrorFallbackProps) {
   const { t } = useTranslation();
@@ -158,13 +170,16 @@ function Home() {
   const [noticeKey, setNoticeKey] = useState('');
   const [profileOpen, setProfileOpen] = useState(false);
   const [languagePickerOpen, setLanguagePickerOpen] = useState(false);
+  const [imageEditCameraOpen, setImageEditCameraOpen] = useState(false);
+  const [notifState, setNotifState] = useState<NotificationUiState>(getNotificationUiState);
+  const storyCountsRef = useRef<Map<string, number> | null>(null);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [activeSection, setActiveSection] = useState<AppSection>('image');
   const lastNonChatSectionRef = useRef<Exclude<AppSection, 'chat'>>('image');
   const tabButtonRefs = useRef<Partial<Record<AppSection, HTMLButtonElement | null>>>({});
   const chatOpen = activeSection === 'chat';
   const storiesOpen = activeSection === 'stories';
-  const [storiesMode, setStoriesMode] = useState<'factory' | 'book'>('factory');
+  const [storiesMode, setStoriesMode] = useState<'factory' | 'book' | 'higgsfield'>('factory');
   const [activeStory, setActiveStory] = useState<StoryRecord | null>(null);
   const [pendingStorySave, setPendingStorySave] =
     useState<GeneratedImageHistoryItem | null>(null);
@@ -251,6 +266,69 @@ function Home() {
     },
     [],
   );
+
+  useEffect(() => {
+    void registerYFactoryServiceWorker();
+    setNotifState(getNotificationUiState());
+    if (!('serviceWorker' in navigator)) return;
+    const onSwMessage = (event: MessageEvent) => {
+      const data = event.data as { type?: string; section?: AppSection } | null;
+      if (data?.type === 'yfactory:navigate' && data.section) {
+        setActiveSection(data.section);
+      }
+    };
+    navigator.serviceWorker.addEventListener('message', onSwMessage);
+    return () => {
+      navigator.serviceWorker.removeEventListener('message', onSwMessage);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!user?.uid) {
+      storyCountsRef.current = null;
+      return;
+    }
+    const unsub = subscribeToStories(
+      user.uid,
+      (stories) => {
+        const prev = storyCountsRef.current;
+        const nextMap = new Map<string, number>();
+        for (const st of stories) {
+          nextMap.set(st.id, st.imageCount);
+          if (
+            prev !== null &&
+            st.targetCount > 0 &&
+            st.imageCount >= st.targetCount
+          ) {
+            const prevCount = prev.get(st.id) ?? 0;
+            if (prevCount < st.targetCount) {
+              void sendYFactoryNotification(
+                locale.startsWith('ar')
+                  ? 'اكتمل توليد قصتك!'
+                  : 'Story Generation Complete!',
+                locale.startsWith('ar')
+                  ? `قصة «${st.storyName}» جاهزة الآن (${st.imageCount}/${st.targetCount} مشهد).`
+                  : `"${st.storyName}" is ready (${st.imageCount}/${st.targetCount} scenes).`,
+                { section: 'stories', tag: `story-done-${st.id}` },
+              );
+            }
+          }
+        }
+        storyCountsRef.current = nextMap;
+      },
+      () => undefined,
+    );
+    return () => unsub();
+  }, [user?.uid, locale]);
+
+  const handleToggleNotifications = useCallback(async () => {
+    if (notifState.enabled) {
+      setNotifState(disableYFactoryNotifications());
+      return;
+    }
+    const updated = await requestYFactoryNotifications(locale);
+    setNotifState(updated);
+  }, [notifState.enabled, locale]);
 
   const selectSection = useCallback((section: AppSection) => {
     if (section !== 'chat') {
@@ -420,7 +498,11 @@ function Home() {
           );
         } else {
           setNoticeKey('status.imageBatchReady');
-          notifyUserIfEnabled('YFactory AI', t('status.imageBatchReady'));
+          void sendYFactoryNotification(
+            'YFactory AI',
+            t('status.imageBatchReady'),
+            { section: 'image', tag: 'yfactory-image-ready' },
+          );
         }
         return {
           ok: true,
@@ -640,6 +722,11 @@ function Home() {
         );
       } else {
         setNoticeKey('status.imageBatchReady');
+        void sendYFactoryNotification(
+          'YFactory AI',
+          t('status.imageBatchReady'),
+          { section: 'image', tag: 'yfactory-image-ready' },
+        );
       }
     } catch (generationError) {
       if (!controller.signal.aborted) {
@@ -689,6 +776,11 @@ function Home() {
         imageData: edited.imageData,
         provider: edited.provider,
       });
+      void sendYFactoryNotification(
+        locale.startsWith('ar') ? 'اكتمل تعديل الصورة' : 'Image Edit Ready',
+        promptToEdit.slice(0, 90),
+        { section: 'image', tag: 'yfactory-image-edit-ready' },
+      );
     } catch (error) {
       const code = error instanceof ImageEditError ? error.code : '';
       setImageEditError(
@@ -764,6 +856,61 @@ function Home() {
           <span className="brand-mark" aria-hidden="true">Y</span><span>YFactory</span>
         </div>
         <div className="header-tools">
+          {notifState.supported && (
+            <button
+              type="button"
+              style={{
+                width: 40,
+                height: 40,
+                padding: 0,
+                borderRadius: '50%',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+                cursor: 'pointer',
+                background: notifState.enabled
+                  ? 'rgba(234, 179, 46, 0.16)'
+                  : 'var(--app-raised, rgba(255, 255, 255, 0.06))',
+                border: notifState.enabled
+                  ? '1px solid #eab32e'
+                  : '1px solid var(--app-separator, rgba(255, 255, 255, 0.14))',
+                color: notifState.enabled
+                  ? '#eab32e'
+                  : 'var(--app-secondary, #a1a1aa)',
+              }}
+              aria-label={
+                notifState.enabled
+                  ? locale.startsWith('ar')
+                    ? 'إيقاف الإشعارات'
+                    : 'Disable notifications'
+                  : locale.startsWith('ar')
+                    ? 'تفعيل الإشعارات'
+                    : 'Enable notifications'
+              }
+              title={
+                notifState.permission === 'denied'
+                  ? locale.startsWith('ar')
+                    ? 'الإشعارات محظورة من المتصفح — فعّلها من إعدادات الموقع'
+                    : 'Notifications blocked in browser settings'
+                  : notifState.enabled
+                    ? locale.startsWith('ar')
+                      ? 'الإشعارات مفعّلة (اضغط للإيقاف)'
+                      : 'Notifications ON (tap to disable)'
+                    : locale.startsWith('ar')
+                      ? 'اضغط لتفعيل إشعارات التطبيق'
+                      : 'Tap to enable system notifications'
+              }
+              data-testid="button-toggle-notifications"
+              onClick={() => void handleToggleNotifications()}
+            >
+              {notifState.enabled ? (
+                <Bell size={16} aria-hidden="true" />
+              ) : (
+                <BellOff size={16} aria-hidden="true" />
+              )}
+            </button>
+          )}
           <button
             type="button"
             className="locale-trigger"
@@ -894,18 +1041,6 @@ function Home() {
             <span>{locale.startsWith('ar') ? 'البرمجة' : 'Code'}</span>
           </button>
           <button
-            ref={(el) => { tabButtonRefs.current.video = el; }}
-            type="button"
-            role="tab"
-            aria-selected={activeSection === 'video'}
-            className={`tab${activeSection === 'video' ? ' active' : ''}`}
-            onClick={() => selectSection('video')}
-            data-testid="tab-video"
-          >
-            <Film size={19} />
-            <span>{locale.startsWith('ar') ? 'فيديو' : 'Video'}</span>
-          </button>
-          <button
             ref={(el) => { tabButtonRefs.current.students = el; }}
             type="button"
             role="tab"
@@ -937,7 +1072,6 @@ function Home() {
             onExecuteStoryAgent={executeChatStoryAgent}
             onOpenImagePage={openImageWorkspaceFromChat}
             onOpenStoryPage={openStoryWorkspaceFromChat}
-            onOpenVideoPage={() => selectSection('video')}
             onOpenCodePage={() => selectSection('code')}
             onOpenStudentsPage={() => selectSection('students')}
             onOpenProviderCenter={(providerId) => openProviderCenterFromHub(providerId)}
@@ -969,6 +1103,17 @@ function Home() {
                 <BookMarked size={15} aria-hidden="true" />
                 <span>{locale.startsWith('ar') ? 'ناشر كتب PDF' : 'PDF Book Publisher'}</span>
               </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={storiesMode === 'higgsfield'}
+                className={`stories-subnav-btn${storiesMode === 'higgsfield' ? ' is-active' : ''}`}
+                onClick={() => setStoriesMode('higgsfield')}
+                data-testid="stories-subtab-higgsfield"
+              >
+                <Clapperboard size={15} aria-hidden="true" />
+                <span>{locale.startsWith('ar') ? 'موصّل Higgsfield' : 'Higgsfield'}</span>
+              </button>
             </div>
             <Suspense fallback={<StoryTabLoading />}>
               {storiesMode === 'book' ? (
@@ -976,6 +1121,13 @@ function Home() {
                   uid={user.uid}
                   locale={locale}
                   authorDefaultName={profileName}
+                  initialStory={activeStory}
+                  getIdToken={getUserIdToken}
+                />
+              ) : storiesMode === 'higgsfield' ? (
+                <HiggsfieldConnector
+                  uid={user.uid}
+                  locale={locale}
                   initialStory={activeStory}
                   getIdToken={getUserIdToken}
                 />
@@ -998,17 +1150,6 @@ function Home() {
         {activeSection === 'code' && (
           <ErrorBoundary FallbackComponent={MediaTabFallback}>
             <CodeSectionHub
-              locale={locale}
-              getIdToken={getUserIdToken}
-              onOpenProviderCenter={openProviderCenterFromHub}
-              onOpenChat={() => selectSection('chat')}
-            />
-          </ErrorBoundary>
-        )}
-
-        {activeSection === 'video' && (
-          <ErrorBoundary FallbackComponent={MediaTabFallback}>
-            <VideoSectionHub
               locale={locale}
               getIdToken={getUserIdToken}
               onOpenProviderCenter={openProviderCenterFromHub}
@@ -1109,16 +1250,28 @@ function Home() {
                   event.currentTarget.value = '';
                 }}
               />
-              <button
-                type="button"
-                className="image-edit-upload"
-                onClick={() => imageEditInputRef.current?.click()}
-                disabled={isImageEditing}
-                data-testid="button-image-edit-upload"
-              >
-                <ImagePlus size={17} aria-hidden="true" />
-                <span>{imageEditFile ? imageEditFile.name : t('imageEdit.chooseReference')}</span>
-              </button>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className="image-edit-upload"
+                  onClick={() => setImageEditCameraOpen(true)}
+                  disabled={isImageEditing}
+                  data-testid="button-image-edit-camera"
+                >
+                  <Camera size={17} aria-hidden="true" />
+                  <span>{locale.startsWith('ar') ? 'كاميرا' : 'Camera'}</span>
+                </button>
+                <button
+                  type="button"
+                  className="image-edit-upload"
+                  onClick={() => imageEditInputRef.current?.click()}
+                  disabled={isImageEditing}
+                  data-testid="button-image-edit-upload"
+                >
+                  <ImagePlus size={17} aria-hidden="true" />
+                  <span>{imageEditFile ? imageEditFile.name : t('imageEdit.chooseReference')}</span>
+                </button>
+              </div>
             </div>
             <label className="image-edit-prompt-label" htmlFor="image-edit-prompt">
               {t('imageEdit.prompt')}
@@ -1347,6 +1500,13 @@ function Home() {
           changeAppLanguage(lang.code);
           setNoticeKey('');
         }}
+      />
+      <InAppCameraModal
+        open={imageEditCameraOpen}
+        locale={locale}
+        mode="photo"
+        onClose={() => setImageEditCameraOpen(false)}
+        onCapture={(file) => handleImageEditFile(file)}
       />
     </div>
   );

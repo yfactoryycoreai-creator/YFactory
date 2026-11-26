@@ -5,7 +5,6 @@ import {
   Check,
   Code2,
   Cpu,
-  Film,
   GraduationCap,
   Image,
   LoaderCircle,
@@ -18,7 +17,6 @@ export type ChatAgentCardState = {
   status: "running" | "done" | "error";
   taskId?: string;
   storyId?: string;
-  videoJobId?: string;
   providerId?: string;
   resultSummary?: string;
   errorMessage?: string;
@@ -29,7 +27,6 @@ type ChatAgentCardProps = {
   locale: string;
   onOpenImagePage?: () => void;
   onOpenStoryPage?: (storyId?: string) => void;
-  onOpenVideoPage?: () => void;
   onOpenCodePage?: () => void;
   onOpenStudentsPage?: () => void;
   onOpenProviderCenter?: (providerId?: string) => void;
@@ -40,7 +37,6 @@ function getCopy(lang: string) {
     return {
       imgAgent: "أمر توليد صور",
       storyAgent: "أمر قصصي",
-      videoAgent: "أمر توليد فيديو",
       codeAgent: "وكيل البرمجة (IDE)",
       studentsAgent: "منصة الطلاب",
       providerAgent: "مركز المزودين",
@@ -49,7 +45,6 @@ function getCopy(lang: string) {
       failed: "تعذّر التنفيذ",
       openImg: "فتح الصور",
       openStory: "فتح قصصي",
-      openVideo: "فتح الفيديو",
       openCode: "فتح Code",
       openStudents: "فتح الطلاب",
       openProvider: "فتح مركز المزودين",
@@ -61,7 +56,6 @@ function getCopy(lang: string) {
   return {
     imgAgent: "Image Agent",
     storyAgent: "My Stories Agent",
-    videoAgent: "Video Agent",
     codeAgent: "YFactory Code (IDE)",
     studentsAgent: "Students Agent",
     providerAgent: "Provider Center",
@@ -70,7 +64,6 @@ function getCopy(lang: string) {
     failed: "Action failed",
     openImg: "Open Image",
     openStory: "Open Story",
-    openVideo: "Open Video",
     openCode: "Open Code",
     openStudents: "Open Students",
     openProvider: "Open Provider Center",
@@ -85,7 +78,6 @@ export default function ChatAgentCard({
   locale,
   onOpenImagePage,
   onOpenStoryPage,
-  onOpenVideoPage,
   onOpenCodePage,
   onOpenStudentsPage,
   onOpenProviderCenter,
@@ -149,31 +141,6 @@ export default function ChatAgentCard({
                   ))}
                 </div>
               )}
-            </>
-          ),
-        };
-      case "generate_video":
-        return {
-          icon: <Film size={16} aria-hidden="true" />,
-          label: copy.videoAgent,
-          openLabel: copy.openVideo,
-          onOpen: onOpenVideoPage,
-          body: (
-            <>
-              <p className="chat-agent-prompt" dir="auto">
-                {command.prompt}
-              </p>
-              <div className="chat-agent-meta">
-                <span className="chat-agent-chip">
-                  {command.mode === "image_to_video" ? "Image → Video" : "Text → Video"}
-                </span>
-                {command.aspectRatio && (
-                  <span className="chat-agent-chip">{command.aspectRatio}</span>
-                )}
-                {command.durationSec && (
-                  <span className="chat-agent-chip">{command.durationSec}s</span>
-                )}
-              </div>
             </>
           ),
         };

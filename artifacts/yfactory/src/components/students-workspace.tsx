@@ -31,11 +31,10 @@ import {
   Trash2,
   TrendingUp,
   Upload,
-  Users,
 } from "lucide-react";
 import AppSelect from "@/components/app-select";
 import ChatMarkdown from "@/components/chat-markdown";
-import StudentsCommunityPanel from "@/components/students-community-panel";
+import InAppCameraModal from "@/components/in-app-camera-modal";
 import {
   StudentsExamsPanel,
   StudentsProgressPanel,
@@ -68,7 +67,7 @@ type StudentsWorkspaceProps = {
   onOpenProviderCenter: (providerId?: string) => void;
 };
 
-type StudentsTab = "tutor" | "scan" | "visuals" | "exams" | "progress" | "community" | "library";
+type StudentsTab = "tutor" | "scan" | "visuals" | "exams" | "progress" | "library";
 
 const SUBJECT_PRESETS = [
   "Auto / General",
@@ -118,7 +117,6 @@ function getCopy(lang: string) {
       tabVisuals: "البحث والمخططات البصرية",
       tabExams: "الامتحانات التفاعلية",
       tabProgress: "تطوّري وإتقاني",
-      tabCommunity: "مجتمع الطلاب",
       tabLibrary: "مكتبة دروسي",
       startExamBtn: "اختبار تفاعلي",
       modelLbl: "نموذج الذكاء الاصطناعي",
@@ -185,8 +183,6 @@ function getCopy(lang: string) {
       noVisuals: "ابحث عن أي موضوع أعلاه أو اضغط على أحد المواضيع المستخرجة من امتحانك لعرض الصور والمخططات والمصادر.",
       libraryEmpty: "لا توجد دروس أو جلسات محفوظة بعد.",
       openLesson: "فتح الدرس",
-      batch17Banner:
-        "الدفعة 17 القادمة ستضيف داخل نفس منصة Students: نظام الامتحانات التفاعلية الحقيقية (6 أنواع أسئلة + وضع امتحان ووضع تدريب)، التعلم التكيّفي وتتبع التقدم، ومجتمع الطلاب الآمن.",
       copy: "نسخ",
       copied: "تم النسخ",
     };
@@ -263,8 +259,6 @@ function getCopy(lang: string) {
     noVisuals: "Search a topic above or click an extracted topic from your exam to fetch verified diagrams and explanations.",
     libraryEmpty: "No saved lessons or study sessions yet.",
     openLesson: "Open",
-    batch17Banner:
-      "Batch 17 next adds Interactive Real Exams (6 question types, Exam & Practice modes), Adaptive Mastery Tracking, and Moderated Student Community right inside Students.",
     copy: "Copy",
     copied: "Copied",
   };
@@ -349,7 +343,7 @@ export default function StudentsWorkspace({
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
 
-  const cameraRef = useRef<HTMLInputElement>(null);
+  const [cameraOpen, setCameraOpen] = useState(false);
   const galleryRef = useRef<HTMLInputElement>(null);
   const threadEndRef = useRef<HTMLDivElement>(null);
 
@@ -419,10 +413,7 @@ export default function StudentsWorkspace({
     setLessons((prev) => [updated, ...prev.filter((l) => l.id !== updated.id)]);
   };
 
-  const handlePhotoChosen = async (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.currentTarget.files?.[0];
-    e.currentTarget.value = "";
-    if (!file) return;
+  const processPhotoFile = async (file: File) => {
     setError("");
     try {
       const prepared = await prepareStudentPhotoAttachment(file);
@@ -430,6 +421,13 @@ export default function StudentsWorkspace({
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not read photo.");
     }
+  };
+
+  const handlePhotoChosen = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.currentTarget.files?.[0];
+    e.currentTarget.value = "";
+    if (!file) return;
+    await processPhotoFile(file);
   };
 
   const handleAnalyze = async () => {
@@ -828,7 +826,6 @@ export default function StudentsWorkspace({
               ],
               ["exams", ui.tabExams, <ClipboardCheck size={14} key="e" />],
               ["progress", ui.tabProgress, <TrendingUp size={14} key="p" />],
-              ["community", ui.tabCommunity, <Users size={14} key="c" />],
               ["library", `${ui.tabLibrary} (${lessons.length})`, <FolderOpen size={14} key="l" />],
             ] as const
           ).map(([id, label, icon]) => (
@@ -1053,14 +1050,6 @@ export default function StudentsWorkspace({
           </div>
 
           <input
-            ref={cameraRef}
-            type="file"
-            accept="image/*"
-            capture="environment"
-            style={{ display: "none" }}
-            onChange={(e) => void handlePhotoChosen(e)}
-          />
-          <input
             ref={galleryRef}
             type="file"
             accept="image/jpeg,image/png,image/webp"
@@ -1072,7 +1061,7 @@ export default function StudentsWorkspace({
             <button
               type="button"
               className="st-btn is-primary"
-              onClick={() => cameraRef.current?.click()}
+              onClick={() => setCameraOpen(true)}
               data-testid="button-students-camera"
             >
               <Camera size={15} />
@@ -1450,17 +1439,7 @@ export default function StudentsWorkspace({
         />
       )}
 
-      {/* TAB 6: MODERATED STUDENT COMMUNITY */}
-      {tab === "community" && (
-        <StudentsCommunityPanel
-          locale={locale}
-          defaultSubject={subject}
-          defaultGradeLevel={gradeLevel}
-          getIdToken={getIdToken}
-        />
-      )}
-
-      {/* TAB 7: MY SAVED LESSONS LIBRARY */}
+      {/* TAB 6: MY SAVED LESSONS LIBRARY */}
       {tab === "library" && (
         <div className="st-panel" data-testid="students-library-panel">
 
@@ -1528,6 +1507,14 @@ export default function StudentsWorkspace({
           )}
         </div>
       )}
+
+      <InAppCameraModal
+        open={cameraOpen}
+        locale={locale}
+        mode="document"
+        onClose={() => setCameraOpen(false)}
+        onCapture={(file) => void processPhotoFile(file)}
+      />
     </section>
   );
 }

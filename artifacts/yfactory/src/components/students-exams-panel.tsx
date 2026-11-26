@@ -19,6 +19,7 @@ import {
   TrendingUp,
 } from "lucide-react";
 import AppSelect from "@/components/app-select";
+import { sendYFactoryNotification } from "@/lib/yfactoryNotifications";
 import type {
   StudentGradeLevel,
   StudentLessonRecord,
@@ -399,6 +400,13 @@ export function StudentsExamsPanel({
       });
       setActiveExam(done);
       setExams((prev) => prev.map((e) => (e.id === done.id ? done : e)));
+      void sendYFactoryNotification(
+        locale.startsWith("ar") ? "اكتمل تصحيح الامتحان" : "Exam Graded",
+        locale.startsWith("ar")
+          ? `${done.title} — النتيجة ${done.scorePct ?? 0}% (${done.correctCount}/${done.totalQuestions})`
+          : `${done.title} — Score ${done.scorePct ?? 0}% (${done.correctCount}/${done.totalQuestions})`,
+        { section: "students", tag: `exam-${done.id}` },
+      );
     } catch (err) {
       setError(
         err instanceof StudentsExtendedApiError

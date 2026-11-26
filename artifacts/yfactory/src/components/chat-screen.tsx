@@ -14,7 +14,6 @@ import {
   ArrowDown,
   ArrowLeft,
   BookOpen,
-  Brain,
   Camera,
   Check,
   ChevronDown,
@@ -25,7 +24,7 @@ import {
   Download,
   FileCode2,
   FileText,
-  Film,
+  Video,
   Folder,
   FolderPlus,
   Globe,
@@ -73,6 +72,8 @@ import ChatAgentCard, {
 import ChatMarkdown from "@/components/chat-markdown";
 import ChatStoryPicker from "@/components/chat-story-picker";
 import AgentTaskDrawer from "@/components/agent-task-drawer";
+import InAppCameraModal from "@/components/in-app-camera-modal";
+import { sendYFactoryNotification } from "@/lib/yfactoryNotifications";
 import {
   cancelAgentTaskApi,
   clearFinishedAgentTasksApi,
@@ -91,7 +92,7 @@ import {
   buildStoryAgentSystemPrompt,
   buildStudentsAgentSystemPrompt,
   buildUnifiedAgentSystemPrompt,
-  buildVideoAgentSystemPrompt,
+  modelSupportsVideoInput,
   buildYFactoryChatSystemPrompt,
   extractAgentCommand,
   readChatAutoNavigate,
@@ -162,7 +163,6 @@ type ChatScreenProps = {
   ) => Promise<ChatAgentRunResult>;
   onOpenImagePage?: () => void;
   onOpenStoryPage?: (storyId?: string) => void;
-  onOpenVideoPage?: () => void;
   onOpenCodePage?: () => void;
   onOpenStudentsPage?: () => void;
   onOpenProviderCenter?: (providerId?: string) => void;
@@ -212,6 +212,8 @@ const iconForOption = (name: string) => {
   switch (name) {
     case "camera":
       return <Camera aria-hidden="true" />;
+    case "recordVideo":
+      return <Video aria-hidden="true" />;
     case "photos":
     case "image":
       return <Image aria-hidden="true" />;
@@ -225,8 +227,6 @@ const iconForOption = (name: string) => {
       return <BookOpen aria-hidden="true" />;
     case "skills":
       return <Sparkles aria-hidden="true" />;
-    case "memory":
-      return <Brain aria-hidden="true" />;
     case "more":
       return <MoreHorizontal aria-hidden="true" />;
     default:
@@ -281,12 +281,6 @@ function buildCtx(
   if (mode === "agent") {
     return [
       { role: "system", content: buildUnifiedAgentSystemPrompt(story) },
-      ...base,
-    ];
-  }
-  if (mode === "video") {
-    return [
-      { role: "system", content: buildVideoAgentSystemPrompt() },
       ...base,
     ];
   }
@@ -384,7 +378,6 @@ export default function ChatScreen({
   onExecuteStoryAgent,
   onOpenImagePage,
   onOpenStoryPage,
-  onOpenVideoPage,
   onOpenCodePage,
   onOpenStudentsPage,
   onOpenProviderCenter,
@@ -524,7 +517,6 @@ export default function ChatScreen({
   ) => {
     if (section === "image") onOpenImagePage?.();
     else if (section === "stories") onOpenStoryPage?.(ref?.storyId);
-    else if (section === "video") onOpenVideoPage?.();
     else if (section === "code") onOpenCodePage?.();
     else if (section === "students") onOpenStudentsPage?.();
     else if (section === "provider_center") {
@@ -547,7 +539,7 @@ export default function ChatScreen({
   const attCtrlRef = useRef(new Map<string, AbortController>());
   const installRef = useRef<BeforeInstallPromptEvent | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const cameraRef = useRef<HTMLInputElement>(null);
+  const [cameraMode, setCameraMode] = useState<"photo" | "video" | null>(null);
   const photoRef = useRef<HTMLInputElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const threadRef = useRef<HTMLElement>(null);
@@ -841,11 +833,11 @@ export default function ChatScreen({
   );
 
   const enqueueFiles = (
-    fileList: FileList | null,
+    fileList: FileList | File[] | null,
     forcedKind?: "image" | "file",
   ) => {
     if (!fileList || fileList.length === 0) return;
-    const files = Array.from(fileList);
+    const files = Array.isArray(fileList) ? fileList : Array.from(fileList);
     const available = MAX_PENDING_ATTACHMENTS - attachments.length;
     if (available <= 0) {
       showToast(ui.attLimit);
@@ -996,7 +988,6 @@ export default function ChatScreen({
     }
     requestAnimationFrame(() => inputRef.current?.focus());
   };
-
   useEffect(() => {
     const el = threadRef.current;
     if (!el || !autoScrollRef.current) return;
@@ -1083,7 +1074,17 @@ export default function ChatScreen({
     setSheetOpen(false);
     setFullListOpen(false);
     if (opt === "camera") {
-      cameraRef.current?.click();
+      setCameraMode("photo");
+    } else if (opt === "recordVideo") {
+      if (!videoSupported) {
+        showToast(
+          locale.startsWith("ar")
+            ? "النموذج المختار لا يدعم تحليل الفيديو — اختر Gemini أو نموذج رؤية."
+            : "Selected model does not support video — switch to Gemini or a vision model.",
+        );
+        return;
+      }
+      setCameraMode("video");
     } else if (opt === "photos") {
       photoRef.current?.click();
     } else if (opt === "files") {
@@ -1240,7 +1241,7 @@ export default function ChatScreen({
       return;
     }
 
-    // Server-orchestrated tools: generate_video, code_workspace_task, student_study_assist, provider_recommend
+    // Server-orchestrated tools: code_workspace_task, student_study_assist, provider_recommend
     if (!tok) return;
     try {
       const execRes = await executeServerAgentToolApi(
@@ -1260,7 +1261,6 @@ export default function ChatScreen({
                 command: cmd,
                 status: isOk ? ("done" as const) : ("error" as const),
                 taskId: task.id,
-                ...(task.targetRef?.videoJobId ? { videoJobId: task.targetRef.videoJobId } : {}),
                 ...(task.targetRef?.providerId ? { providerId: task.targetRef.providerId } : {}),
                 ...(task.resultSummary ? { resultSummary: task.resultSummary } : {}),
                 ...(task.errorMessage ? { errorMessage: task.errorMessage } : {}),
@@ -1271,9 +1271,19 @@ export default function ChatScreen({
       setMessages(updated);
       await persistMsgs(updated, selModel);
 
+      if (isOk) {
+        void sendYFactoryNotification(
+          locale.startsWith("ar") ? "اكتملت مهمة الوكيل" : "Agent Task Complete",
+          task.resultSummary || task.title,
+          {
+            section:
+              task.section === "provider_center" ? "chat" : task.section,
+            tag: `agent-${task.id}`,
+          },
+        );
+      }
       if (isOk && autoNav) {
-        if (cmd.type === "generate_video") onOpenVideoPage?.();
-        else if (cmd.type === "student_study_assist") onOpenStudentsPage?.();
+        if (cmd.type === "student_study_assist") onOpenStudentsPage?.();
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Agent action failed.";
@@ -1891,15 +1901,33 @@ export default function ChatScreen({
     },
   ] as const;
 
+  const videoSupported = modelSupportsVideoInput(selModel);
+
+  const optionLabel = (key: string) => {
+    if (key === "recordVideo") {
+      return locale.startsWith("ar") ? "تسجيل فيديو" : "Record video";
+    }
+    return t(`chat:options.${key}`);
+  };
+
+  const optionDisabledHint = (key: string) => {
+    if (key === "recordVideo") {
+      return locale.startsWith("ar")
+        ? "يتطلب نموذج رؤية/فيديو"
+        : "Vision/video model required";
+    }
+    return t("chat:comingSoon");
+  };
+
   const allOptions = [
     { key: "camera", enabled: true },
     { key: "photos", enabled: true },
     { key: "files", enabled: true },
+    { key: "recordVideo", enabled: videoSupported },
     { key: "webSearch", enabled: false },
     { key: "connectors", enabled: false },
     { key: "myStories", enabled: true },
     { key: "skills", enabled: false },
-    { key: "memory", enabled: false },
     { key: "more", enabled: true },
   ] as const;
 
@@ -1926,7 +1954,6 @@ export default function ChatScreen({
     : selModel
       ? ui.modelReady
       : ui.modelOff;
-
   const filteredConvs = convs.filter((c) => {
     const q = convSearch.trim().toLocaleLowerCase();
     if (!q) return true;
@@ -1996,15 +2023,7 @@ export default function ChatScreen({
       aria-label={t("chat:title")}
       data-testid="chat-screen"
     >
-      {/* Hidden native inputs for Camera, Photos, and Text/Code Files */}
-      <input
-        ref={cameraRef}
-        type="file"
-        accept="image/*"
-        capture="environment"
-        className="chat-hidden-input"
-        onChange={(e) => onFileInputChange(e, "image")}
-      />
+      {/* Hidden native inputs for Photos and Text/Code Files (Camera uses InAppCameraModal) */}
       <input
         ref={photoRef}
         type="file"
@@ -2590,7 +2609,6 @@ export default function ChatScreen({
                                 locale={locale}
                                 onOpenImagePage={onOpenImagePage}
                                 onOpenStoryPage={onOpenStoryPage}
-                                onOpenVideoPage={onOpenVideoPage}
                                 onOpenCodePage={onOpenCodePage}
                                 onOpenStudentsPage={onOpenStudentsPage}
                                 onOpenProviderCenter={(pid) => {
@@ -2879,19 +2897,6 @@ export default function ChatScreen({
               </button>
               <button
                 type="button"
-                className={`chat-mode-pill ${agentMode === "video" ? "is-active" : ""}`}
-                onClick={() => {
-                  setAgentMode((cur) => (cur === "video" ? "chat" : "video"));
-                  requestAnimationFrame(() => inputRef.current?.focus());
-                }}
-                disabled={sending}
-                data-testid="button-chat-pill-video"
-              >
-                <Film size={14} aria-hidden="true" />
-                <span>{locale.startsWith("ar") ? "فيديو" : "Video"}</span>
-              </button>
-              <button
-                type="button"
                 className={`chat-mode-pill ${agentMode === "code" ? "is-active" : ""}`}
                 onClick={() => {
                   setAgentMode((cur) => (cur === "code" ? "chat" : "code"));
@@ -2931,7 +2936,6 @@ export default function ChatScreen({
                 </button>
               )}
             </div>
-
             <form
               className="chat-composer"
               onSubmit={onSubmitForm}
@@ -3001,13 +3005,9 @@ export default function ChatScreen({
                       ? ui.storyModePlaceholder
                       : agentMode === "agent"
                         ? locale.startsWith("ar")
-                          ? "اطلب أي مهمة (صور، قصة 50+ مشهد، فيديو، برمجة IDE، دراسة، أو ترشيح مزود)..."
-                          : "Ask the YFactory Agent to run any task (Image, 50+ scene Story, Video, IDE Code, Students, Providers)..."
-                        : agentMode === "video"
-                          ? locale.startsWith("ar")
-                            ? "صف مشهد الفيديو المطلوب لتوليده عبر استوديو الفيديو..."
-                            : "Describe the video scene to generate in Video Studio..."
-                          : agentMode === "code"
+                          ? "اطلب أي مهمة (صور، قصة 50+ مشهد، برمجة IDE، دراسة، أو ترشيح مزود)..."
+                          : "Ask the YFactory Agent to run any task (Image, 50+ scene Story, IDE Code, Students, Providers)..."
+                        : agentMode === "code"
                             ? locale.startsWith("ar")
                               ? "اطلب فحص جلسة IDE أو توجيه مهمة برمجية لمشروعك المفتوح..."
                               : "Check IDE session or route a coding task to your open VS Code workspace..."
@@ -3757,14 +3757,14 @@ export default function ChatScreen({
                       key={key}
                       disabled={!enabled}
                       onClick={() => enabled && triggerSheetOption(key)}
-                      title={!enabled ? t("chat:comingSoon") : undefined}
+                      title={!enabled ? optionDisabledHint(key) : undefined}
                       data-testid={`button-chat-option-${key}`}
                     >
                       <span className="chat-option-icon">
                         {iconForOption(key)}
                       </span>
-                      <span>{t(`chat:options.${key}`)}</span>
-                      {!enabled && <small>{t("chat:comingSoon")}</small>}
+                      <span>{optionLabel(key)}</span>
+                      {!enabled && <small>{optionDisabledHint(key)}</small>}
                     </button>
                   ),
                 )}
@@ -3780,18 +3780,18 @@ export default function ChatScreen({
                       key={key}
                       disabled={!enabled}
                       onClick={() => enabled && triggerSheetOption(key)}
-                      title={!enabled ? t("chat:comingSoon") : undefined}
+                      title={!enabled ? optionDisabledHint(key) : undefined}
                       data-testid={`button-chat-full-option-${key}`}
                     >
                       <span className="chat-option-icon">
                         {iconForOption(key)}
                       </span>
                       <span className="chat-option-name">
-                        {t(`chat:options.${key}`)}
+                        {optionLabel(key)}
                       </span>
                       {!enabled && (
                         <span className="chat-coming-soon">
-                          {t("chat:comingSoon")}
+                          {optionDisabledHint(key)}
                         </span>
                       )}
                       <ChevronRight aria-hidden="true" />
@@ -3816,6 +3816,24 @@ export default function ChatScreen({
         onDeleteTask={(id) => void handleDeleteAgentTask(id)}
         onClearFinished={() => void handleClearFinishedTasks()}
         onOpenSection={handleOpenTaskSection}
+      />
+      <InAppCameraModal
+        open={cameraMode !== null}
+        locale={locale}
+        mode={cameraMode ?? "photo"}
+        onClose={() => setCameraMode(null)}
+        onCapture={(file) => enqueueFiles([file], "image")}
+        onCaptureVideoFrames={(files, durationSec) => {
+          enqueueFiles(files, "image");
+          setDraft((cur) =>
+            cur.trim()
+              ? cur
+              : locale.startsWith("ar")
+                ? `حلّل هذا الفيديو المسجّل (${durationSec} ثانية) عبر هذه اللقطات المتتابعة واشرح ما يظهر فيه:`
+                : `Analyze this recorded video (${durationSec}s) across these sequential frames:`,
+          );
+          requestAnimationFrame(() => inputRef.current?.focus());
+        }}
       />
     </section>
   );
