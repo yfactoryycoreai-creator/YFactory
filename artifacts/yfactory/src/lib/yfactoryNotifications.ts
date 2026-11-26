@@ -150,8 +150,8 @@ export async function sendYFactoryNotification(
     renotify?: boolean;
   } = {
     body,
-    icon: "./icon-192.png?v=3",
-    badge: "./icon-192.png?v=3",
+    icon: "./icon-192.png?v=5",
+    badge: "./icon-192.png?v=5",
     tag: options?.tag ?? `yfactory-${Date.now()}`,
     renotify: true,
     vibrate: [140, 60, 140],

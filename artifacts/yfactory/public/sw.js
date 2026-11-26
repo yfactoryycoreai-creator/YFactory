@@ -35,8 +35,8 @@ self.addEventListener("push", (event) => {
   event.waitUntil(
     self.registration.showNotification(payload.title, {
       body: payload.body,
-      icon: "./icon-192.png?v=3",
-      badge: "./icon-192.png?v=3",
+      icon: "./icon-192.png?v=5",
+      badge: "./icon-192.png?v=5",
       vibrate: [140, 60, 140],
       tag: payload.tag,
       renotify: true,
@@ -72,3 +72,4 @@ self.addEventListener("notificationclick", (event) => {
       }),
   );
 });
+self.addEventListener("fetch", () => {});
