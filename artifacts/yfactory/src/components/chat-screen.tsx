@@ -73,6 +73,13 @@ import ChatMarkdown from "@/components/chat-markdown";
 import ChatStoryPicker from "@/components/chat-story-picker";
 import AgentTaskDrawer from "@/components/agent-task-drawer";
 import InAppCameraModal from "@/components/in-app-camera-modal";
+import SkillsHubModal from "@/components/skills-hub-modal";
+import {
+  buildSkillsSystemDirective,
+  getLocalizedSkillName,
+  useYFactorySkills,
+  type SkillScope,
+} from "@/lib/skillsStore";
 import { sendYFactoryNotification } from "@/lib/yfactoryNotifications";
 import {
   cancelAgentTaskApi,
@@ -166,6 +173,7 @@ type ChatScreenProps = {
   onOpenCodePage?: () => void;
   onOpenStudentsPage?: () => void;
   onOpenProviderCenter?: (providerId?: string) => void;
+  onOpenSkills?: (scope?: SkillScope) => void;
 };
 
 type ChatMessage = {
@@ -266,40 +274,70 @@ function buildCtx(
     }
   }
 
+  const withSkills = (
+    sys: string,
+    primaryScope: SkillScope,
+    extra: SkillScope[] = [],
+  ): string => {
+    const directive = buildSkillsSystemDirective(primaryScope, extra);
+    return directive ? `${sys}\n\n${directive}` : sys;
+  };
+
   if (mode === "image") {
     return [
-      { role: "system", content: buildImageAgentSystemPrompt() },
+      {
+        role: "system",
+        content: withSkills(buildImageAgentSystemPrompt(), "image", ["chat"]),
+      },
       ...base,
     ];
   }
   if (mode === "story") {
     return [
-      { role: "system", content: buildStoryAgentSystemPrompt(story) },
+      {
+        role: "system",
+        content: withSkills(buildStoryAgentSystemPrompt(story), "stories", ["chat"]),
+      },
       ...base,
     ];
   }
   if (mode === "agent") {
     return [
-      { role: "system", content: buildUnifiedAgentSystemPrompt(story) },
+      {
+        role: "system",
+        content: withSkills(buildUnifiedAgentSystemPrompt(story), "all"),
+      },
       ...base,
     ];
   }
   if (mode === "code") {
     return [
-      { role: "system", content: buildCodeAgentSystemPrompt() },
+      {
+        role: "system",
+        content: withSkills(buildCodeAgentSystemPrompt(), "code", ["chat"]),
+      },
       ...base,
     ];
   }
   if (mode === "students") {
     return [
-      { role: "system", content: buildStudentsAgentSystemPrompt() },
+      {
+        role: "system",
+        content: withSkills(buildStudentsAgentSystemPrompt(), "students", ["chat"]),
+      },
       ...base,
     ];
   }
   const chatSys = story
     ? `${buildYFactoryChatSystemPrompt(story)}\n\n${buildStorySystemPrompt(story)}`
     : buildYFactoryChatSystemPrompt(null);
-  return [{ role: "system", content: chatSys }, ...base];
+  return [
+    {
+      role: "system",
+      content: withSkills(chatSys, "chat", story ? ["stories"] : []),
+    },
+    ...base,
+  ];
 }
 
 function speechLang(text: string, fallback: string): string {
@@ -381,6 +419,7 @@ export default function ChatScreen({
   onOpenCodePage,
   onOpenStudentsPage,
   onOpenProviderCenter,
+  onOpenSkills,
 }: ChatScreenProps) {
   const { user } = useAuth();
   const { t, i18n } = useTranslation();
@@ -540,6 +579,8 @@ export default function ChatScreen({
   const installRef = useRef<BeforeInstallPromptEvent | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [cameraMode, setCameraMode] = useState<"photo" | "video" | null>(null);
+  const [localSkillsOpen, setLocalSkillsOpen] = useState(false);
+  const { getActiveForScope, toggleSkill } = useYFactorySkills(getIdToken);
   const photoRef = useRef<HTMLInputElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const threadRef = useRef<HTMLElement>(null);
@@ -957,7 +998,6 @@ export default function ChatScreen({
       })();
     }
   };
-
   const startNewChat = () => {
     abortRef.current?.abort();
     stopVoiceRef.current?.();
@@ -988,6 +1028,7 @@ export default function ChatScreen({
     }
     requestAnimationFrame(() => inputRef.current?.focus());
   };
+
   useEffect(() => {
     const el = threadRef.current;
     if (!el || !autoScrollRef.current) return;
@@ -1091,6 +1132,8 @@ export default function ChatScreen({
       fileRef.current?.click();
     } else if (opt === "myStories") {
       setStoryPickerOpen(true);
+    } else if (opt === "skills") {
+      openChatSkillsHub();
     }
   };
 
@@ -1919,6 +1962,34 @@ export default function ChatScreen({
     return t("chat:comingSoon");
   };
 
+  const currentSkillScope: SkillScope =
+    agentMode === "image"
+      ? "image"
+      : agentMode === "story"
+        ? "stories"
+        : agentMode === "code"
+          ? "code"
+          : agentMode === "students"
+            ? "students"
+            : agentMode === "agent"
+              ? "all"
+              : "chat";
+
+  const activeChatSkills = getActiveForScope(
+    currentSkillScope,
+    currentSkillScope === "chat"
+      ? attachedStory
+        ? ["stories"]
+        : []
+      : currentSkillScope === "all"
+        ? []
+        : ["chat"],
+  );
+
+  const openChatSkillsHub = () => {
+    if (onOpenSkills) onOpenSkills(currentSkillScope);
+    else setLocalSkillsOpen(true);
+  };
   const allOptions = [
     { key: "camera", enabled: true },
     { key: "photos", enabled: true },
@@ -1927,7 +1998,7 @@ export default function ChatScreen({
     { key: "webSearch", enabled: false },
     { key: "connectors", enabled: false },
     { key: "myStories", enabled: true },
-    { key: "skills", enabled: false },
+    { key: "skills", enabled: true },
     { key: "more", enabled: true },
   ] as const;
 
@@ -1954,6 +2025,7 @@ export default function ChatScreen({
     : selModel
       ? ui.modelReady
       : ui.modelOff;
+
   const filteredConvs = convs.filter((c) => {
     const q = convSearch.trim().toLocaleLowerCase();
     if (!q) return true;
@@ -2751,8 +2823,29 @@ export default function ChatScreen({
               </div>
             )}
 
-            {(attachments.length > 0 || attachedStory || imgGenMode || storyAgentMode) && (
+            {(attachments.length > 0 ||
+              attachedStory ||
+              imgGenMode ||
+              storyAgentMode ||
+              activeChatSkills.length > 0) && (
               <div className="chat-pending-strip">
+                {activeChatSkills.map((sk) => (
+                  <span
+                    key={sk.id}
+                    className="chat-pending-pill is-amber"
+                    data-testid={`chat-active-skill-${sk.id}`}
+                  >
+                    <Sparkles size={12} aria-hidden="true" />
+                    <span dir="auto">{getLocalizedSkillName(sk, locale)}</span>
+                    <button
+                      type="button"
+                      onClick={() => void toggleSkill(sk.id)}
+                      aria-label={ui.cancel}
+                    >
+                      <X size={12} aria-hidden="true" />
+                    </button>
+                  </span>
+                ))}
                 {imgGenMode && (
                   <span className="chat-pending-pill is-amber">
                     <Image size={13} aria-hidden="true" />
@@ -2920,6 +3013,23 @@ export default function ChatScreen({
               >
                 <GraduationCap size={14} aria-hidden="true" />
                 <span>{locale.startsWith("ar") ? "الطلاب" : "Students"}</span>
+              </button>
+              <button
+                type="button"
+                className={`chat-mode-pill ${
+                  activeChatSkills.length > 0 ? "is-active" : ""
+                }`}
+                onClick={openChatSkillsHub}
+                disabled={sending}
+                data-testid="button-chat-pill-skills"
+              >
+                <Sparkles size={14} aria-hidden="true" />
+                <span>
+                  {locale.startsWith("ar") ? "المهارات" : "Skills"}
+                  {activeChatSkills.length > 0
+                    ? ` (${activeChatSkills.length})`
+                    : ""}
+                </span>
               </button>
               {storyAgentMode && (
                 <button
@@ -3835,6 +3945,15 @@ export default function ChatScreen({
           requestAnimationFrame(() => inputRef.current?.focus());
         }}
       />
+      {!onOpenSkills && (
+        <SkillsHubModal
+          open={localSkillsOpen}
+          locale={locale}
+          initialScope={currentSkillScope}
+          getIdToken={getIdToken}
+          onClose={() => setLocalSkillsOpen(false)}
+        />
+      )}
     </section>
   );
 }

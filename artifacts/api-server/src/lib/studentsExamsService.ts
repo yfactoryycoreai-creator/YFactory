@@ -10,6 +10,7 @@ import {
 import { CHAT_ADAPTERS, type ChatMessage } from "./chatAdapters";
 import { ChatServiceError, completeWithRotation } from "./chatService";
 import { getFirebaseAdmin } from "./firebaseAdmin";
+import { getActiveSkillInstructionsForScope } from "./skillsService";
 import {
   getStudentLesson,
   listStudentLessons,
@@ -533,8 +534,14 @@ export async function createInteractiveExam(
     (input.locale ?? "en").toLowerCase().startsWith("ar") ||
     /[\u0600-\u06FF]/.test(topics.join(" "));
 
+  const activeSkillsBlock = await getActiveSkillInstructionsForScope(
+    uid,
+    "students",
+  ).catch(() => "");
+
   const sysPrompt = [
     `You are an Expert Assessment Designer inside YFactory Students.`,
+    activeSkillsBlock,
     `Generate a rigorous, scientifically accurate interactive exam of EXACTLY ${count} questions.`,
     `Subject: ${subject}. Grade Level: ${gradeLevel}. Requested Difficulty: ${difficulty}.`,
     `Language: ${isAr ? "Clear Academic Arabic" : "Clear Academic English"}.`,

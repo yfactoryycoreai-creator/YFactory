@@ -35,6 +35,8 @@ import {
 import AppSelect from "@/components/app-select";
 import ChatMarkdown from "@/components/chat-markdown";
 import InAppCameraModal from "@/components/in-app-camera-modal";
+import { WorkspaceSkillsBar } from "@/components/skills-hub-modal";
+import type { SkillScope } from "@/lib/skillsStore";
 import {
   StudentsExamsPanel,
   StudentsProgressPanel,
@@ -65,6 +67,7 @@ type StudentsWorkspaceProps = {
   locale: string;
   getIdToken?: () => Promise<string>;
   onOpenProviderCenter: (providerId?: string) => void;
+  onOpenSkills?: (scope?: SkillScope) => void;
 };
 
 type StudentsTab = "tutor" | "scan" | "visuals" | "exams" | "progress" | "library";
@@ -268,6 +271,7 @@ export default function StudentsWorkspace({
   locale,
   getIdToken,
   onOpenProviderCenter,
+  onOpenSkills,
 }: StudentsWorkspaceProps) {
   const isRtl = isRtlLanguage(locale);
   const ui = getCopy(locale);
@@ -813,6 +817,13 @@ export default function StudentsWorkspace({
             />
           </div>
         </div>
+
+        <WorkspaceSkillsBar
+          scope="students"
+          locale={locale}
+          getIdToken={getIdToken}
+          onOpenHub={onOpenSkills}
+        />
 
         <nav className="st-tabs" role="tablist">
           {(

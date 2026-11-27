@@ -11,6 +11,7 @@ import agentTasksRouter from "./agentTasks";
 import booksRouter from "./books";
 import studentsRouter from "./students";
 import studentsExtendedRouter from "./studentsExtended";
+import skillsRouter from "./skills";
 
 const router: IRouter = Router();
 
@@ -26,5 +27,6 @@ router.use(agentTasksRouter);
 router.use(booksRouter);
 router.use(studentsRouter);
 router.use(studentsExtendedRouter);
+router.use(skillsRouter);
 
 export default router;

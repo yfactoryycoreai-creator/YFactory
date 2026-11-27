@@ -14,6 +14,7 @@ import {
 } from "./chatAdapters";
 import { ChatServiceError, completeWithRotation } from "./chatService";
 import { getFirebaseAdmin } from "./firebaseAdmin";
+import { getActiveSkillInstructionsForScope } from "./skillsService";
 
 export type StudentDocumentType = "exam" | "lesson" | "book_page" | "notes";
 export type StudentGradeLevel =
@@ -967,6 +968,13 @@ export async function sendStudentTutorMessage(
   }
   if (input.focusTopic?.trim()) {
     contextLines.push(`Focused Topic: "${input.focusTopic.trim()}".`);
+  }
+  const activeSkillsBlock = await getActiveSkillInstructionsForScope(
+    uid,
+    "students",
+  ).catch(() => "");
+  if (activeSkillsBlock) {
+    contextLines.push(activeSkillsBlock);
   }
   if (lesson) {
     contextLines.push(`Active Study Document: "${lesson.title}" (${lesson.documentType}).`);

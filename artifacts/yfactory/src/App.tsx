@@ -49,6 +49,14 @@ import {
 } from '@/components/section-hubs';
 import LanguagePickerDialog from '@/components/language-picker-dialog';
 import InAppCameraModal from '@/components/in-app-camera-modal';
+import SkillsHubModal, {
+  WorkspaceSkillsBar,
+} from '@/components/skills-hub-modal';
+import {
+  applySkillsToImagePrompt,
+  useYFactorySkills,
+  type SkillScope,
+} from '@/lib/skillsStore';
 import {
   disableYFactoryNotifications,
   getNotificationUiState,
@@ -171,6 +179,7 @@ function Home() {
   const [profileOpen, setProfileOpen] = useState(false);
   const [languagePickerOpen, setLanguagePickerOpen] = useState(false);
   const [imageEditCameraOpen, setImageEditCameraOpen] = useState(false);
+  const [skillsHubScope, setSkillsHubScope] = useState<SkillScope | null>(null);
   const [notifState, setNotifState] = useState<NotificationUiState>(getNotificationUiState);
   const storyCountsRef = useRef<Map<string, number> | null>(null);
   const [isSigningOut, setIsSigningOut] = useState(false);
@@ -372,6 +381,17 @@ function Home() {
     return user.getIdToken();
   }, [t, user]);
 
+  const { activeIds: activeSkillIds } = useYFactorySkills(
+    user ? getUserIdToken : undefined,
+  );
+
+  const openSkillsHub = useCallback(
+    (scope?: SkillScope) => {
+      setSkillsHubScope(scope ?? activeSection);
+    },
+    [activeSection],
+  );
+
   const handleCancelPendingSave = useCallback(() => {
     setPendingStorySave(null);
   }, []);
@@ -469,10 +489,11 @@ function Home() {
 
       try {
         const idToken = await user.getIdToken();
+        const effectivePrompt = applySkillsToImagePrompt(promptToGenerate);
         const result = await generateImages(
           idToken,
           null,
-          promptToGenerate,
+          effectivePrompt,
           requestedImages,
           controller.signal,
         );
@@ -694,10 +715,11 @@ function Home() {
         selectSection('stories');
         return;
       }
+      const effectivePrompt = applySkillsToImagePrompt(promptToGenerate);
       const result = await generateImages(
         idToken,
         null,
-        promptToGenerate,
+        effectivePrompt,
         totalImages,
         controller.signal,
       );
@@ -764,9 +786,10 @@ function Home() {
     setIsImageEditing(true);
     try {
       const referenceImage = await prepareImageReference(imageEditFile);
+      const effectiveEditPrompt = applySkillsToImagePrompt(promptToEdit);
       const edited = await editImageFromReference(
         await user.getIdToken(),
-        promptToEdit,
+        effectiveEditPrompt,
         referenceImage,
       );
       setImageEditResult({
@@ -856,6 +879,65 @@ function Home() {
           <span className="brand-mark" aria-hidden="true">Y</span><span>YFactory</span>
         </div>
         <div className="header-tools">
+          <button
+            type="button"
+            style={{
+              position: 'relative',
+              width: 40,
+              height: 40,
+              padding: 0,
+              borderRadius: '50%',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
+              cursor: 'pointer',
+              background:
+                activeSkillIds.length > 0
+                  ? 'rgba(234, 179, 46, 0.16)'
+                  : 'var(--app-raised, rgba(255, 255, 255, 0.06))',
+              border:
+                activeSkillIds.length > 0
+                  ? '1px solid #eab32e'
+                  : '1px solid var(--app-separator, rgba(255, 255, 255, 0.14))',
+              color:
+                activeSkillIds.length > 0
+                  ? '#eab32e'
+                  : 'var(--app-secondary, #a1a1aa)',
+            }}
+            aria-label={locale.startsWith('ar') ? 'مركز المهارات' : 'YFactory Skills Hub'}
+            title={
+              locale.startsWith('ar')
+                ? `مركز المهارات الشامل (${activeSkillIds.length} مفعّلة)`
+                : `Universal Skills Hub (${activeSkillIds.length} active)`
+            }
+            data-testid="button-open-skills-topbar"
+            onClick={() => openSkillsHub(activeSection)}
+          >
+            <Sparkles size={16} aria-hidden="true" />
+            {activeSkillIds.length > 0 && (
+              <span
+                style={{
+                  position: 'absolute',
+                  top: -3,
+                  insetInlineEnd: -3,
+                  minWidth: 17,
+                  height: 17,
+                  padding: '0 4px',
+                  borderRadius: 999,
+                  background: '#eab32e',
+                  color: '#111318',
+                  fontSize: 10,
+                  fontWeight: 800,
+                  display: 'grid',
+                  placeItems: 'center',
+                  lineHeight: 1,
+                }}
+              >
+                {activeSkillIds.length}
+              </span>
+            )}
+          </button>
           {notifState.supported && (
             <button
               type="button"
@@ -1075,6 +1157,7 @@ function Home() {
             onOpenCodePage={() => selectSection('code')}
             onOpenStudentsPage={() => selectSection('students')}
             onOpenProviderCenter={(providerId) => openProviderCenterFromHub(providerId)}
+            onOpenSkills={openSkillsHub}
           />
         )}
 
@@ -1115,6 +1198,16 @@ function Home() {
                 <span>{locale.startsWith('ar') ? 'موصّل Higgsfield' : 'Higgsfield'}</span>
               </button>
             </div>
+            {storiesMode !== 'higgsfield' && (
+              <div style={{ width: '100%', maxWidth: 960, margin: '0 auto' }}>
+                <WorkspaceSkillsBar
+                  scope="stories"
+                  locale={locale}
+                  getIdToken={getUserIdToken}
+                  onOpenHub={openSkillsHub}
+                />
+              </div>
+            )}
             <Suspense fallback={<StoryTabLoading />}>
               {storiesMode === 'book' ? (
                 <BookPublisher
@@ -1130,6 +1223,7 @@ function Home() {
                   locale={locale}
                   initialStory={activeStory}
                   getIdToken={getUserIdToken}
+                  onOpenSkills={openSkillsHub}
                 />
               ) : (
                 <StoryFactory
@@ -1154,6 +1248,7 @@ function Home() {
               getIdToken={getUserIdToken}
               onOpenProviderCenter={openProviderCenterFromHub}
               onOpenChat={() => selectSection('chat')}
+              onOpenSkills={openSkillsHub}
             />
           </ErrorBoundary>
         )}
@@ -1165,6 +1260,7 @@ function Home() {
               getIdToken={getUserIdToken}
               onOpenProviderCenter={openProviderCenterFromHub}
               onOpenChat={() => selectSection('chat')}
+              onOpenSkills={openSkillsHub}
             />
           </ErrorBoundary>
         )}
@@ -1172,6 +1268,12 @@ function Home() {
         {activeSection === 'image' && (
           <ErrorBoundary FallbackComponent={MediaTabFallback}>
           <>
+        <WorkspaceSkillsBar
+          scope="image"
+          locale={locale}
+          getIdToken={user ? getUserIdToken : undefined}
+          onOpenHub={openSkillsHub}
+        />
         <section className="composer" aria-label={t('labels.prompt')}>
           <div className="prompt-icon" aria-hidden="true">
             <Sparkles size={19} />
@@ -1507,6 +1609,13 @@ function Home() {
         mode="photo"
         onClose={() => setImageEditCameraOpen(false)}
         onCapture={(file) => handleImageEditFile(file)}
+      />
+      <SkillsHubModal
+        open={skillsHubScope !== null}
+        locale={locale}
+        initialScope={skillsHubScope ?? 'all'}
+        getIdToken={user ? getUserIdToken : undefined}
+        onClose={() => setSkillsHubScope(null)}
       />
     </div>
   );
