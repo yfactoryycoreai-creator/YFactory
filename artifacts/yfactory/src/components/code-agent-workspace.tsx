@@ -1,1520 +1,1115 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ChangeEvent,
-  type FormEvent,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   AlertCircle,
-  BookOpen,
-  Camera,
+  Check,
   CheckCircle2,
-  ClipboardCheck,
+  Code2,
+  Copy,
   ExternalLink,
-  FolderOpen,
-  Globe,
-  GraduationCap,
-  ImagePlus,
+  GitBranch,
+  GitPullRequest,
   KeyRound,
-  Layers,
   LoaderCircle,
-  MessageSquare,
-  Plus,
+  Play,
+  Puzzle,
   RefreshCw,
-  Save,
-  Search,
   Send,
+  ShieldCheck,
   Sparkles,
+  Terminal,
   Trash2,
-  TrendingUp,
-  Upload,
+  X,
 } from "lucide-react";
 import AppSelect from "@/components/app-select";
 import ChatMarkdown from "@/components/chat-markdown";
-import InAppCameraModal from "@/components/in-app-camera-modal";
+import CodeIdeDashboard from "@/components/code-ide-dashboard";
+import { ConnectorsHubContent } from "@/components/connectors-hub-modal";
 import {
-  StudentsExamsPanel,
-  StudentsProgressPanel,
-  type AdaptiveExamRequest,
-} from "@/components/students-exams-panel";
-import { loadChatModels, type ChatModelOption } from "@/lib/chatApi";
-import { generateImages } from "@/lib/imageApi";
+  fetchCliSessionsApi,
+  fetchCodeAgentModelsApi,
+  revokeCliSessionApi,
+  runCodeAgentTurnApi,
+  startCliPairingApi,
+  type CliSessionSummary,
+  type CodeAgentMode,
+  type CodeAgentModelOption,
+  type CodeAgentToolCall,
+} from "@/lib/codeAgentApi";
+import {
+  createGitHubBranch,
+  deleteGitHubFile,
+  fetchGitHubTree,
+  listGitHubRepos,
+  openGitHubPullRequest,
+  readGitHubFile,
+  upsertGitHubFile,
+  useDevConnectors,
+  type GitHubRepoItem,
+  type GitHubTreeEntry,
+} from "@/lib/connectorsStore";
 import { isRtlLanguage } from "@/lib/languages";
-import {
-  analyzeStudentPhoto,
-  askStudentAiTeacher,
-  deleteStudentLessonApi,
-  fetchStudentLessons,
-  prepareStudentPhotoAttachment,
-  runStudentWebResearch,
-  saveStudentAiDiagram,
-  saveStudentLessonEdits,
-  StudentsApiError,
-  type StudentDocumentType,
-  type StudentGradeLevel,
-  type StudentLessonRecord,
-  type StudentModelSelection,
-  type StudentTeachingStyle,
-} from "@/lib/studentsApi";
-import "./students-workspace.css";
+import "./code-agent-workspace.css";
 
-type StudentsWorkspaceProps = {
+type CodeAgentWorkspaceProps = {
   locale: string;
   getIdToken?: () => Promise<string>;
   onOpenProviderCenter: (providerId?: string) => void;
+  onOpenChat: () => void;
+  onOpenConnectors?: () => void;
 };
 
-type StudentsTab = "tutor" | "scan" | "visuals" | "exams" | "progress" | "library";
+type CodeSubTab = "cli" | "github" | "connectors" | "vscode";
 
-const SUBJECT_PRESETS = [
-  "Auto / General",
-  "Biology",
-  "Physics",
-  "Chemistry",
-  "Mathematics",
-  "History",
-  "Geography",
-  "Computer Science",
-  "Literature & Languages",
-];
+type FeedItem = {
+  id: string;
+  kind: "user" | "assistant" | "tool";
+  text: string;
+  modelName?: string;
+};
 
-const ST_STORAGE = {
-  model: "yfactory.students.selectedModel",
-  grade: "yfactory.students.gradeLevel",
-  subject: "yfactory.students.subject",
-  style: "yfactory.students.teachingStyle",
-} as const;
+type PendingApproval = {
+  call: CodeAgentToolCall;
+  repo: string;
+  branch: string;
+  oldPreview: string;
+  newPreview: string;
+};
 
-function readStudentPref(key: string, fallback: string): string {
-  if (typeof window === "undefined") return fallback;
-  try {
-    return window.localStorage.getItem(key) || fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-function writeStudentPref(key: string, value: string): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(key, value);
-  } catch {
-    // ignore storage errors
-  }
-}
+const MAX_CLOUD_STEPS = 8;
 
 function getCopy(lang: string) {
   if (lang.startsWith("ar")) {
     return {
-      title: "منصة الطلاب — المدرس الذكي والتعلم البصري",
-      subtitle:
-        "مساحة تعليمية مستقلة تماماً بتخصيصاتها: صوّر امتحانك أو درسك، ابحث بصرياً بمصادر موثّقة، وتعلّم في شات المدرس الذكي الخاص بالطلاب.",
-      tabTutor: "شات المدرس الذكي",
-      tabScan: "تصوير امتحان / درس",
-      tabVisuals: "البحث والمخططات البصرية",
-      tabExams: "الامتحانات التفاعلية",
-      tabProgress: "تطوّري وإتقاني",
-      tabLibrary: "مكتبة دروسي",
-      startExamBtn: "اختبار تفاعلي",
-      modelLbl: "نموذج الذكاء الاصطناعي",
-      gradeLbl: "المستوى الدراسي",
-      subjectLbl: "المادة الدراسية",
-      styleLbl: "أسلوب الشرح",
-      noModelWarn: "فعّل نموذجاً (مثل Gemini أو OpenAI أو Groq أو OpenRouter) من مركز المزودين أولاً.",
+      tabCli: "وكيل الطرفية (Claude Code CLI)",
+      tabGithub: "وكيل GitHub السحابي",
+      tabConnectors: "الموصّلات (Connectors)",
+      tabVscode: "إضافة VS Code",
+      cliTitle: "YFactory Code CLI — نسخة Claude Code للطرفية",
+      cliSub:
+        "وكيل برمجة مستقل بدون أي مكتبات خارجية (Node.js 18+): يقرأ مشروعك، يبحث في الكود، يعرض Diff ملوّن قبل كل تعديل، يشغّل البناء والاختبارات، ويدعم /plan و/init و/undo و/model وملف YFACTORY.md.",
+      genPairBtn: "توليد كود إقران جديد (YF-XXXXXX)",
+      generatingPair: "جارٍ توليد الكود...",
+      pairExpires: "صالح لمدة 10 دقائق — استخدمه داخل الطرفية عند أول تشغيل:",
+      replitCmdLbl: "التشغيل المباشر داخل Replit Shell:",
+      anyCmdLbl: "التشغيل في أي طرفية (VS Code / Cursor / Windsurf / JetBrains / Termux):",
+      sessionsTitle: "جلسات الطرفية المتصلة",
+      noSessions: "لا توجد جلسات CLI مقترنة بعد. ولّد كود إقران وشغّل الأمر أعلاه.",
+      revoke: "إلغاء الجلسة",
+      ghTitle: "وكيل البرمجة السحابي على GitHub (بدون طرفية — مباشرةً من هاتفك)",
+      ghNeedConnect:
+        "اربط حساب GitHub الخاص بك أولاً من تبويب «الموصّلات» ليتصفّح الوكيل ملفات مستودعك، يعرض لك الـ Diff، وينشئ Commit أو Pull Request مباشرةً.",
+      openConnBtn: "ربط GitHub الآن",
+      repoLbl: "المستودع (Repository)",
+      branchLbl: "الفرع (Branch)",
+      modelLbl: "نموذج البرمجة (Provider Center)",
+      modeAgent: "وضع الوكيل (تعديل + Commit)",
+      modePlan: "وضع التخطيط (قراءة فقط)",
+      commitPrLabel: "إنشاء فرع جديد + Pull Request عند الموافقة (الأكثر أماناً)",
+      promptPh:
+        "اطلب مهمة برمجية حقيقية على مستودعك (مثلاً: افحص ملف App.tsx وأصلح مشكلة التجاوب، أو اكتب خطة لتحسين الأداء)...",
+      send: "تنفيذ",
+      thinking: "الوكيل يفحص المستودع...",
+      approveCommit: "موافقة وتنفيذ Commit على GitHub",
+      rejectEdit: "رفض التعديل",
+      clearChat: "جلسة جديدة",
+      copied: "تم النسخ!",
+      noModels: "فعّل نموذجاً من مركز المزودين أولاً",
       openProviders: "مركز المزودين",
-      grades: {
-        elementary: "ابتدائي",
-        middle: "إعدادي / متوسط",
-        high_school: "ثانوي",
-        university: "جامعي",
-      } as Record<StudentGradeLevel, string>,
-      styles: {
-        visual_step_by_step: "بصري خطوة بخطوة",
-        simple_friendly: "مبسط وبأمثلة يومية",
-        exam_focused: "مركز على الامتحانات",
-        deep_academic: "أكاديمي معمّق",
-      } as Record<StudentTeachingStyle, string>,
-      docTypes: {
-        exam: "امتحان",
-        lesson: "درس",
-        book_page: "صفحة كتاب",
-        notes: "ملخص / ملاحظات",
-      } as Record<StudentDocumentType, string>,
-      newSession: "جلسة تعلم جديدة",
-      tutorEmpty:
-        "مرحباً بك في شات المدرس الذكي المستقل! اختر مستواك الدراسي وأسلوب الشرح أعلاه، واسأل عن أي درس — أو صوّر امتحانك أولاً ليربط المدرس كل شرح بأسئلة الامتحان.",
-      tutorPh: "اسأل المدرس الذكي عن أي فكرة، أو اطلب شرحاً لأحد أسئلة الامتحان...",
-      send: "إرسال",
-      sending: "جارٍ الشرح...",
-      reexplain: "أعد الشرح بطريقة مختلفة",
-      scanTitle: "تحليل صورة امتحان أو درس أو صفحة كتاب",
-      scanSub:
-        "التقط صورة مباشرة من الهاتف أو ارفعها من المعرض؛ يستخرج النظام الأسئلة مرتّبة ويحدد المادة والدروس والمفاهيم مع إمكانية التعديل الكامل.",
-      takePhoto: "تصوير بالكاميرا",
-      uploadPhoto: "رفع صورة من الهاتف",
-      orPasteText: "أو الصق نص الامتحان / الدرس هنا (اختياري):",
-      pastePh: "الصق نص الأسئلة أو الدرس إذا لم ترغب في رفع صورة...",
-      analyzeBtn: "تحليل بالرؤية الذكية (Vision / OCR)",
-      analyzing: "جارٍ قراءة وتحليل المحتوى...",
-      analysisResult: "نتيجة التحليل (قابلة للتعديل)",
-      extractedTextLbl: "النص المستخرج (يمكنك تصحيح أي خطأ قراءة):",
-      questionsLbl: "الأسئلة المستخرجة بالترتيب",
-      topicsLbl: "المواضيع والمفاهيم المستخرجة",
-      saveEdits: "حفظ التعديلات",
-      savingEdits: "جارٍ الحفظ...",
-      goResearch: "بحث بصري ومصادر لهذا الدرس",
-      goTutor: "اشرح هذا في شات المدرس الذكي",
-      visualTitle: "محرك البحث التعليمي والتعلم البصري",
-      visualSub:
-        "يبحث فعلياً في Wikipedia وWikimedia Commons لجلب الشروحات والمخططات العلمية والخرائط بروابطها الرسمية وتراخيصها دون أي مصادر مخترعة.",
-      searchTopicPh: "ابحث عن موضوع (مثلاً: الجهاز الهضمي، الحرب العالمية الثانية، قانون أوم، نظرية فيثاغورس)...",
-      researchBtn: "بحث تعليمي بصري",
-      researching: "جارٍ البحث في المصادر التعليمية وبناء المخطط...",
-      genDiagramBtn: "توليد رسم تعليمي بالذكاء الاصطناعي (عند عدم توفر صورة)",
-      generatingDiag: "جارٍ توليد رسم تعليمي...",
-      aiDiagBadge: "رسم مولّد بالذكاء الاصطناعي — يُرجى التحقق من دقته العلمية",
-      verifiedBadge: "مصدر موثّق",
-      openSource: "فتح المصدر الأصلي",
-      breakdownTitle: "المخطط البصري والخطوات والمصطلحات",
-      glossaryTitle: "المصطلحات الأساسية",
-      noVisuals: "ابحث عن أي موضوع أعلاه أو اضغط على أحد المواضيع المستخرجة من امتحانك لعرض الصور والمخططات والمصادر.",
-      libraryEmpty: "لا توجد دروس أو جلسات محفوظة بعد.",
-      openLesson: "فتح الدرس",
-      copy: "نسخ",
-      copied: "تم النسخ",
     };
   }
   return {
-    title: "Students — Independent AI Teacher & Visual Learning",
-    subtitle:
-      "Dedicated educational studio with its own customized tutor chat: scan exams/lessons, research verified visuals & diagrams, and learn step-by-step.",
-    tabTutor: "AI Teacher Chat",
-    tabScan: "Scan Exam / Lesson",
-    tabVisuals: "Visual Research",
-    tabLibrary: "My Lessons",
-    modelLbl: "AI Model",
-    gradeLbl: "Grade Level",
-    subjectLbl: "Subject",
-    styleLbl: "Teaching Style",
-    noModelWarn: "Enable a model (e.g. Gemini, OpenAI, Groq, or OpenRouter) in Provider Center first.",
+    tabCli: "Terminal CLI (Claude Code)",
+    tabGithub: "Cloud GitHub Agent",
+    tabConnectors: "Connectors",
+    tabVscode: "VS Code Extension",
+    cliTitle: "YFactory Code CLI — Claude Code Edition",
+    cliSub:
+      "Zero-dependency autonomous coding agent (Node.js 18+): reads your project, searches code, shows colored diffs before edits, runs build/tests, and supports /plan, /init, /undo, /model & YFACTORY.md.",
+    genPairBtn: "Generate Pairing Code (YF-XXXXXX)",
+    generatingPair: "Generating code...",
+    pairExpires: "Valid for 10 minutes — paste into your terminal when prompted:",
+    replitCmdLbl: "Direct Launch in Replit Shell:",
+    anyCmdLbl: "Run in ANY Terminal (VS Code / Cursor / Windsurf / JetBrains / Termux):",
+    sessionsTitle: "Connected CLI Sessions",
+    noSessions: "No CLI sessions paired yet. Generate a code and launch the CLI above.",
+    revoke: "Revoke",
+    ghTitle: "Cloud GitHub Coding Agent (Mobile-Native Claude Code)",
+    ghNeedConnect:
+      "Connect your GitHub account in the Connectors tab first so the agent can inspect your repo, preview diffs, and create real Commits or Pull Requests from your phone.",
+    openConnBtn: "Connect GitHub Now",
+    repoLbl: "Repository",
+    branchLbl: "Branch",
+    modelLbl: "Coding Model (Provider Center)",
+    modeAgent: "Agent Mode (Edit + Commit)",
+    modePlan: "Plan Mode (Read-Only)",
+    commitPrLabel: "Create new branch + Pull Request on approve (safest)",
+    promptPh:
+      "Give the agent a real coding task on this repo (e.g. Inspect src/App.tsx and fix mobile overflow, or plan a refactor)...",
+    send: "Run",
+    thinking: "Agent inspecting repo...",
+    approveCommit: "Approve & Commit to GitHub",
+    rejectEdit: "Reject",
+    clearChat: "New Session",
+    copied: "Copied!",
+    noModels: "Enable a model in Provider Center first",
     openProviders: "Provider Center",
-    grades: {
-      elementary: "Elementary",
-      middle: "Middle School",
-      high_school: "High School",
-      university: "University",
-    } as Record<StudentGradeLevel, string>,
-    styles: {
-      visual_step_by_step: "Visual Step-by-Step",
-      simple_friendly: "Simple & Analogies",
-      exam_focused: "Exam-Focused",
-      deep_academic: "Deep Academic",
-    } as Record<StudentTeachingStyle, string>,
-    docTypes: {
-      exam: "Exam",
-      lesson: "Lesson",
-      book_page: "Book Page",
-      notes: "Notes",
-    } as Record<StudentDocumentType, string>,
-    newSession: "New Study Session",
-    tutorEmpty:
-      "Welcome to your independent AI Teacher Chat! Pick your grade level, subject, and teaching style above — or scan an exam photo so every explanation links directly to your questions.",
-    tutorPh: "Ask your AI Teacher to explain a topic, solve step-by-step, or review an exam question...",
-    send: "Send",
-    sending: "Teaching...",
-    reexplain: "Re-explain Differently",
-    scanTitle: "Exam, Lesson & Textbook Photo Analyzer",
-    scanSub:
-      "Snap a photo or upload from your phone. YFactory extracts ordered questions, detects subject, lessons, topics & concepts, and lets you edit any OCR mistakes.",
-    takePhoto: "Take Photo",
-    uploadPhoto: "Upload Image",
-    orPasteText: "Or paste exam / lesson text directly (optional):",
-    pastePh: "Paste questions or lesson notes here...",
-    analyzeBtn: "Analyze with Vision / OCR",
-    analyzing: "Reading & extracting curriculum details...",
-    analysisResult: "Analysis Result (Editable)",
-    extractedTextLbl: "Extracted Text (edit if needed):",
-    questionsLbl: "Extracted Questions (in order)",
-    topicsLbl: "Detected Topics & Concepts",
-    saveEdits: "Save Edits",
-    savingEdits: "Saving...",
-    goResearch: "Research Visuals & Diagrams",
-    goTutor: "Teach This in AI Teacher Chat",
-    visualTitle: "Intelligent Web Research & Visual Learning Engine",
-    visualSub:
-      "Searches Wikipedia & Wikimedia Commons live for real educational diagrams, maps, and verified references with licenses — never invented URLs.",
-    searchTopicPh: "Search a topic (e.g. Digestive system, World War II map, Ohm's law, Pythagorean theorem)...",
-    researchBtn: "Research Visuals",
-    researching: "Searching educational sources & building breakdown...",
-    genDiagramBtn: "Generate AI Educational Diagram (if no verified diagram fits)",
-    generatingDiag: "Generating educational illustration...",
-    aiDiagBadge: "AI-Generated Illustration — verify scientific accuracy",
-    verifiedBadge: "Verified Source",
-    openSource: "Open Source",
-    breakdownTitle: "Structured Visual Breakdown & Glossary",
-    glossaryTitle: "Key Terms",
-    noVisuals: "Search a topic above or click an extracted topic from your exam to fetch verified diagrams and explanations.",
-    libraryEmpty: "No saved lessons or study sessions yet.",
-    openLesson: "Open",
-    copy: "Copy",
-    copied: "Copied",
   };
 }
 
-export default function StudentsWorkspace({
+export default function CodeAgentWorkspace({
   locale,
   getIdToken,
   onOpenProviderCenter,
-}: StudentsWorkspaceProps) {
+  onOpenChat,
+}: CodeAgentWorkspaceProps) {
   const isRtl = isRtlLanguage(locale);
   const ui = getCopy(locale);
+  const { state: connectors, update: updateConnectors, connectedCount } = useDevConnectors();
 
-  const [tab, setTab] = useState<StudentsTab>("tutor");
-  const [models, setModels] = useState<ChatModelOption[]>([]);
-  const [selectedModelKey, setSelectedModelKey] = useState<string>(() =>
-    readStudentPref(ST_STORAGE.model, ""),
-  );
-  const selectedModelRef = useRef(selectedModelKey);
-  selectedModelRef.current = selectedModelKey;
-
-  const [gradeLevel, setGradeLevel] = useState<StudentGradeLevel>(
-    () => readStudentPref(ST_STORAGE.grade, "high_school") as StudentGradeLevel,
-  );
-  const [subject, setSubject] = useState<string>(() =>
-    readStudentPref(ST_STORAGE.subject, "Auto / General"),
-  );
-  const [teachingStyle, setTeachingStyle] = useState<StudentTeachingStyle>(
-    () =>
-      readStudentPref(
-        ST_STORAGE.style,
-        "visual_step_by_step",
-      ) as StudentTeachingStyle,
-  );
-
-  const chooseModelKey = useCallback((nextKey: string) => {
-    setSelectedModelKey(nextKey);
-    selectedModelRef.current = nextKey;
-    writeStudentPref(ST_STORAGE.model, nextKey);
-  }, []);
-
-  const chooseGradeLevel = useCallback((next: StudentGradeLevel) => {
-    setGradeLevel(next);
-    writeStudentPref(ST_STORAGE.grade, next);
-  }, []);
-
-  const chooseSubject = useCallback((next: string) => {
-    setSubject(next);
-    writeStudentPref(ST_STORAGE.subject, next);
-  }, []);
-
-  const chooseTeachingStyle = useCallback((next: StudentTeachingStyle) => {
-    setTeachingStyle(next);
-    writeStudentPref(ST_STORAGE.style, next);
-  }, []);
-
-  const [lessons, setLessons] = useState<StudentLessonRecord[]>([]);
-  const [activeLesson, setActiveLesson] = useState<StudentLessonRecord | null>(null);
-  const [focusTopic, setFocusTopic] = useState("");
-  const [pendingAdaptiveExam, setPendingAdaptiveExam] = useState<AdaptiveExamRequest | null>(null);
-
-  // Scan state
-  const [photoAttachment, setPhotoAttachment] = useState<{
-    mimeType: "image/jpeg";
-    dataUrl: string;
-  } | null>(null);
-  const [pastedText, setPastedText] = useState("");
-  const [analyzing, setAnalyzing] = useState(false);
-  const [editText, setEditText] = useState("");
-  const [editSubject, setEditSubject] = useState("");
-  const [savingEdits, setSavingEdits] = useState(false);
-
-  // Visual research state
-  const [researchQuery, setResearchQuery] = useState("");
-  const [researching, setResearching] = useState(false);
-  const [generatingDiagram, setGeneratingDiagram] = useState(false);
-
-  // AI Teacher chat state
-  const [tutorInput, setTutorInput] = useState("");
-  const [tutorBusy, setTutorBusy] = useState(false);
-
+  const [subTab, setSubTab] = useState<CodeSubTab>("cli");
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
 
-  const [cameraOpen, setCameraOpen] = useState(false);
-  const galleryRef = useRef<HTMLInputElement>(null);
+  // CLI Pairing & Sessions
+  const [pairCode, setPairCode] = useState<{ code: string; expiresAt: number } | null>(null);
+  const [pairBusy, setPairBusy] = useState(false);
+  const [sessions, setSessions] = useState<CliSessionSummary[]>([]);
+  const [loadingSessions, setLoadingSessions] = useState(false);
+
+  // Models
+  const [models, setModels] = useState<CodeAgentModelOption[]>([]);
+  const [selectedModelKey, setSelectedModelKey] = useState("");
+
+  // GitHub Cloud Agent state
+  const [repos, setRepos] = useState<GitHubRepoItem[]>([]);
+  const [loadingRepos, setLoadingRepos] = useState(false);
+  const [selectedRepo, setSelectedRepo] = useState(connectors.github?.selectedRepo || "");
+  const [branch, setBranch] = useState(connectors.github?.selectedBranch || "main");
+  const [tree, setTree] = useState<GitHubTreeEntry[]>([]);
+  const [loadingTree, setLoadingTree] = useState(false);
+
+  const [mode, setMode] = useState<CodeAgentMode>("agent");
+  const [usePrBranch, setUsePrBranch] = useState(true);
+  const [draft, setDraft] = useState("");
+  const [feed, setFeed] = useState<FeedItem[]>([]);
+  const [running, setRunning] = useState(false);
+  const [pendingApproval, setPendingApproval] = useState<PendingApproval | null>(null);
+  const [committing, setCommitting] = useState(false);
+
+  const historyRef = useRef<Array<{ role: "user" | "assistant"; content: string }>>([]);
+  const fileCacheRef = useRef<Map<string, { content: string; sha: string }>>(new Map());
   const threadEndRef = useRef<HTMLDivElement>(null);
 
-  const loadWorkspaceData = useCallback(async () => {
+  const originUrl =
+    typeof window !== "undefined" ? window.location.origin : "https://your-yfactory-url";
+  const replitLaunchCmd = "node artifacts/yfactory-code-cli/yfactory-code.mjs";
+  const universalLaunchCmd = `curl -fsSL "${originUrl}/api/code-agent/cli-script" -o yfactory-code.mjs && node yfactory-code.mjs`;
+
+  const copyText = async (txt: string) => {
+    try {
+      await navigator.clipboard.writeText(txt);
+      setNotice(ui.copied);
+      window.setTimeout(() => setNotice(""), 2000);
+    } catch {
+      // ignore clipboard errors
+    }
+  };
+
+  const loadCliAndModels = useCallback(async () => {
     if (!getIdToken) return;
+    setLoadingSessions(true);
     try {
       const tok = await getIdToken();
-      const [mList, lList] = await Promise.all([
-        loadChatModels(tok).catch(() => [] as ChatModelOption[]),
-        fetchStudentLessons(tok).catch(() => [] as StudentLessonRecord[]),
+      const [sessList, modList] = await Promise.all([
+        fetchCliSessionsApi(tok).catch(() => [] as CliSessionSummary[]),
+        fetchCodeAgentModelsApi(tok).catch(() => [] as CodeAgentModelOption[]),
       ]);
-      setModels(mList);
-      if (mList.length > 0) {
-        const currentKey =
-          selectedModelRef.current || readStudentPref(ST_STORAGE.model, "");
-        const stillValid = mList.some(
-          (m) => `${m.provider}|${m.id}|${m.modelName}` === currentKey,
-        );
-        if (stillValid && currentKey) {
-          setSelectedModelKey(currentKey);
-        } else {
-          const pref =
-            mList.find((m) => /gemini|gpt-4o|gpt-6|claude/i.test(m.modelName)) ??
-            mList[0]!;
-          chooseModelKey(`${pref.provider}|${pref.id}|${pref.modelName}`);
-        }
+      setSessions(sessList);
+      setModels(modList);
+      if (modList.length > 0 && !selectedModelKey) {
+        const first = modList[0]!;
+        setSelectedModelKey(`${first.provider}|${first.keyId}|${first.modelName}`);
       }
-      setLessons(lList);
-      setActiveLesson((prev) => {
-        if (prev || lList.length === 0) return prev;
-        const first = lList[0]!;
-        setEditText(first.extractedText);
-        setEditSubject(first.subject);
-        return first;
-      });
-    } catch {
-      // ignore initial hydration error
+    } finally {
+      setLoadingSessions(false);
     }
-  }, [getIdToken, chooseModelKey]);
+  }, [getIdToken, selectedModelKey]);
 
   useEffect(() => {
-    void loadWorkspaceData();
-  }, [loadWorkspaceData]);
+    void loadCliAndModels();
+  }, [loadCliAndModels]);
+
+  // Load GitHub repos when GitHub connector is present
+  useEffect(() => {
+    const ghToken = connectors.github?.token;
+    if (!ghToken) {
+      setRepos([]);
+      setTree([]);
+      return;
+    }
+    let active = true;
+    setLoadingRepos(true);
+    void listGitHubRepos(ghToken)
+      .then((list) => {
+        if (!active) return;
+        setRepos(list);
+        if (!selectedRepo && list.length > 0) {
+          setSelectedRepo(list[0]!.fullName);
+          setBranch(list[0]!.defaultBranch);
+        }
+      })
+      .catch((err) => {
+        if (active) setError(err instanceof Error ? err.message : "Could not load GitHub repos.");
+      })
+      .finally(() => {
+        if (active) setLoadingRepos(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [connectors.github?.token]);
+
+  // Load file tree when selectedRepo / branch changes
+  useEffect(() => {
+    const ghToken = connectors.github?.token;
+    if (!ghToken || !selectedRepo) {
+      setTree([]);
+      return;
+    }
+    updateConnectors((cur) =>
+      cur.github
+        ? {
+            ...cur,
+            github: {
+              ...cur.github,
+              selectedRepo,
+              selectedBranch: branch || "main",
+            },
+          }
+        : cur,
+    );
+    let active = true;
+    setLoadingTree(true);
+    fileCacheRef.current.clear();
+    void fetchGitHubTree(ghToken, selectedRepo, branch || "main")
+      .then((entries) => {
+        if (active) setTree(entries);
+      })
+      .catch((err) => {
+        if (active) {
+          setTree([]);
+          setError(err instanceof Error ? err.message : "Could not read repo tree.");
+        }
+      })
+      .finally(() => {
+        if (active) setLoadingTree(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [connectors.github?.token, selectedRepo, branch]);
 
   useEffect(() => {
     threadEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [activeLesson?.tutorMessages.length, tutorBusy]);
+  }, [feed.length, pendingApproval]);
 
-  const modelSelection = useMemo<StudentModelSelection | undefined>(() => {
+  const modelSelection = useMemo(() => {
     const [provider, keyId, ...rest] = selectedModelKey.split("|");
     const modelName = rest.join("|");
     if (!provider || !keyId || !modelName) return undefined;
     return { provider, keyId, modelName };
   }, [selectedModelKey]);
 
-  const syncLessonIntoState = (
-    updated: StudentLessonRecord,
-    applyPrefs = false,
-  ) => {
-    setActiveLesson(updated);
-    setEditText(updated.extractedText);
-    setEditSubject(updated.subject);
-    if (applyPrefs) {
-      chooseGradeLevel(updated.gradeLevel);
-      chooseTeachingStyle(updated.teachingStyle);
-    }
-    setLessons((prev) => [updated, ...prev.filter((l) => l.id !== updated.id)]);
-  };
-
-  const processPhotoFile = async (file: File) => {
+  const handleGeneratePairing = async () => {
+    if (!getIdToken || pairBusy) return;
+    setPairBusy(true);
     setError("");
-    try {
-      const prepared = await prepareStudentPhotoAttachment(file);
-      setPhotoAttachment(prepared);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not read photo.");
-    }
-  };
-
-  const handlePhotoChosen = async (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.currentTarget.files?.[0];
-    e.currentTarget.value = "";
-    if (!file) return;
-    await processPhotoFile(file);
-  };
-
-  const handleAnalyze = async () => {
-    if (!getIdToken || analyzing) return;
-    if (!photoAttachment && !pastedText.trim()) return;
-    setAnalyzing(true);
-    setError("");
-    setNotice("");
     try {
       const tok = await getIdToken();
-      const created = await analyzeStudentPhoto(tok, {
-        ...(photoAttachment ? { image: photoAttachment } : {}),
-        ...(pastedText.trim() ? { pastedText: pastedText.trim() } : {}),
-        gradeLevel,
-        locale,
-        modelSelection,
-      });
-      syncLessonIntoState(created);
-      chooseSubject(created.subject || "Auto / General");
-      setFocusTopic(created.topics[0] ?? "");
-      setResearchQuery(created.topics[0] ?? created.title);
-      setPhotoAttachment(null);
-      setPastedText("");
-      setNotice(
-        locale.startsWith("ar")
-          ? `تم تحليل «${created.title}» واستخراج ${created.questions.length} سؤال و${created.topics.length} موضوع.`
-          : `Analyzed "${created.title}" — extracted ${created.questions.length} question(s) and ${created.topics.length} topic(s).`,
-      );
+      const res = await startCliPairingApi(tok);
+      setPairCode(res);
     } catch (err) {
-      setError(
-        err instanceof StudentsApiError ? err.message : "Could not analyze photo.",
-      );
+      setError(err instanceof Error ? err.message : "Could not create pairing code.");
     } finally {
-      setAnalyzing(false);
+      setPairBusy(false);
     }
   };
 
-  const handleSaveEdits = async () => {
-    if (!getIdToken || !activeLesson || savingEdits) return;
-    setSavingEdits(true);
-    setError("");
-    setNotice("");
-    try {
-      const tok = await getIdToken();
-      const updated = await saveStudentLessonEdits(tok, activeLesson.id, {
-        extractedText: editText,
-        subject: editSubject.trim() || activeLesson.subject,
-        gradeLevel,
-        teachingStyle,
-      });
-      syncLessonIntoState(updated);
-      setNotice(locale.startsWith("ar") ? "تم حفظ تعديلاتك بنجاح." : "Edits saved.");
-    } catch (err) {
-      setError(err instanceof StudentsApiError ? err.message : "Could not save edits.");
-    } finally {
-      setSavingEdits(false);
-    }
-  };
-
-  const handleRunResearch = async (overrideTopics?: string[]) => {
-    if (!getIdToken || researching) return;
-    const topicsToSearch =
-      overrideTopics && overrideTopics.length > 0
-        ? overrideTopics
-        : researchQuery.trim()
-          ? [researchQuery.trim()]
-          : activeLesson?.topics.slice(0, 3) ?? [];
-    if (topicsToSearch.length === 0) return;
-
-    setResearching(true);
-    setError("");
-    setNotice("");
-    try {
-      const tok = await getIdToken();
-      const res = await runStudentWebResearch(tok, {
-        lessonId: activeLesson?.id,
-        topics: topicsToSearch,
-        subject:
-          subject !== "Auto / General"
-            ? subject
-            : activeLesson?.subject || "General",
-        gradeLevel,
-        locale,
-        includeVisualBreakdown: true,
-        modelSelection,
-      });
-      if (res.lesson) {
-        syncLessonIntoState(res.lesson);
-      } else {
-        // Store transient results on a temporary in-view lesson if none active yet
-        setActiveLesson({
-          id: "",
-          title: topicsToSearch[0]!,
-          documentType: "lesson",
-          subject: subject !== "Auto / General" ? subject : "General",
-          gradeLevel,
-          teachingStyle,
-          extractedText: "",
-          questions: [],
-          lessons: topicsToSearch,
-          topics: topicsToSearch,
-          keyConcepts: [],
-          resources: res.resources,
-          breakdowns: res.breakdowns,
-          tutorMessages: [],
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-        });
-      }
-      setNotice(
-        locale.startsWith("ar")
-          ? `تم العثور على ${res.resources.length} مصدر وصورة تعليمية موثّقة.`
-          : `Found ${res.resources.length} verified educational source(s) & diagrams.`,
-      );
-    } catch (err) {
-      setError(
-        err instanceof StudentsApiError ? err.message : "Web research failed.",
-      );
-    } finally {
-      setResearching(false);
-    }
-  };
-
-  const handleGenerateAiDiagram = async () => {
-    if (!getIdToken || generatingDiagram) return;
-    const topic =
-      researchQuery.trim() ||
-      focusTopic.trim() ||
-      activeLesson?.topics[0] ||
-      activeLesson?.title;
-    if (!topic) return;
-
-    setGeneratingDiagram(true);
-    setError("");
-    setNotice("");
-    try {
-      const tok = await getIdToken();
-      const subj =
-        subject !== "Auto / General" ? subject : activeLesson?.subject || "Science";
-      const prompt = `Clean textbook educational scientific diagram illustrating "${topic}" (${subj}), crisp labeled schematic style, high contrast white background, clear visual parts, educational clarity`;
-      const imgRes = await generateImages(tok, null, prompt, 1);
-      const first = imgRes.images[0];
-      if (!first) throw new Error("No illustration returned by image provider.");
-
-      if (activeLesson?.id) {
-        const updated = await saveStudentAiDiagram(tok, activeLesson.id, {
-          topic,
-          imageUrl: first.imageData,
-          providerName: first.provider,
-          relationNote: `Original AI-generated educational illustration for "${topic}" (${subj}).`,
-        });
-        syncLessonIntoState(updated);
-      } else {
-        setActiveLesson((prev) =>
-          prev
-            ? {
-                ...prev,
-                resources: [
-                  {
-                    id: `ai_${Date.now()}`,
-                    topic,
-                    sourceName: `AI-Generated (${first.provider})`,
-                    title: `AI Educational Diagram: ${topic}`,
-                    sourceUrl: "",
-                    imageUrl: first.imageData,
-                    licenseNote: "Original AI-generated illustration",
-                    relationNote: `AI-generated diagram for ${topic}`,
-                    summary: "Verify scientific accuracy against your textbook.",
-                    isAiGenerated: true,
-                    scientificCheckNote:
-                      "Generated by AI — verify labels and scientific details.",
-                  },
-                  ...prev.resources,
-                ],
-              }
-            : prev,
-        );
-      }
-      setNotice(ui.aiDiagBadge);
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Could not generate AI diagram.",
-      );
-    } finally {
-      setGeneratingDiagram(false);
-    }
-  };
-
-  const handleSendTutor = async (
-    customPrompt?: string,
-    reexplain = false,
-  ) => {
-    if (!getIdToken || tutorBusy) return;
-    const text = (customPrompt ?? tutorInput).trim();
-    if (!text) return;
-
-    setTutorBusy(true);
-    setError("");
-    if (!customPrompt) setTutorInput("");
-    try {
-      const tok = await getIdToken();
-      const res = await askStudentAiTeacher(tok, {
-        lessonId: activeLesson?.id || undefined,
-        message: text,
-        subject:
-          subject !== "Auto / General"
-            ? subject
-            : activeLesson?.subject || "General",
-        gradeLevel,
-        teachingStyle,
-        focusTopic: focusTopic || undefined,
-        reexplainDifferently: reexplain,
-        locale,
-        modelSelection,
-      });
-      syncLessonIntoState(res.lesson);
-    } catch (err) {
-      setError(
-        err instanceof StudentsApiError ? err.message : "AI Teacher failed to reply.",
-      );
-    } finally {
-      setTutorBusy(false);
-    }
-  };
-
-  const handleTutorSubmit = (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    void handleSendTutor();
-  };
-
-  const handleDeleteLesson = async (id: string) => {
+  const handleRevokeSession = async (id: string) => {
     if (!getIdToken) return;
     try {
       const tok = await getIdToken();
-      await deleteStudentLessonApi(tok, id);
-      setLessons((prev) => prev.filter((l) => l.id !== id));
-      if (activeLesson?.id === id) setActiveLesson(null);
-    } catch {
-      setError("Could not delete lesson.");
+      await revokeCliSessionApi(tok, id);
+      setSessions((prev) => prev.filter((s) => s.id !== id));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not revoke session.");
     }
   };
 
-  const handleAdaptiveReexplain = (topic: string, subj: string) => {
-    chooseSubject(subj || "Auto / General");
-    setFocusTopic(topic);
-    setTab("tutor");
-    void handleSendTutor(
-      locale.startsWith("ar")
-        ? `أخطأت في موضوع «${topic}» في الاختبار. أعد شرحه لي بأسلوب مبسّط خطوة بخطوة مع أمثلة جديدة وتطبيقات تدريبية.`
-        : `I missed "${topic}" on my exam. Please re-explain it clearly step-by-step with fresh examples and check my understanding.`,
-      true,
-    );
+  const pushFeed = (kind: FeedItem["kind"], text: string, modelName?: string) => {
+    setFeed((prev) => [
+      ...prev,
+      { id: `f_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, kind, text, modelName },
+    ]);
   };
 
-  const handleStartAdaptiveExam = (req: AdaptiveExamRequest) => {
-    setPendingAdaptiveExam(req);
-    setTab("exams");
+  const executeGitHubReadTool = async (
+    ghToken: string,
+    call: CodeAgentToolCall,
+  ): Promise<string> => {
+    const args = call.args;
+    if (call.tool === "list_dir") {
+      const prefix = String(args.path || ".")
+        .replace(/^\.\/?/, "")
+        .replace(/\/+$/, "");
+      const matched = tree
+        .filter((e) => !prefix || e.path.startsWith(`${prefix}/`) || e.path === prefix)
+        .slice(0, 80)
+        .map((e) => `${e.path}${e.type === "tree" ? "/" : ""}`);
+      return matched.length ? matched.join("\n") : "(no entries)";
+    }
+
+    if (call.tool === "find_files") {
+      const pat = String(args.pattern || "").trim().toLowerCase();
+      const rx = pat
+        ? new RegExp(
+            pat.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*"),
+            "i",
+          )
+        : null;
+      const hits = tree
+        .filter((e) => e.type === "blob" && (!rx || rx.test(e.path)))
+        .slice(0, 50)
+        .map((e) => e.path);
+      return hits.length ? hits.join("\n") : "No matching files.";
+    }
+
+    if (call.tool === "grep_search") {
+      const q = String(args.query || "").trim();
+      if (!q) return "Error: query required.";
+      const resp = await fetch(
+        `https://api.github.com/search/code?q=${encodeURIComponent(`${q} repo:${selectedRepo}`)}&per_page=15`,
+        {
+          headers: {
+            Authorization: `Bearer ${ghToken}`,
+            Accept: "application/vnd.github+json",
+          },
+        },
+      );
+      if (resp.ok) {
+        const data = (await resp.json().catch(() => ({}))) as {
+          items?: Array<{ path?: string }>;
+        };
+        const paths = (data.items ?? []).map((i) => i.path).filter(Boolean);
+        if (paths.length > 0) {
+          return `Files matching "${q}":\n${paths.join("\n")}`;
+        }
+      }
+      const fallback = tree
+        .filter((e) => e.type === "blob" && e.path.toLowerCase().includes(q.toLowerCase()))
+        .slice(0, 20)
+        .map((e) => e.path);
+      return fallback.length
+        ? `Path matches:\n${fallback.join("\n")}`
+        : `No GitHub code search hits for "${q}". Try find_files + read_file.`;
+    }
+
+    if (call.tool === "read_file") {
+      const cleanPath = String(args.path || "").replace(/^\.\/?/, "");
+      if (!cleanPath) return "Error: path required.";
+      let cached = fileCacheRef.current.get(cleanPath);
+      if (!cached) {
+        cached = await readGitHubFile(ghToken, selectedRepo, cleanPath, branch || "main");
+        fileCacheRef.current.set(cleanPath, cached);
+      }
+      const lines = cached.content.split(/\r?\n/);
+      const start = Math.max(1, Number(args.startLine) || 1);
+      const end = Math.min(lines.length, Number(args.endLine) || start + 199);
+      const body = lines
+        .slice(start - 1, end)
+        .map((l, i) => `${String(start + i).padStart(4, " ")} | ${l}`)
+        .join("\n");
+      return `FILE: ${cleanPath} (lines ${start}-${end} of ${lines.length})\n${body}`;
+    }
+
+    return `Tool ${call.tool} is not supported in cloud read mode.`;
   };
 
-  const startFreshStudySession = () => {
-    setActiveLesson(null);
-    setFocusTopic("");
-    setEditText("");
-    setEditSubject("");
-    setNotice("");
+  const runCloudAgentLoop = async (initialUserMessage?: string) => {
+    const ghToken = connectors.github?.token;
+    if (!getIdToken || !ghToken || !selectedRepo || running) return;
     setError("");
-    setTab("tutor");
+    setRunning(true);
+
+    if (initialUserMessage) {
+      historyRef.current.push({ role: "user", content: initialUserMessage });
+      pushFeed("user", initialUserMessage);
+    }
+
+    const treeSummary = tree
+      .filter((e) => e.type === "blob")
+      .slice(0, 140)
+      .map((e) => e.path)
+      .join("\n");
+
+    try {
+      const idToken = await getIdToken();
+      for (let step = 0; step < MAX_CLOUD_STEPS; step += 1) {
+        const turn = await runCodeAgentTurnApi(idToken, {
+          messages: historyRef.current.slice(-22),
+          workspace: {
+            name: selectedRepo,
+            os: "GitHub Cloud API (no local shell)",
+            shell: "none (use edit_file/write_file/delete_file; run_command unavailable in cloud mode)",
+            gitBranch: branch || "main",
+            projectTree: treeSummary,
+          },
+          mode,
+          modelSelection,
+          locale,
+        });
+
+        if (turn.assistantMessage) {
+          pushFeed("assistant", turn.assistantMessage, turn.modelUsed.modelName);
+        }
+
+        historyRef.current.push({
+          role: "assistant",
+          content: JSON.stringify({
+            assistantMessage: turn.assistantMessage,
+            toolCalls: turn.toolCalls.map((t) => ({ tool: t.tool, args: t.args })),
+            done: turn.done,
+          }),
+        });
+
+        if (turn.done || turn.toolCalls.length === 0) {
+          return;
+        }
+
+        // Handle read-only tools automatically; pause on first mutating tool for user Diff Approval!
+        const readOutputs: string[] = [];
+        for (const call of turn.toolCalls) {
+          if (call.tool === "run_command") {
+            readOutputs.push(
+              `TOOL RESULT [run_command]: Shell execution is only available in YFactory Code CLI (Terminal). Skip run_command in Cloud GitHub mode.`,
+            );
+            continue;
+          }
+          if (call.mutating) {
+            const targetPath = String(call.args.path || "").replace(/^\.\/?/, "");
+            let oldPreview = "";
+            let newPreview = "";
+            if (call.tool === "edit_file") {
+              oldPreview = String(call.args.oldText || "");
+              newPreview = String(call.args.newText || "");
+            } else if (call.tool === "write_file") {
+              newPreview = String(call.args.content || "").slice(0, 4000);
+            } else if (call.tool === "delete_file") {
+              oldPreview = `DELETE ${targetPath}`;
+            }
+            if (readOutputs.length > 0) {
+              historyRef.current.push({
+                role: "user",
+                content: readOutputs.join("\n\n"),
+              });
+            }
+            setPendingApproval({
+              call,
+              repo: selectedRepo,
+              branch: branch || "main",
+              oldPreview,
+              newPreview,
+            });
+            return;
+          }
+
+          pushFeed(
+            "tool",
+            `▸ ${call.tool} ${JSON.stringify(call.args).slice(0, 120)}`,
+          );
+          try {
+            const out = await executeGitHubReadTool(ghToken, call);
+            readOutputs.push(`TOOL RESULT [${call.tool}]:\n${out.slice(0, 7000)}`);
+          } catch (err) {
+            readOutputs.push(
+              `TOOL ERROR [${call.tool}]: ${err instanceof Error ? err.message : "failed"}`,
+            );
+          }
+        }
+
+        if (readOutputs.length > 0) {
+          historyRef.current.push({
+            role: "user",
+            content: `${readOutputs.join("\n\n")}\n\nContinue toward the user's goal. Return strict JSON.`,
+          });
+        }
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Code Agent turn failed.");
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const handleSubmitPrompt = (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const text = draft.trim();
+    if (!text || running || pendingApproval) return;
+    setDraft("");
+    void runCloudAgentLoop(text);
+  };
+
+  const handleApproveMutation = async () => {
+    const ghToken = connectors.github?.token;
+    if (!pendingApproval || !ghToken || committing) return;
+    setCommitting(true);
+    setError("");
+    const { call, repo, branch: baseBranch } = pendingApproval;
+    const targetPath = String(call.args.path || "").replace(/^\.\/?/, "");
+    const commitMsg = `YFactory Code: ${call.reason || call.tool} (${targetPath})`;
+
+    try {
+      let targetBranch = baseBranch;
+      let createdBranch = false;
+      if (usePrBranch) {
+        const slug = `yfactory-code-${Date.now().toString(36)}`;
+        targetBranch = await createGitHubBranch(ghToken, repo, baseBranch, slug);
+        createdBranch = true;
+      }
+
+      let resultUrl = "";
+      if (call.tool === "edit_file") {
+        const current = await readGitHubFile(ghToken, repo, targetPath, targetBranch);
+        const oldText = String(call.args.oldText || "");
+        const newText = String(call.args.newText ?? "");
+        if (!oldText || !current.content.includes(oldText)) {
+          throw new Error(`Could not find exact oldText inside ${targetPath}.`);
+        }
+        const updatedContent = current.content.replace(oldText, newText);
+        const up = await upsertGitHubFile(ghToken, repo, {
+          path: targetPath,
+          content: updatedContent,
+          branch: targetBranch,
+          message: commitMsg,
+          sha: current.sha,
+        });
+        fileCacheRef.current.set(targetPath, { content: updatedContent, sha: up.sha });
+        resultUrl = up.commitUrl;
+      } else if (call.tool === "write_file") {
+        const content = String(call.args.content ?? "");
+        const up = await upsertGitHubFile(ghToken, repo, {
+          path: targetPath,
+          content,
+          branch: targetBranch,
+          message: commitMsg,
+        });
+        fileCacheRef.current.set(targetPath, { content, sha: up.sha });
+        resultUrl = up.commitUrl;
+      } else if (call.tool === "delete_file") {
+        const del = await deleteGitHubFile(ghToken, repo, {
+          path: targetPath,
+          branch: targetBranch,
+          message: commitMsg,
+        });
+        fileCacheRef.current.delete(targetPath);
+        resultUrl = del.commitUrl;
+      }
+
+      let prNote = "";
+      if (createdBranch) {
+        const pr = await openGitHubPullRequest(ghToken, repo, {
+          title: commitMsg.slice(0, 90),
+          head: targetBranch,
+          base: baseBranch,
+          body: `Automated change reviewed & approved via **YFactory Code (Cloud GitHub Agent)**.\n\n- Tool: \`${call.tool}\`\n- File: \`${targetPath}\`\n- Reason: ${call.reason}`,
+        });
+        resultUrl = pr.prUrl;
+        prNote = ` | PR #${pr.number}: ${pr.prUrl}`;
+      }
+
+      pushFeed("tool", `✓ Committed ${targetPath} on ${targetBranch}${prNote}`);
+      setNotice(
+        createdBranch
+          ? `PR created on ${repo} (${targetBranch})`
+          : `Committed ${targetPath} to ${targetBranch}`,
+      );
+      setPendingApproval(null);
+      historyRef.current.push({
+        role: "user",
+        content: `TOOL RESULT [${call.tool}]: OK — committed ${targetPath} to branch ${targetBranch} (${resultUrl}). Summarize clearly for the user.`,
+      });
+      await runCloudAgentLoop();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "GitHub commit failed.");
+    } finally {
+      setCommitting(false);
+    }
+  };
+
+  const handleRejectMutation = () => {
+    if (!pendingApproval) return;
+    const toolName = pendingApproval.call.tool;
+    setPendingApproval(null);
+    pushFeed("tool", `✕ User rejected ${toolName}`);
+    historyRef.current.push({
+      role: "user",
+      content: `TOOL RESULT [${toolName}]: User rejected this change. Ask what they prefer or propose an alternative.`,
+    });
+    void runCloudAgentLoop();
   };
 
   return (
     <section
-      className="st-root"
+      className="ycw-root"
       dir={isRtl ? "rtl" : "ltr"}
-      aria-label={ui.title}
-      data-testid="students-workspace"
+      data-testid="code-agent-workspace"
     >
-      <header className="st-header">
-        <div className="st-head-row">
-          <div className="st-title-wrap">
-            <span className="st-icon-badge" aria-hidden="true">
-              <GraduationCap size={22} />
-            </span>
-            <div>
-              <h1>{ui.title}</h1>
-              <p>{ui.subtitle}</p>
-            </div>
-          </div>
-          <div className="st-row">
-            <button
-              type="button"
-              className="st-btn"
-              onClick={startFreshStudySession}
-            >
-              <Plus size={14} />
-              <span>{ui.newSession}</span>
-            </button>
-            <button
-              type="button"
-              className="st-btn"
-              onClick={() => onOpenProviderCenter()}
-            >
-              <KeyRound size={14} />
-              <span>{ui.openProviders}</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Dedicated Students Customization Controls (Custom YFactory Bottom Sheets) */}
-        <div className="st-config-grid">
-          <div className="st-field">
-            <label htmlFor="st-model">{ui.modelLbl}</label>
-            <AppSelect
-              id="st-model"
-              title={ui.modelLbl}
-              value={selectedModelKey}
-              placeholder={ui.noModelWarn}
-              searchable={models.length >= 5}
-              dir={isRtl ? "rtl" : "ltr"}
-              valueDir="ltr"
-              testId="select-students-model"
-              disabled={models.length === 0}
-              options={models.map((m) => ({
-                value: `${m.provider}|${m.id}|${m.modelName}`,
-                label: m.modelName,
-                subtitle: m.providerName,
-                badge: m.providerName,
-              }))}
-              onChange={chooseModelKey}
-            />
-          </div>
-
-          <div className="st-field">
-            <label htmlFor="st-grade">{ui.gradeLbl}</label>
-            <AppSelect
-              id="st-grade"
-              title={ui.gradeLbl}
-              value={gradeLevel}
-              dir={isRtl ? "rtl" : "ltr"}
-              testId="select-students-grade"
-              options={(Object.keys(ui.grades) as StudentGradeLevel[]).map((g) => ({
-                value: g,
-                label: ui.grades[g],
-              }))}
-              onChange={(val) => chooseGradeLevel(val as StudentGradeLevel)}
-            />
-          </div>
-
-          <div className="st-field">
-            <label htmlFor="st-subject">{ui.subjectLbl}</label>
-            <AppSelect
-              id="st-subject"
-              title={ui.subjectLbl}
-              value={subject}
-              searchable
-              dir={isRtl ? "rtl" : "ltr"}
-              testId="select-students-subject"
-              options={[
-                ...(SUBJECT_PRESETS.includes(subject) ? [] : [subject]),
-                ...SUBJECT_PRESETS,
-              ].map((s) => ({
-                value: s,
-                label: s,
-              }))}
-              onChange={chooseSubject}
-            />
-          </div>
-
-          <div className="st-field">
-            <label htmlFor="st-style">{ui.styleLbl}</label>
-            <AppSelect
-              id="st-style"
-              title={ui.styleLbl}
-              value={teachingStyle}
-              dir={isRtl ? "rtl" : "ltr"}
-              testId="select-students-style"
-              options={(Object.keys(ui.styles) as StudentTeachingStyle[]).map(
-                (st) => ({
-                  value: st,
-                  label: ui.styles[st],
-                }),
-              )}
-              onChange={(val) => chooseTeachingStyle(val as StudentTeachingStyle)}
-            />
-          </div>
-        </div>
-
-        <nav className="st-tabs" role="tablist">
-          {(
+      <nav className="ycw-subnav" role="tablist">
+        {(
+          [
+            ["cli", ui.tabCli, <Terminal size={14} key="cli" />],
+            ["github", ui.tabGithub, <GitBranch size={14} key="gh" />],
             [
-              ["tutor", ui.tabTutor, <MessageSquare size={14} key="t" />],
-              ["scan", ui.tabScan, <Camera size={14} key="s" />],
-              [
-                "visuals",
-                `${ui.tabVisuals}${activeLesson?.resources.length ? ` (${activeLesson.resources.length})` : ""}`,
-                <Globe size={14} key="v" />,
-              ],
-              ["exams", ui.tabExams, <ClipboardCheck size={14} key="e" />],
-              ["progress", ui.tabProgress, <TrendingUp size={14} key="p" />],
-              ["library", `${ui.tabLibrary} (${lessons.length})`, <FolderOpen size={14} key="l" />],
-            ] as const
-          ).map(([id, label, icon]) => (
-            <button
-              key={id}
-              type="button"
-              role="tab"
-              aria-selected={tab === id}
-              className={`st-tab${tab === id ? " is-active" : ""}`}
-              onClick={() => setTab(id)}
-              data-testid={`students-tab-${id}`}
-            >
-              {icon}
-              <span>{label}</span>
-            </button>
-          ))}
-        </nav>
-      </header>
+              "connectors",
+              `${ui.tabConnectors}${connectedCount > 0 ? ` (${connectedCount})` : ""}`,
+              <Puzzle size={14} key="conn" />,
+            ],
+            ["vscode", ui.tabVscode, <Code2 size={14} key="vsc" />],
+          ] as const
+        ).map(([id, label, icon]) => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            aria-selected={subTab === id}
+            className={`ycw-subtab${subTab === id ? " is-active" : ""}`}
+            onClick={() => setSubTab(id)}
+            data-testid={`code-subtab-${id}`}
+          >
+            {icon}
+            <span>{label}</span>
+          </button>
+        ))}
+      </nav>
 
       {notice && (
-        <div className="st-banner-ok" role="status">
-          <CheckCircle2 size={15} />
-          <span>{notice}</span>
+        <div className="ysh-ok" role="status">
+          <CheckCircle2 size={14} style={{ verticalAlign: "middle", marginInlineEnd: 6 }} />
+          {notice}
         </div>
       )}
       {error && (
-        <div className="st-banner-err" role="alert">
-          <AlertCircle size={15} />
-          <span>{error}</span>
+        <div className="ysh-alert" role="alert">
+          <AlertCircle size={14} style={{ verticalAlign: "middle", marginInlineEnd: 6 }} />
+          {error}
         </div>
       )}
 
-      {/* TAB 1: INDEPENDENT AI TEACHER CHAT */}
-      {tab === "tutor" && (
-        <div className="st-panel" data-testid="students-tutor-panel">
-          {activeLesson && (
-            <div className="st-head-row">
-              <div className="st-row">
-                <span className="st-pill is-gold">
-                  {ui.docTypes[activeLesson.documentType]}
-                </span>
-                <strong dir="auto" style={{ fontSize: 13.5 }}>
-                  {activeLesson.title}
-                </strong>
-                <span className="st-pill">{activeLesson.subject}</span>
+      {/* SUBTAB 1: CLAUDE CODE TERMINAL CLI */}
+      {subTab === "cli" && (
+        <>
+          <div className="ycw-panel is-hero">
+            <div className="ycw-head-row">
+              <div>
+                <h2 style={{ margin: 0, fontSize: 16 }}>{ui.cliTitle}</h2>
+                <p style={{ margin: "4px 0 0", fontSize: 12.5, color: "var(--app-secondary)" }}>
+                  {ui.cliSub}
+                </p>
               </div>
-              <div className="st-row">
+              <button
+                type="button"
+                className="ych-btn"
+                onClick={() => onOpenProviderCenter()}
+              >
+                <KeyRound size={14} />
+                <span>{ui.openProviders}</span>
+              </button>
+            </div>
+
+            <div className="ych-row">
+              <button
+                type="button"
+                className="ych-btn is-primary"
+                disabled={pairBusy}
+                onClick={() => void handleGeneratePairing()}
+                data-testid="button-cli-generate-pair"
+              >
+                {pairBusy ? (
+                  <LoaderCircle className="loading-spinner" size={15} />
+                ) : (
+                  <Sparkles size={15} />
+                )}
+                <span>{pairBusy ? ui.generatingPair : ui.genPairBtn}</span>
+              </button>
+              {pairCode && (
                 <button
                   type="button"
-                  className="st-btn"
-                  onClick={() => setTab("scan")}
+                  className="ycw-pair-code"
+                  onClick={() => void copyText(pairCode.code)}
+                  title="Copy pairing code"
+                  data-testid="text-cli-pair-code"
                 >
-                  <Camera size={13} />
-                  <span>{ui.tabScan}</span>
+                  <span dir="ltr">{pairCode.code}</span>
+                  <Copy size={15} />
                 </button>
-                <button
-                  type="button"
-                  className="st-btn"
-                  onClick={() => setTab("visuals")}
-                >
-                  <Globe size={13} />
-                  <span>{ui.tabVisuals}</span>
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Quick Topic Focus & Exam Question Pills */}
-          {activeLesson && activeLesson.topics.length > 0 && (
-            <div className="st-chip-strip">
-              {activeLesson.topics.map((t) => (
-                <button
-                  key={t}
-                  type="button"
-                  className={`st-chip${focusTopic === t ? " is-active" : ""}`}
-                  onClick={() => {
-                    setFocusTopic(t);
-                    void handleSendTutor(
-                      locale.startsWith("ar")
-                        ? `اشرح لي موضوع «${t}» بخطوات مرئية بسيطة مع أمثلة وتعريف المصطلحات واربطه بالامتحان.`
-                        : `Teach me "${t}" step-by-step visually with examples, glossary terms, and link it to the uploaded exam.`,
-                    );
-                  }}
-                >
-                  <BookOpen size={12} />
-                  <span>{t}</span>
-                </button>
-              ))}
-            </div>
-          )}
-
-          {/* Inline verified visual reference strip right inside AI Teacher Chat */}
-          {activeLesson && activeLesson.resources.some((r) => r.imageUrl) && (
-            <div className="st-chip-strip">
-              {activeLesson.resources
-                .filter((r) => r.imageUrl)
-                .slice(0, 4)
-                .map((r) => (
-                  <button
-                    key={r.id}
-                    type="button"
-                    className="st-chip"
-                    onClick={() => setTab("visuals")}
-                  >
-                    <Layers size={12} />
-                    <span>{r.title.slice(0, 32)}</span>
-                  </button>
-                ))}
-            </div>
-          )}
-
-          <div className="st-tutor-thread" aria-live="polite">
-            {!activeLesson || activeLesson.tutorMessages.length === 0 ? (
-              <div className="st-empty">
-                <GraduationCap size={26} style={{ marginBottom: 6 }} />
-                <p style={{ margin: 0 }}>{ui.tutorEmpty}</p>
-              </div>
-            ) : (
-              activeLesson.tutorMessages.map((m, idx) => {
-                const isLastAssistant =
-                  m.role === "assistant" &&
-                  idx === activeLesson.tutorMessages.length - 1;
-                return (
-                  <article
-                    key={m.id}
-                    className={`st-msg ${m.role === "user" ? "is-user" : "is-assistant"}`}
-                  >
-                    <div className="st-msg-head">
-                      <strong>
-                        {m.role === "user"
-                          ? locale.startsWith("ar")
-                            ? "الطالب"
-                            : "Student"
-                          : locale.startsWith("ar")
-                            ? "المدرس الذكي"
-                            : "AI Teacher"}
-                      </strong>
-                      {m.style && (
-                        <span className="st-pill">{ui.styles[m.style]}</span>
-                      )}
-                    </div>
-                    {m.role === "assistant" ? (
-                      <ChatMarkdown
-                        content={m.content}
-                        copyLabel={ui.copy}
-                        copiedLabel={ui.copied}
-                      />
-                    ) : (
-                      <p style={{ margin: 0, fontSize: 13.5 }} dir="auto">
-                        {m.content}
-                      </p>
-                    )}
-                    {isLastAssistant && (
-                      <div className="st-row" style={{ marginTop: 4 }}>
-                        <button
-                          type="button"
-                          className="st-btn"
-                          disabled={tutorBusy}
-                          onClick={() =>
-                            void handleSendTutor(
-                              locale.startsWith("ar")
-                                ? "أعد شرح الفكرة السابقة بطريقة مختلفة وأبسط مع مثال جديد تماماً."
-                                : "Re-explain the previous lesson in a completely different, simpler way with a new example.",
-                              true,
-                            )
-                          }
-                          data-testid="button-tutor-reexplain"
-                        >
-                          <RefreshCw size={13} />
-                          <span>{ui.reexplain}</span>
-                        </button>
-                      </div>
-                    )}
-                  </article>
-                );
-              })
-            )}
-            {tutorBusy && (
-              <div className="st-banner-ok">
-                <LoaderCircle className="loading-spinner" size={15} />
-                <span>{ui.sending}</span>
-              </div>
-            )}
-            <div ref={threadEndRef} />
-          </div>
-
-          <form className="st-composer" onSubmit={handleTutorSubmit}>
-            <textarea
-              className="st-textarea"
-              dir="auto"
-              placeholder={ui.tutorPh}
-              value={tutorInput}
-              onChange={(e) => setTutorInput(e.currentTarget.value)}
-              data-testid="input-students-tutor"
-            />
-            <button
-              type="submit"
-              className="st-btn is-primary"
-              disabled={tutorBusy || !tutorInput.trim() || models.length === 0}
-              style={{ minHeight: 46 }}
-              data-testid="button-students-tutor-send"
-            >
-              {tutorBusy ? (
-                <LoaderCircle className="loading-spinner" size={15} />
-              ) : (
-                <Send size={15} />
               )}
-              <span>{ui.send}</span>
-            </button>
-          </form>
-        </div>
+            </div>
+            {pairCode && (
+              <small style={{ color: "var(--app-secondary)", fontSize: 12 }}>
+                {ui.pairExpires}
+              </small>
+            )}
+
+            <div className="ycw-field">
+              <label>{ui.replitCmdLbl}</label>
+              <div className="ycw-code-box" dir="ltr">
+                <code>{replitLaunchCmd}</code>
+                <button
+                  type="button"
+                  className="ych-btn"
+                  style={{ minHeight: 30, padding: "0 9px" }}
+                  onClick={() => void copyText(replitLaunchCmd)}
+                >
+                  <Copy size={13} />
+                </button>
+              </div>
+            </div>
+
+            <div className="ycw-field">
+              <label>{ui.anyCmdLbl}</label>
+              <div className="ycw-code-box" dir="ltr">
+                <code>{universalLaunchCmd}</code>
+                <button
+                  type="button"
+                  className="ych-btn"
+                  style={{ minHeight: 30, padding: "0 9px" }}
+                  onClick={() => void copyText(universalLaunchCmd)}
+                >
+                  <Copy size={13} />
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="ycw-panel">
+            <div className="ycw-head-row">
+              <strong style={{ fontSize: 14 }}>
+                {ui.sessionsTitle} ({sessions.length})
+              </strong>
+              <button
+                type="button"
+                className="ych-btn"
+                disabled={loadingSessions}
+                onClick={() => void loadCliAndModels()}
+              >
+                <RefreshCw size={13} className={loadingSessions ? "loading-spinner" : ""} />
+              </button>
+            </div>
+            {sessions.length === 0 ? (
+              <p style={{ margin: 0, fontSize: 12.5, color: "var(--app-secondary)" }}>
+                {ui.noSessions}
+              </p>
+            ) : (
+              sessions.map((s) => (
+                <div key={s.id} className="ycw-session-row">
+                  <div>
+                    <strong dir="ltr">{s.workspaceName}</strong>
+                    <div style={{ fontSize: 11.5, color: "var(--app-secondary)" }} dir="ltr">
+                      {s.platform} · {new Date(s.lastSeenAt).toLocaleString(locale)}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="ych-btn is-danger"
+                    onClick={() => void handleRevokeSession(s.id)}
+                  >
+                    <Trash2 size={13} />
+                    <span>{ui.revoke}</span>
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+        </>
       )}
 
-      {/* TAB 2: EXAM / LESSON PHOTO ANALYSIS */}
-      {tab === "scan" && (
-        <div className="st-panel" data-testid="students-scan-panel">
-          <div>
-            <strong style={{ fontSize: 15 }}>{ui.scanTitle}</strong>
-            <p style={{ margin: "4px 0 0", fontSize: 12.5, color: "var(--app-secondary)" }}>
-              {ui.scanSub}
-            </p>
-          </div>
-
-          <input
-            ref={galleryRef}
-            type="file"
-            accept="image/jpeg,image/png,image/webp"
-            style={{ display: "none" }}
-            onChange={(e) => void handlePhotoChosen(e)}
-          />
-
-          <div className="st-row">
-            <button
-              type="button"
-              className="st-btn is-primary"
-              onClick={() => setCameraOpen(true)}
-              data-testid="button-students-camera"
-            >
-              <Camera size={15} />
-              <span>{ui.takePhoto}</span>
-            </button>
-            <button
-              type="button"
-              className="st-btn"
-              onClick={() => galleryRef.current?.click()}
-              data-testid="button-students-upload"
-            >
-              <Upload size={15} />
-              <span>{ui.uploadPhoto}</span>
-            </button>
-          </div>
-
-          {photoAttachment && (
-            <img
-              className="st-photo-preview"
-              src={photoAttachment.dataUrl}
-              alt="Exam or lesson preview"
-            />
-          )}
-
-          <div className="st-field">
-            <label>{ui.orPasteText}</label>
-            <textarea
-              className="st-textarea"
-              dir="auto"
-              placeholder={ui.pastePh}
-              value={pastedText}
-              onChange={(e) => setPastedText(e.currentTarget.value)}
-            />
-          </div>
-
-          <button
-            type="button"
-            className="st-btn is-primary"
-            disabled={
-              analyzing ||
-              (!photoAttachment && !pastedText.trim()) ||
-              models.length === 0
-            }
-            onClick={() => void handleAnalyze()}
-            data-testid="button-students-analyze"
-          >
-            {analyzing ? (
-              <LoaderCircle className="loading-spinner" size={16} />
-            ) : (
-              <Sparkles size={16} />
+      {/* SUBTAB 2: CLOUD GITHUB CODING AGENT */}
+      {subTab === "github" && (
+        <div className="ycw-panel">
+          <div className="ycw-head-row">
+            <strong style={{ fontSize: 15 }}>{ui.ghTitle}</strong>
+            {feed.length > 0 && (
+              <button
+                type="button"
+                className="ych-btn"
+                onClick={() => {
+                  setFeed([]);
+                  historyRef.current = [];
+                  setPendingApproval(null);
+                }}
+              >
+                <span>{ui.clearChat}</span>
+              </button>
             )}
-            <span>{analyzing ? ui.analyzing : ui.analyzeBtn}</span>
-          </button>
+          </div>
 
-          {activeLesson && (
-            <>
-              <hr style={{ border: 0, borderTop: "1px solid var(--app-separator)", width: "100%" }} />
-              <div className="st-head-row">
-                <strong style={{ fontSize: 14.5 }}>{ui.analysisResult}</strong>
-                <div className="st-row">
-                  <span className="st-pill is-gold">
-                    {ui.docTypes[activeLesson.documentType]}
-                  </span>
-                  <span className="st-pill is-ok">{activeLesson.subject}</span>
-                </div>
+          {!connectors.github ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <p style={{ margin: 0, fontSize: 13, color: "var(--app-secondary)" }}>
+                {ui.ghNeedConnect}
+              </p>
+              <div>
+                <button
+                  type="button"
+                  className="ych-btn is-primary"
+                  onClick={() => setSubTab("connectors")}
+                >
+                  <GitBranch size={15} />
+                  <span>{ui.openConnBtn}</span>
+                </button>
               </div>
+            </div>
+          ) : (
+            <>
+              <div className="ycw-grid-2">
+                <div className="ycw-field">
+                  <label>{ui.repoLbl}</label>
+                  <AppSelect
+                    title={ui.repoLbl}
+                    value={selectedRepo}
+                    searchable
+                    disabled={loadingRepos || repos.length === 0}
+                    dir={isRtl ? "rtl" : "ltr"}
+                    valueDir="ltr"
+                    options={repos.map((r) => ({
+                      value: r.fullName,
+                      label: r.fullName,
+                      subtitle: r.description || r.defaultBranch,
+                      badge: r.private ? "Private" : "Public",
+                    }))}
+                    onChange={(val) => {
+                      setSelectedRepo(val);
+                      const found = repos.find((r) => r.fullName === val);
+                      if (found) setBranch(found.defaultBranch);
+                    }}
+                  />
+                </div>
 
-              <div className="st-config-grid">
-                <div className="st-field">
-                  <label>{ui.subjectLbl}</label>
-                  <input
-                    className="st-input"
-                    dir="auto"
-                    value={editSubject}
-                    onChange={(e) => setEditSubject(e.currentTarget.value)}
+                <div className="ycw-field">
+                  <label>{ui.modelLbl}</label>
+                  <AppSelect
+                    title={ui.modelLbl}
+                    value={selectedModelKey}
+                    placeholder={ui.noModels}
+                    searchable={models.length >= 5}
+                    disabled={models.length === 0}
+                    dir={isRtl ? "rtl" : "ltr"}
+                    valueDir="ltr"
+                    options={models.map((m) => ({
+                      value: `${m.provider}|${m.keyId}|${m.modelName}`,
+                      label: m.modelName,
+                      subtitle: m.providerName,
+                      badge: m.recommendedForCode ? "★ Code" : m.providerName,
+                    }))}
+                    onChange={setSelectedModelKey}
                   />
                 </div>
               </div>
 
-              <div className="st-field">
-                <label>{ui.extractedTextLbl}</label>
-                <textarea
-                  className="st-textarea"
-                  style={{ minHeight: 120 }}
-                  dir="auto"
-                  value={editText}
-                  onChange={(e) => setEditText(e.currentTarget.value)}
-                  data-testid="textarea-students-extracted"
-                />
-              </div>
-
-              <div className="st-row">
-                {activeLesson.id && (
+              <div className="ych-row" style={{ justifyContent: "space-between" }}>
+                <div className="ych-row">
                   <button
                     type="button"
-                    className="st-btn"
-                    disabled={savingEdits}
-                    onClick={() => void handleSaveEdits()}
+                    className={`ych-btn${mode === "agent" ? " is-primary" : ""}`}
+                    onClick={() => setMode("agent")}
                   >
-                    <Save size={14} />
-                    <span>{savingEdits ? ui.savingEdits : ui.saveEdits}</span>
+                    <Play size={13} />
+                    <span>{ui.modeAgent}</span>
                   </button>
-                )}
-                <button
-                  type="button"
-                  className="st-btn is-primary"
-                  onClick={() => {
-                    setTab("visuals");
-                    void handleRunResearch(activeLesson.topics.slice(0, 3));
-                  }}
-                >
-                  <Globe size={14} />
-                  <span>{ui.goResearch}</span>
-                </button>
-                <button
-                  type="button"
-                  className="st-btn"
-                  onClick={() => setTab("tutor")}
-                >
-                  <MessageSquare size={14} />
-                  <span>{ui.goTutor}</span>
-                </button>
+                  <button
+                    type="button"
+                    className={`ych-btn${mode === "plan" ? " is-primary" : ""}`}
+                    onClick={() => setMode("plan")}
+                  >
+                    <ShieldCheck size={13} />
+                    <span>{ui.modePlan}</span>
+                  </button>
+                </div>
+                <span className="ych-pill" dir="ltr">
+                  {loadingTree
+                    ? "Loading tree..."
+                    : `${branch} · ${tree.filter((e) => e.type === "blob").length} files`}
+                </span>
               </div>
 
-              {activeLesson.topics.length > 0 && (
-                <div className="st-field">
-                  <label>{ui.topicsLbl}</label>
-                  <div className="st-row">
-                    {activeLesson.topics.map((t) => (
-                      <span className="st-pill is-gold" key={t}>
-                        {t}
-                      </span>
-                    ))}
-                    {activeLesson.keyConcepts.map((c) => (
-                      <span className="st-pill" key={c}>
-                        {c}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
+              <label className="ych-row" style={{ fontSize: 12, cursor: "pointer" }}>
+                <input
+                  type="checkbox"
+                  checked={usePrBranch}
+                  onChange={(e) => setUsePrBranch(e.currentTarget.checked)}
+                  style={{ accentColor: "var(--app-accent, #eab32e)" }}
+                />
+                <GitPullRequest size={14} />
+                <span>{ui.commitPrLabel}</span>
+              </label>
 
-              {activeLesson.questions.length > 0 && (
-                <div className="st-field">
-                  <label>
-                    {ui.questionsLbl} ({activeLesson.questions.length})
-                  </label>
-                  {activeLesson.questions.map((q) => (
-                    <div key={q.number} className="st-question-item">
-                      <div className="st-head-row">
-                        <span className="st-pill is-gold">Q{q.number}</span>
-                        <span className="st-pill">{q.topic}</span>
-                        <button
-                          type="button"
-                          className="st-btn"
-                          onClick={() => {
-                            setFocusTopic(q.topic);
-                            setTab("tutor");
-                            void handleSendTutor(
-                              locale.startsWith("ar")
-                                ? `اشرح لي خطوات حل السؤال رقم ${q.number}: ${q.text}`
-                                : `Explain how to solve Question ${q.number} step-by-step: ${q.text}`,
-                            );
-                          }}
-                        >
-                          <MessageSquare size={12} />
-                          <span>{ui.tabTutor}</span>
-                        </button>
-                      </div>
-                      <p style={{ margin: 0, fontSize: 13 }} dir="auto">
-                        {q.text}
-                      </p>
+              {feed.length > 0 && (
+                <div className="ycw-thread" aria-live="polite">
+                  {feed.map((item) => (
+                    <div key={item.id} className={`ycw-msg is-${item.kind}`}>
+                      {item.kind === "assistant" ? (
+                        <>
+                          {item.modelName && (
+                            <small style={{ color: "var(--app-accent-text)" }} dir="ltr">
+                              ⚡ YFactory Code · {item.modelName}
+                            </small>
+                          )}
+                          <ChatMarkdown
+                            content={item.text}
+                            copyLabel="Copy"
+                            copiedLabel="Copied"
+                          />
+                        </>
+                      ) : (
+                        <span dir="auto">{item.text}</span>
+                      )}
                     </div>
                   ))}
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      )}
-
-      {/* TAB 3: INTELLIGENT WEB RESEARCH & VISUAL LEARNING ENGINE */}
-      {tab === "visuals" && (
-        <div className="st-panel" data-testid="students-visuals-panel">
-          <div>
-            <strong style={{ fontSize: 15 }}>{ui.visualTitle}</strong>
-            <p style={{ margin: "4px 0 0", fontSize: 12.5, color: "var(--app-secondary)" }}>
-              {ui.visualSub}
-            </p>
-          </div>
-
-          <div className="st-row">
-            <input
-              className="st-input"
-              style={{ flex: 1 }}
-              dir="auto"
-              placeholder={ui.searchTopicPh}
-              value={researchQuery}
-              onChange={(e) => setResearchQuery(e.currentTarget.value)}
-              data-testid="input-students-research"
-            />
-            <button
-              type="button"
-              className="st-btn is-primary"
-              disabled={researching || !researchQuery.trim()}
-              onClick={() => void handleRunResearch([researchQuery.trim()])}
-              data-testid="button-students-research"
-            >
-              {researching ? (
-                <LoaderCircle className="loading-spinner" size={15} />
-              ) : (
-                <Search size={15} />
-              )}
-              <span>{researching ? ui.researching : ui.researchBtn}</span>
-            </button>
-          </div>
-
-          {activeLesson && activeLesson.topics.length > 0 && (
-            <div className="st-chip-strip">
-              {activeLesson.topics.map((topic) => (
-                <button
-                  key={topic}
-                  type="button"
-                  className="st-chip"
-                  disabled={researching}
-                  onClick={() => {
-                    setResearchQuery(topic);
-                    void handleRunResearch([topic]);
-                  }}
-                >
-                  <Search size={12} />
-                  <span>{topic}</span>
-                </button>
-              ))}
-            </div>
-          )}
-
-          <div className="st-row">
-            <button
-              type="button"
-              className="st-btn"
-              disabled={
-                generatingDiagram ||
-                (!researchQuery.trim() && !activeLesson?.topics[0])
-              }
-              onClick={() => void handleGenerateAiDiagram()}
-              data-testid="button-students-ai-diagram"
-            >
-              {generatingDiagram ? (
-                <LoaderCircle className="loading-spinner" size={14} />
-              ) : (
-                <ImagePlus size={14} />
-              )}
-              <span>
-                {generatingDiagram ? ui.generatingDiag : ui.genDiagramBtn}
-              </span>
-            </button>
-          </div>
-
-          {/* Structured Visual Learning Breakdowns */}
-          {activeLesson && activeLesson.breakdowns.length > 0 && (
-            <>
-              <strong style={{ fontSize: 14 }}>{ui.breakdownTitle}</strong>
-              {activeLesson.breakdowns.map((bd) => (
-                <article key={bd.topic} className="st-breakdown-card">
-                  <div className="st-head-row">
-                    <strong dir="auto">{bd.topic}</strong>
-                    <span className="st-pill is-gold">
-                      {bd.subject} · {bd.visualType}
-                    </span>
-                  </div>
-                  <p style={{ margin: 0, fontSize: 13 }} dir="auto">
-                    {bd.summary}
-                  </p>
-                  {bd.steps.length > 0 && (
-                    <div className="st-steps-grid">
-                      {bd.steps.map((step, i) => (
-                        <div key={i} className="st-step-box" dir="auto">
-                          <strong>
-                            {i + 1}. {step.label}
-                          </strong>
-                          <span>{step.detail}</span>
-                        </div>
-                      ))}
+                  {running && (
+                    <div className="ycw-msg is-tool">
+                      <LoaderCircle
+                        className="loading-spinner"
+                        size={13}
+                        style={{ verticalAlign: "middle", marginInlineEnd: 6 }}
+                      />
+                      {ui.thinking}
                     </div>
                   )}
-                  {bd.glossary.length > 0 && (
-                    <div className="st-field">
-                      <label>{ui.glossaryTitle}</label>
-                      <div className="st-row">
-                        {bd.glossary.map((g, i) => (
-                          <span key={i} className="st-pill" dir="auto">
-                            <strong>{g.term}:</strong> {g.definition}
+                  <div ref={threadEndRef} />
+                </div>
+              )}
+
+              {/* Visual Diff Approval Gate */}
+              {pendingApproval && (
+                <div className="ycw-diff-card" data-testid="github-diff-approval">
+                  <div className="ycw-head-row">
+                    <strong style={{ color: "#fde047", fontSize: 13 }} dir="ltr">
+                      {pendingApproval.call.tool}: {String(pendingApproval.call.args.path || "")}
+                    </strong>
+                    <span className="ych-pill">{pendingApproval.call.reason}</span>
+                  </div>
+                  <pre className="ycw-diff-pre" dir="ltr">
+                    {pendingApproval.oldPreview &&
+                      pendingApproval.oldPreview
+                        .split(/\r?\n/)
+                        .slice(0, 35)
+                        .map((l, i) => (
+                          <span key={`d${i}`} className="ycw-diff-del">
+                            - {l}
                           </span>
                         ))}
-                      </div>
-                    </div>
-                  )}
-                </article>
-              ))}
-            </>
-          )}
-
-          {/* Verified Visual Resources & AI Diagrams */}
-          {!activeLesson || activeLesson.resources.length === 0 ? (
-            <div className="st-empty">{ui.noVisuals}</div>
-          ) : (
-            <div className="st-visual-grid">
-              {activeLesson.resources.map((res) => (
-                <article key={res.id} className="st-visual-card">
-                  {res.imageUrl && (
-                    <img src={res.imageUrl} alt={res.title} loading="lazy" />
-                  )}
-                  <div className="st-row">
-                    <span
-                      className={`st-pill ${res.isAiGenerated ? "is-ai" : "is-ok"}`}
-                    >
-                      {res.isAiGenerated ? ui.aiDiagBadge : `${ui.verifiedBadge} · ${res.sourceName}`}
-                    </span>
-                  </div>
-                  <h3 dir="auto">{res.title}</h3>
-                  {res.relationNote && <p dir="auto">{res.relationNote}</p>}
-                  {res.summary && <p dir="auto">{res.summary}</p>}
-                  {res.scientificCheckNote && (
-                    <p style={{ color: "var(--app-accent-text)", fontSize: 11.5 }}>
-                      {res.scientificCheckNote}
-                    </p>
-                  )}
-                  <div className="st-head-row" style={{ marginTop: "auto" }}>
-                    <small style={{ fontSize: 10.5, color: "var(--app-tertiary)" }}>
-                      {res.licenseNote}
-                    </small>
-                    {res.sourceUrl && (
-                      <a
-                        className="st-btn"
-                        href={res.sourceUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        <span>{ui.openSource}</span>
-                        <ExternalLink size={12} />
-                      </a>
-                    )}
-                  </div>
-                </article>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* TAB 4: REAL INTERACTIVE EXAMS & ADAPTIVE LEARNING */}
-      {tab === "exams" && (
-        <StudentsExamsPanel
-          locale={locale}
-          lessons={lessons}
-          activeLesson={activeLesson}
-          gradeLevel={gradeLevel}
-          subject={subject}
-          modelSelection={modelSelection}
-          pendingAdaptiveRequest={pendingAdaptiveExam}
-          onConsumeAdaptiveRequest={() => setPendingAdaptiveExam(null)}
-          getIdToken={getIdToken}
-          onReexplainTopic={handleAdaptiveReexplain}
-        />
-      )}
-
-      {/* TAB 5: STUDENT PROGRESS & MASTERY DASHBOARD */}
-      {tab === "progress" && (
-        <StudentsProgressPanel
-          locale={locale}
-          getIdToken={getIdToken}
-          onReexplainTopic={handleAdaptiveReexplain}
-          onStartAdaptiveExam={handleStartAdaptiveExam}
-        />
-      )}
-
-      {/* TAB 6: MY SAVED LESSONS LIBRARY */}
-      {tab === "library" && (
-        <div className="st-panel" data-testid="students-library-panel">
-
-          {lessons.length === 0 ? (
-            <div className="st-empty">{ui.libraryEmpty}</div>
-          ) : (
-            lessons.map((lesson) => (
-              <article key={lesson.id} className="st-question-item">
-                <div className="st-head-row">
-                  <div>
-                    <strong dir="auto">{lesson.title}</strong>
-                    <div className="st-row" style={{ marginTop: 4 }}>
-                      <span className="st-pill is-gold">
-                        {ui.docTypes[lesson.documentType]}
-                      </span>
-                      <span className="st-pill">{lesson.subject}</span>
-                      <span className="st-pill">{ui.grades[lesson.gradeLevel]}</span>
-                      <span className="st-pill">
-                        Q: {lesson.questions.length} · Visuals: {lesson.resources.length} · Chat: {lesson.tutorMessages.length}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="st-row">
+                    {pendingApproval.newPreview &&
+                      pendingApproval.newPreview
+                        .split(/\r?\n/)
+                        .slice(0, 35)
+                        .map((l, i) => (
+                          <span key={`a${i}`} className="ycw-diff-add">
+                            + {l}
+                          </span>
+                        ))}
+                  </pre>
+                  <div className="ych-row">
                     <button
                       type="button"
-                      className="st-btn"
-                      onClick={() => {
-                        syncLessonIntoState(lesson, true);
-                        handleStartAdaptiveExam({
-                          topics:
-                            lesson.topics.length > 0
-                              ? lesson.topics.slice(0, 4)
-                              : [lesson.title],
-                          subject: lesson.subject,
-                          difficulty: "adaptive",
-                          mode: "practice",
-                          lessonId: lesson.id,
-                        });
-                      }}
+                      className="ych-btn is-primary"
+                      disabled={committing}
+                      onClick={() => void handleApproveMutation()}
+                      data-testid="button-github-approve-commit"
                     >
-                      <ClipboardCheck size={13} />
-                      <span>{ui.startExamBtn}</span>
+                      {committing ? (
+                        <LoaderCircle className="loading-spinner" size={14} />
+                      ) : (
+                        <Check size={14} />
+                      )}
+                      <span>{ui.approveCommit}</span>
                     </button>
                     <button
                       type="button"
-                      className="st-btn is-primary"
-                      onClick={() => {
-                        syncLessonIntoState(lesson, true);
-                        setTab("tutor");
-                      }}
+                      className="ych-btn is-danger"
+                      disabled={committing}
+                      onClick={handleRejectMutation}
                     >
-                      {ui.openLesson}
+                      <X size={14} />
+                      <span>{ui.rejectEdit}</span>
                     </button>
-                    <button
-                      type="button"
-                      className="st-btn is-danger"
-                      onClick={() => void handleDeleteLesson(lesson.id)}
+                    <a
+                      className="ych-btn"
+                      href={`https://github.com/${pendingApproval.repo}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
                     >
-                      <Trash2 size={13} />
-                    </button>
+                      <ExternalLink size={13} />
+                      <span>GitHub</span>
+                    </a>
                   </div>
                 </div>
-              </article>
-            ))
+              )}
+
+              <form className="ycw-composer" onSubmit={handleSubmitPrompt}>
+                <textarea
+                  className="ycw-textarea"
+                  dir="auto"
+                  placeholder={ui.promptPh}
+                  value={draft}
+                  onChange={(e) => setDraft(e.currentTarget.value)}
+                  disabled={running || Boolean(pendingApproval)}
+                  data-testid="input-github-agent-prompt"
+                />
+                <button
+                  type="submit"
+                  className="ych-btn is-primary"
+                  style={{ minHeight: 46 }}
+                  disabled={
+                    running ||
+                    Boolean(pendingApproval) ||
+                    !draft.trim() ||
+                    !selectedRepo ||
+                    models.length === 0
+                  }
+                  data-testid="button-github-agent-send"
+                >
+                  {running ? (
+                    <LoaderCircle className="loading-spinner" size={15} />
+                  ) : (
+                    <Send size={15} />
+                  )}
+                  <span>{ui.send}</span>
+                </button>
+              </form>
+            </>
           )}
         </div>
       )}
 
-      <InAppCameraModal
-        open={cameraOpen}
-        locale={locale}
-        mode="document"
-        onClose={() => setCameraOpen(false)}
-        onCapture={(file) => void processPhotoFile(file)}
-      />
+      {/* SUBTAB 3: DEV CONNECTORS */}
+      {subTab === "connectors" && (
+        <div className="ycw-panel">
+          <ConnectorsHubContent
+            locale={locale}
+            onOpenCodeTab={() => setSubTab("github")}
+          />
+        </div>
+      )}
+
+      {/* SUBTAB 4: CLASSIC VS CODE EXTENSION DASHBOARD */}
+      {subTab === "vscode" && (
+        <CodeIdeDashboard
+          locale={locale}
+          getIdToken={getIdToken}
+          onOpenProviderCenter={onOpenProviderCenter}
+          onOpenChat={onOpenChat}
+        />
+      )}
     </section>
   );
 }
