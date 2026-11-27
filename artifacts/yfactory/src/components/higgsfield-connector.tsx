@@ -15,11 +15,9 @@ import {
   Unlink,
 } from "lucide-react";
 import AppSelect from "@/components/app-select";
-import { WorkspaceSkillsBar } from "@/components/skills-hub-modal";
 import {
   applySkillsToMotionPrompt,
   useYFactorySkills,
-  type SkillScope,
 } from "@/lib/skillsStore";
 import {
   BookApiError,
@@ -35,7 +33,6 @@ type HiggsfieldConnectorProps = {
   locale: string;
   initialStory: StoryRecord | null;
   getIdToken: () => Promise<string>;
-  onOpenSkills?: (scope?: SkillScope) => void;
 };
 
 type MotionPreset = {
@@ -246,7 +243,6 @@ export default function HiggsfieldConnector({
   locale,
   initialStory,
   getIdToken,
-  onOpenSkills,
 }: HiggsfieldConnectorProps) {
   const isRtl = isRtlLanguage(locale);
   const isAr = locale.startsWith("ar");
@@ -462,13 +458,6 @@ export default function HiggsfieldConnector({
       aria-label={ui.title}
       data-testid="higgsfield-connector"
     >
-      <WorkspaceSkillsBar
-        scope="stories"
-        locale={locale}
-        getIdToken={getIdToken}
-        onOpenHub={onOpenSkills}
-      />
-
       {/* Card 1: Connection & User Responsibility Agreement */}
       <div className="hf-card is-accent">
         <div className="hf-head-row">

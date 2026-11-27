@@ -1,0 +1,242 @@
+/* === Batch 21B: YFactory Code (Claude Code Edition) Workspace === */
+
+.ycw-root {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  padding-bottom: 32px;
+}
+
+.ycw-subnav {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding-bottom: 2px;
+}
+
+.ycw-subnav::-webkit-scrollbar {
+  display: none;
+}
+
+.ycw-subtab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 38px;
+  padding: 0 13px;
+  border-radius: 12px;
+  border: 1px solid var(--app-separator, rgba(255, 255, 255, 0.14));
+  background: var(--app-surface, #15161c);
+  color: var(--app-secondary, #a1a1aa);
+  font-size: 12.5px;
+  font-weight: 640;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.ycw-subtab.is-active {
+  border-color: var(--app-accent, #eab32e);
+  background: color-mix(in srgb, var(--app-accent, #eab32e) 16%, var(--app-surface, #15161c));
+  color: var(--app-accent-text, #fde047);
+}
+
+.ycw-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 15px;
+  border-radius: 18px;
+  border: 1px solid var(--app-separator, rgba(255, 255, 255, 0.12));
+  background: var(--app-surface, #15161c);
+}
+
+.ycw-panel.is-hero {
+  border-color: color-mix(in srgb, var(--app-accent, #eab32e) 44%, var(--app-separator, rgba(255, 255, 255, 0.12)));
+  background: linear-gradient(
+    155deg,
+    color-mix(in srgb, var(--app-accent, #eab32e) 9%, var(--app-surface, #15161c)),
+    var(--app-surface, #15161c)
+  );
+}
+
+.ycw-head-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.ycw-code-box {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--app-separator, rgba(255, 255, 255, 0.14));
+  background: #0a0b0f;
+  color: #fde68a;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  overflow-x: auto;
+}
+
+.ycw-code-box code {
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.ycw-pair-code {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-radius: 14px;
+  border: 1.5px dashed var(--app-accent, #eab32e);
+  background: color-mix(in srgb, var(--app-accent, #eab32e) 12%, #0a0b0f);
+  color: #fde047;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+
+.ycw-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 10px;
+}
+
+.ycw-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.ycw-field label {
+  font-size: 12px;
+  font-weight: 620;
+  color: var(--app-secondary, #a1a1aa);
+}
+
+.ycw-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 460px;
+  overflow-y: auto;
+  padding: 10px;
+  border-radius: 14px;
+  border: 1px solid var(--app-separator, rgba(255, 255, 255, 0.1));
+  background: var(--app-bg, #0d0e12);
+}
+
+.ycw-msg {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 13px;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.ycw-msg.is-user {
+  align-self: flex-end;
+  max-width: 92%;
+  background: color-mix(in srgb, var(--app-accent, #eab32e) 18%, var(--app-surface, #15161c));
+  border: 1px solid color-mix(in srgb, var(--app-accent, #eab32e) 42%, transparent);
+}
+
+.ycw-msg.is-assistant {
+  background: var(--app-surface, #15161c);
+  border: 1px solid var(--app-separator, rgba(255, 255, 255, 0.1));
+}
+
+.ycw-msg.is-tool {
+  padding: 7px 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+  color: #93c5fd;
+  background: rgba(30, 58, 138, 0.16);
+  border: 1px solid rgba(96, 165, 250, 0.25);
+}
+
+.ycw-diff-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 13px;
+  border-radius: 14px;
+  border: 1.5px solid var(--app-accent, #eab32e);
+  background: #0b0d12;
+}
+
+.ycw-diff-pre {
+  margin: 0;
+  padding: 10px;
+  border-radius: 10px;
+  background: #06070a;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+  line-height: 1.45;
+  max-height: 240px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.ycw-diff-del {
+  display: block;
+  color: #fca5a5;
+  background: rgba(239, 68, 68, 0.13);
+  padding: 0 4px;
+}
+
+.ycw-diff-add {
+  display: block;
+  color: #86efac;
+  background: rgba(34, 197, 94, 0.13);
+  padding: 0 4px;
+}
+
+.ycw-composer {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.ycw-textarea {
+  flex: 1;
+  min-height: 48px;
+  max-height: 140px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--app-separator, rgba(255, 255, 255, 0.14));
+  background: var(--app-bg, #0d0e12);
+  color: var(--app-text, #f5f5f7);
+  font-size: 13px;
+  font-family: inherit;
+  resize: vertical;
+}
+
+.ycw-textarea:focus {
+  outline: 0;
+  border-color: var(--app-accent, #eab32e);
+}
+
+.ycw-session-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--app-separator, rgba(255, 255, 255, 0.12));
+  background: var(--app-bg, #0d0e12);
+}

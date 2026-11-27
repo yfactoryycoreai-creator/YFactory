@@ -392,3 +392,89 @@
   background: color-mix(in srgb, var(--app-success, #22c55e) 12%, transparent);
   color: var(--app-success-text, #86efac);
 }
+
+/* === Dedicated Skills Section Inside Settings === */
+
+.ys-settings-shell {
+  min-height: 100dvh;
+  background: var(--app-bg, #0d0e12);
+  color: var(--app-text, #f5f5f7);
+}
+
+.ys-settings-nav {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: max(10px, env(safe-area-inset-top)) 14px 10px;
+  background: color-mix(in srgb, var(--app-bg, #0d0e12) 92%, transparent);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--app-separator, rgba(255, 255, 255, 0.1));
+}
+
+.ys-settings-tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  max-width: 760px;
+  margin: 0 auto;
+}
+
+.ys-settings-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex: 1;
+  min-height: 38px;
+  padding: 0 12px;
+  border-radius: 12px;
+  border: 1px solid var(--app-separator, rgba(255, 255, 255, 0.14));
+  background: var(--app-surface, #15161c);
+  color: var(--app-secondary, #a1a1aa);
+  font-size: 13px;
+  font-weight: 640;
+  cursor: pointer;
+}
+
+.ys-settings-tab.is-active {
+  border-color: var(--app-accent, #eab32e);
+  background: color-mix(in srgb, var(--app-accent, #eab32e) 16%, var(--app-surface, #15161c));
+  color: var(--app-accent-text, #fde047);
+}
+
+.ys-settings-badge {
+  display: inline-grid;
+  place-items: center;
+  min-width: 19px;
+  height: 19px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--app-accent, #eab32e);
+  color: var(--app-on-accent, #111318);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.ysh-settings-page {
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 14px 14px 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ysh-settings-card {
+  display: flex;
+  flex-direction: column;
+  border-radius: 20px;
+  border: 1px solid var(--app-separator, rgba(255, 255, 255, 0.12));
+  background: var(--app-surface, #15161c);
+  overflow: hidden;
+}

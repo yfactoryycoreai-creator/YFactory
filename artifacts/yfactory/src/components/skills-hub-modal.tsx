@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { isRtlLanguage } from "@/lib/languages";
 import {
+  buildSkillsSystemDirective,
   getLocalizedSkillDesc,
   getLocalizedSkillName,
   useYFactorySkills,
@@ -149,6 +150,7 @@ type SkillsHubModalProps = {
   initialScope?: SkillScope;
   getIdToken?: () => Promise<string>;
   onClose: () => void;
+  inline?: boolean;
 };
 
 export default function SkillsHubModal({
@@ -157,6 +159,7 @@ export default function SkillsHubModal({
   initialScope = "all",
   getIdToken,
   onClose,
+  inline = false,
 }: SkillsHubModalProps) {
   const isRtl = isRtlLanguage(locale);
   const ui = getCopy(locale);
@@ -196,13 +199,13 @@ export default function SkillsHubModal({
   }, [open, initialScope]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || inline) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+  }, [open, inline, onClose]);
 
   const activeSet = useMemo(() => new Set(activeIds), [activeIds]);
 
@@ -219,6 +222,28 @@ export default function SkillsHubModal({
       return hay.includes(q);
     });
   }, [allSkills, scopeTab, searchQ]);
+
+  const handleCopyCodeSkillsForIde = async () => {
+    const dir = buildSkillsSystemDirective("code");
+    if (!dir) {
+      setError(
+        locale.startsWith("ar")
+          ? "فعّل مهارة برمجة واحدة على الأقل أولاً لنسخها للـ IDE."
+          : "Activate at least one Code or Global skill first.",
+      );
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(dir);
+      setNotice(
+        locale.startsWith("ar")
+          ? "تم نسخ تعليمات مهارات البرمجة للحافظة (جاهزة لـ VS Code / IDE)!"
+          : "Copied active Code Skills to clipboard for VS Code / IDE!",
+      );
+    } catch {
+      setError("Could not copy to clipboard.");
+    }
+  };
 
   if (!open) return null;
 
@@ -357,19 +382,8 @@ export default function SkillsHubModal({
     }
   };
 
-  return (
-    <div
-      className="ysh-backdrop"
-      role="dialog"
-      aria-modal="true"
-      aria-label={ui.title}
-      dir={isRtl ? "rtl" : "ltr"}
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-      data-testid="skills-hub-modal"
-    >
-      <section className="ysh-sheet">
+  const panelContent = (
+      <section className={inline ? "ysh-settings-card" : "ysh-sheet"}>
         <header className="ysh-header">
           <div className="ysh-head-title">
             <span className="ysh-icon-badge" aria-hidden="true">
@@ -386,15 +400,17 @@ export default function SkillsHubModal({
               <p>{ui.subtitle}</p>
             </div>
           </div>
-          <button
-            type="button"
-            className="ysh-close"
-            onClick={onClose}
-            aria-label="Close"
-            data-testid="button-skills-close"
-          >
-            <X size={18} />
-          </button>
+          {!inline && (
+            <button
+              type="button"
+              className="ysh-close"
+              onClick={onClose}
+              aria-label="Close"
+              data-testid="button-skills-close"
+            >
+              <X size={18} />
+            </button>
+          )}
         </header>
 
         <input
@@ -460,6 +476,16 @@ export default function SkillsHubModal({
               >
                 <Upload size={13} />
               </button>
+              {(scopeTab === "code" || inline) && (
+                <button
+                  type="button"
+                  className="ysb-btn"
+                  onClick={() => void handleCopyCodeSkillsForIde()}
+                >
+                  <Copy size={13} />
+                  <span>{locale.startsWith("ar") ? "نسخ للـ IDE" : "Copy IDE"}</span>
+                </button>
+              )}
               {activeIds.length > 0 && (
                 <button
                   type="button"
@@ -674,7 +700,57 @@ export default function SkillsHubModal({
           )}
         </div>
       </section>
+  );
+
+  if (inline) {
+    return (
+      <div
+        className="ysh-settings-page"
+        dir={isRtl ? "rtl" : "ltr"}
+        data-testid="skills-settings-panel"
+      >
+        {panelContent}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="ysh-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-label={ui.title}
+      dir={isRtl ? "rtl" : "ltr"}
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      data-testid="skills-hub-modal"
+    >
+      {panelContent}
     </div>
+  );
+}
+
+export function SkillsSettingsPanel({
+  locale,
+  initialScope = "all",
+  getIdToken,
+  onBack,
+}: {
+  locale: string;
+  initialScope?: SkillScope;
+  getIdToken?: () => Promise<string>;
+  onBack: () => void;
+}) {
+  return (
+    <SkillsHubModal
+      open
+      inline
+      locale={locale}
+      initialScope={initialScope}
+      getIdToken={getIdToken}
+      onClose={onBack}
+    />
   );
 }
 

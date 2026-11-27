@@ -12,6 +12,7 @@ import booksRouter from "./books";
 import studentsRouter from "./students";
 import studentsExtendedRouter from "./studentsExtended";
 import skillsRouter from "./skills";
+import codeAgentRouter from "./codeAgent";
 
 const router: IRouter = Router();
 
@@ -28,5 +29,6 @@ router.use(booksRouter);
 router.use(studentsRouter);
 router.use(studentsExtendedRouter);
 router.use(skillsRouter);
+router.use(codeAgentRouter);
 
 export default router;
